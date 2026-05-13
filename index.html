@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#f5c451" />
+<title>ChessTrophies</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b1220;
+    --bg-2: #111a2e;
+    --panel: #17223b;
+    --panel-2: #1c2845;
+    --border: #243556;
+    --text: #e8eefc;
+    --muted: #8a98b8;
+    --accent: #f5c451;      /* trophy gold */
+    --accent-2: #e1a92a;
+    --success: #4ade80;
+    --danger: #f87171;
+    --light-sq: #eedfc6;
+    --dark-sq:  #6e8c6b;
+    --highlight: rgba(245, 196, 81, 0.45);
+    --move-dot: rgba(245, 196, 81, 0.85);
+    --check: rgba(248, 113, 113, 0.65);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  body { background: radial-gradient(ellipse at top, #1a2647 0%, #0b1220 60%); min-height: 100vh; }
+  #app { max-width: 480px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; position: relative; }
+  .screen { flex: 1; padding: 20px 18px 90px; display: none; animation: fade .25s ease; }
+  .screen.active { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  h1, h2, h3 { margin: 0; font-weight: 700; }
+  h1 { font-size: 28px; letter-spacing: -0.5px; }
+  h2 { font-size: 20px; }
+  h3 { font-size: 16px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+  button, input { font-family: inherit; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 18px; border-radius: 12px; border: none; background: var(--accent); color: #1a1300; font-weight: 700; font-size: 15px; cursor: pointer; transition: transform .12s, box-shadow .12s, background .2s; box-shadow: 0 4px 14px rgba(245, 196, 81, .25); }
+  .btn:hover { background: var(--accent-2); }
+  .btn:active { transform: scale(.97); }
+  .btn-secondary { background: var(--panel-2); color: var(--text); box-shadow: none; border: 1px solid var(--border); }
+  .btn-secondary:hover { background: var(--panel); }
+  .btn-ghost { background: transparent; color: var(--text); box-shadow: none; }
+  .btn-block { width: 100%; }
+  .btn-danger { background: #2a1820; color: var(--danger); box-shadow: none; }
+  input[type="text"], input[type="email"], input[type="password"] {
+    width: 100%; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); font-size: 15px; outline: none; transition: border .15s;
+  }
+  input:focus { border-color: var(--accent); }
+  label { display: block; margin: 14px 0 6px; font-size: 13px; color: var(--muted); font-weight: 500; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 16px; margin: 12px 0; transition: border-color .15s, transform .12s; }
+  .card[style*="cursor:pointer"]:hover, .card[style*="cursor:pointer"]:active { border-color: rgba(245, 196, 81, .35); }
+  .card[style*="cursor:pointer"]:active { transform: scale(.99); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 12px; font-weight: 600; }
+  .pill.gold { background: rgba(245, 196, 81, 0.12); color: var(--accent); }
+  .pill.success { background: rgba(74, 222, 128, 0.12); color: var(--success); }
+  .pill.danger { background: rgba(248, 113, 113, 0.12); color: var(--danger); }
+  .row { display: flex; align-items: center; gap: 12px; }
+  .row.between { justify-content: space-between; }
+  .stack { display: flex; flex-direction: column; gap: 10px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .center { text-align: center; }
+  .error { color: var(--danger); font-size: 13px; margin-top: 8px; min-height: 18px; }
+  .small { font-size: 12px; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+
+  /* AUTH SCREEN */
+  .auth-hero { text-align: center; padding: 40px 0 24px; }
+  .auth-hero .logo { width: 72px; height: 72px; margin: 0 auto 16px; }
+  .auth-hero h1 { font-size: 32px; background: linear-gradient(135deg, var(--accent) 0%, #ffd97a 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .auth-hero p { color: var(--muted); margin: 8px 0 0; font-size: 14px; }
+  .tabs { display: flex; background: var(--panel); padding: 4px; border-radius: 12px; margin: 20px 0 16px; }
+  .tab { flex: 1; padding: 10px; text-align: center; border-radius: 8px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: 14px; transition: all .15s; }
+  .tab.active { background: var(--panel-2); color: var(--text); }
+
+  /* HEADER */
+  .top-bar { display: flex; align-items: center; justify-content: space-between; padding: 14px 4px 18px; }
+  .top-bar .greet { display: flex; align-items: center; gap: 12px; }
+  .avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), var(--accent-2)); display: flex; align-items: center; justify-content: center; font-weight: 700; color: #1a1300; }
+  .avatar.lg { width: 80px; height: 80px; font-size: 28px; }
+
+  /* LOBBY */
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin: 10px 0; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 10px; text-align: center; }
+  .stat .v { font-size: 22px; font-weight: 800; color: var(--text); }
+  .stat .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-top: 2px; }
+
+  /* BOARD */
+  .board-wrap { padding: 0; margin: 12px 0; }
+  .board { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); aspect-ratio: 1/1; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,.4); user-select: none; }
+  .sq { display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; transition: background-color .15s; min-width: 0; min-height: 0; aspect-ratio: 1/1; }
+  .sq.light { background: var(--light-sq); }
+  .sq.dark  { background: var(--dark-sq); }
+  .sq.selected { background: var(--highlight) !important; }
+  .sq.last { box-shadow: inset 0 0 0 4px rgba(245, 196, 81, .55); }
+  .sq.check { background: var(--check) !important; }
+  .sq .dot { width: 30%; height: 30%; border-radius: 50%; background: var(--move-dot); opacity: .8; pointer-events: none; }
+  .sq .ring { position: absolute; inset: 6%; border-radius: 50%; box-shadow: inset 0 0 0 4px var(--move-dot); pointer-events: none; }
+  .sq svg { width: 88%; height: 88%; pointer-events: none; filter: drop-shadow(0 1px 1px rgba(0,0,0,.25)); }
+  .sq .coord { position: absolute; font-size: 9px; font-weight: 700; color: rgba(0,0,0,.4); }
+  .sq.dark .coord { color: rgba(255,255,255,.55); }
+  .sq .coord.file { right: 3px; bottom: 1px; }
+  .sq .coord.rank { left: 3px; top: 1px; }
+  .player-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 6px 0; }
+  .player-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(245, 196, 81, .15); }
+  .player-card .clock { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .captured { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 4px; min-height: 18px; }
+  .captured svg { width: 18px; height: 18px; opacity: .85; }
+
+  /* RANKINGS */
+  .rank-sizes { display: flex; gap: 6px; margin: 10px 0 14px; overflow-x: auto; padding: 2px; }
+  .rank-size { padding: 6px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; white-space: nowrap; transition: all .15s; }
+  .rank-size.active { background: var(--accent); color: #1a1300; border-color: var(--accent); }
+  .rank-row { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 6px 0; }
+  .rank-num { width: 28px; text-align: center; font-weight: 800; color: var(--muted); }
+  .rank-row.top1 .rank-num { color: var(--accent); }
+  .rank-row.top2 .rank-num { color: #cdd2da; }
+  .rank-row.top3 .rank-num { color: #cd8a4a; }
+  .rank-row.me { border-color: var(--accent); }
+  .rank-info { flex: 1; min-width: 0; }
+  .rank-name { font-weight: 600; }
+  .rank-meta { font-size: 12px; color: var(--muted); }
+  .rank-elo { font-weight: 800; color: var(--accent); }
+
+  /* TROPHIES */
+  .trophy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .trophy { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 12px; text-align: center; position: relative; overflow: hidden; }
+  .trophy.locked { opacity: .5; filter: grayscale(.6); }
+  .trophy .icon { font-size: 32px; margin-bottom: 4px; }
+  .trophy .name { font-weight: 700; font-size: 14px; }
+  .trophy .desc { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .trophy.streak { background: linear-gradient(160deg, rgba(245, 196, 81, .15), var(--panel)); border-color: rgba(245, 196, 81, .35); }
+  .trophy-detail { padding: 8px; }
+  .trophy-detail .victims { margin-top: 12px; text-align: left; }
+  .trophy-detail .victims li { padding: 8px 12px; background: var(--panel-2); border-radius: 8px; margin: 4px 0; font-size: 13px; list-style: none; display: flex; justify-content: space-between; }
+
+  /* MODAL */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: none; align-items: flex-end; justify-content: center; z-index: 100; animation: fade .2s; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: var(--bg-2); border-top-left-radius: 20px; border-top-right-radius: 20px; padding: 22px 20px 28px; width: 100%; max-width: 480px; animation: slideUp .25s ease; border-top: 1px solid var(--border); }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: none; } }
+  .modal h2 { margin-bottom: 10px; }
+  .modal .handle { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: -8px auto 14px; }
+
+  /* TOAST */
+  .toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--border); padding: 12px 18px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.4); z-index: 200; max-width: 90%; font-size: 14px; display: flex; align-items: center; gap: 10px; animation: toastIn .25s; }
+  .toast.gold { border-color: var(--accent); background: linear-gradient(135deg, rgba(245,196,81,.2), var(--panel-2)); }
+  @keyframes toastIn { from { transform: translate(-50%, -20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+
+  /* BOTTOM NAV */
+  #bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(11, 18, 32, 0.92); backdrop-filter: blur(12px); border-top: 1px solid var(--border); display: none; justify-content: space-around; padding: 8px 4px calc(8px + env(safe-area-inset-bottom)); max-width: 480px; margin: 0 auto; z-index: 50; }
+  #bottom-nav.show { display: flex; }
+  .nav-item { flex: 1; padding: 8px 4px; text-align: center; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 600; transition: color .15s; }
+  .nav-item.active { color: var(--accent); }
+  .nav-item svg { width: 22px; height: 22px; margin-bottom: 2px; }
+
+  /* ACADEMY ROADMAP */
+  .roadmap { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; padding: 4px; }
+  .lnode { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px 8px; text-align: center; cursor: pointer; transition: transform .12s, border-color .15s; min-height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
+  .lnode:hover { transform: translateY(-2px); }
+  .lnode .dot { width: 30px; height: 30px; border-radius: 50%; background: var(--panel-2); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; margin-bottom: 6px; color: var(--muted); }
+  .lnode.done .dot { background: var(--accent); color: #1a1300; }
+  .lnode.open .dot { background: rgba(245,196,81,.18); color: var(--accent); border: 2px solid var(--accent); }
+  .lnode.locked { opacity: .55; cursor: not-allowed; }
+  .lnode.locked .dot { background: var(--bg-2); }
+  .lnode .ltitle { font-size: 11px; line-height: 1.25; color: var(--text); }
+  .lnode .here { position: absolute; top: -14px; right: -10px; width: 32px; height: 32px; background: var(--accent); border-radius: 50%; padding: 4px; box-shadow: 0 4px 12px rgba(245,196,81,.4); animation: bounce 1.6s ease-in-out infinite; }
+  .lnode .here svg { width: 100%; height: 100%; }
+  @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+  .lnode.done { border-color: rgba(245,196,81,.4); }
+
+  /* LESSON SCREEN */
+  .lesson-board { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); aspect-ratio: 1/1; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 30px rgba(0,0,0,.4); user-select: none; }
+  .lesson-board .sq { display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; }
+  .lesson-board .sq svg { width: 88%; height: 88%; pointer-events: none; }
+
+  /* SETTINGS / THEMES */
+  .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+  .theme-card { background: var(--panel); border: 2px solid var(--border); border-radius: 12px; padding: 8px; cursor: pointer; transition: transform .12s, border-color .15s; }
+  .theme-card:hover { transform: translateY(-2px); }
+  .theme-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(245,196,81,.2); }
+  .theme-preview { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; width: 100%; aspect-ratio: 1/1; border-radius: 8px; overflow: hidden; }
+  .theme-preview > div { width: 100%; height: 100%; }
+  .theme-preview.piece { display: flex; align-items: center; justify-content: center; gap: 4px; }
+  .theme-label { text-align: center; font-size: 12px; font-weight: 600; margin-top: 6px; color: var(--text); }
+
+  /* ADS */
+  .ad-slot { background: var(--panel-2); border: 1px dashed var(--border); border-radius: 12px; padding: 10px 12px; margin: 10px 0; position: relative; }
+  .ad-slot .ad-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .ad-slot .ad-body { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .ad-slot .ad-copy { font-size: 12px; color: var(--text); flex: 1; }
+  .ad-slot .ad-upgrade { background: transparent; border: 1px solid var(--accent); color: var(--accent); border-radius: 8px; padding: 6px 10px; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .ad-slot .ad-upgrade:hover { background: rgba(245, 196, 81, .1); }
+  .ad-medium { min-height: 140px; padding: 14px; }
+  .ad-medium .ad-body { flex-direction: column; align-items: stretch; gap: 8px; }
+  .premium-card { background: linear-gradient(135deg, rgba(245, 196, 81, .14), var(--panel)); border: 1px solid rgba(245, 196, 81, .35); border-radius: 16px; padding: 14px 16px; margin: 12px 0; cursor: pointer; transition: transform .12s; }
+  .premium-card:hover { transform: translateY(-1px); }
+  .premium-card .pc-row { display: flex; align-items: center; gap: 12px; }
+  .premium-card .pc-icon { font-size: 28px; }
+  .premium-card .pc-title { font-weight: 800; color: var(--accent); }
+  .premium-card .pc-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .premium-badge { background: linear-gradient(135deg, var(--accent), #ffd97a); color: #1a1300; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; letter-spacing: 0.5px; }
+
+  /* RESPONSIVE */
+  @media (min-width: 600px) {
+    .stat .v { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- AUTH SCREEN -->
+  <section id="screen-auth" class="screen active">
+    <div class="auth-hero">
+      <div class="logo">
+        <svg viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="logoG" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#f5c451"/>
+              <stop offset="100%" stop-color="#e1a92a"/>
+            </linearGradient>
+          </defs>
+          <path d="M40 6 L48 18 L62 18 L52 30 L56 46 L40 38 L24 46 L28 30 L18 18 L32 18 Z" fill="url(#logoG)"/>
+          <rect x="34" y="50" width="12" height="14" rx="2" fill="url(#logoG)"/>
+          <rect x="28" y="62" width="24" height="6" rx="2" fill="url(#logoG)"/>
+          <rect x="24" y="68" width="32" height="6" rx="2" fill="url(#logoG)"/>
+        </svg>
+      </div>
+      <h1>ChessTrophies</h1>
+      <p>Play. Win streaks. Earn trophies.</p>
+    </div>
+    <div class="tabs">
+      <div class="tab active" data-tab="login">Sign in</div>
+      <div class="tab" data-tab="signup">Create account</div>
+    </div>
+
+    <form id="form-login" class="auth-form">
+      <label for="login-email">Email</label>
+      <input type="email" id="login-email" autocomplete="email" required>
+      <label for="login-password">Password</label>
+      <input type="password" id="login-password" autocomplete="current-password" required>
+      <div class="error" id="login-error"></div>
+      <button type="submit" class="btn btn-block" style="margin-top:14px">Sign in</button>
+    </form>
+
+    <form id="form-signup" class="auth-form" style="display:none">
+      <label for="signup-username">Username</label>
+      <input type="text" id="signup-username" autocomplete="username" required minlength="3" maxlength="20">
+      <label for="signup-email">Email</label>
+      <input type="email" id="signup-email" autocomplete="email" required>
+      <label for="signup-password">Password</label>
+      <input type="password" id="signup-password" autocomplete="new-password" required minlength="6">
+      <label for="signup-region">Region (city, country)</label>
+      <input type="text" id="signup-region" placeholder="e.g. Austin, USA">
+      <div class="error" id="signup-error"></div>
+      <button type="submit" class="btn btn-block" style="margin-top:14px">Create account</button>
+    </form>
+
+    <p class="muted center small" style="margin-top:24px">Accounts are stored locally in your browser for this MVP.<br>Phase 2 adds a real backend for online play.</p>
+    <p class="muted center small" style="margin-top:14px;font-size:11px">
+      By signing up you agree to our
+      <a href="terms.html" style="color:var(--accent)">Terms</a> and
+      <a href="privacy.html" style="color:var(--accent)">Privacy Policy</a>.
+    </p>
+  </section>
+
+  <!-- LOBBY -->
+  <section id="screen-lobby" class="screen">
+    <div class="top-bar">
+      <div class="greet">
+        <div class="avatar" id="lobby-avatar">?</div>
+        <div>
+          <div style="font-weight:700;display:flex;align-items:center;gap:6px">
+            <span id="lobby-name">Player</span>
+            <span class="premium-badge" id="premium-badge" style="display:none">⭐ PREMIUM</span>
+          </div>
+          <div class="muted small" id="lobby-region">—</div>
+        </div>
+      </div>
+      <div class="row" style="gap:6px">
+        <button class="btn btn-ghost small" id="btn-sound" title="Toggle sound" style="padding:8px 10px;font-size:16px">🔊</button>
+        <button class="btn btn-ghost small" id="btn-logout">Sign out</button>
+      </div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat"><div class="v" id="stat-elo">1200</div><div class="l">ELO</div></div>
+      <div class="stat"><div class="v" id="stat-wins">0</div><div class="l">Wins</div></div>
+      <div class="stat"><div class="v" id="stat-streak">0</div><div class="l">Streak</div></div>
+    </div>
+
+    <div id="lobby-ad-slot"></div>
+    <div class="premium-card" id="lobby-premium-card" onclick="window.CT && window.CT.openPremium()">
+      <div class="pc-row">
+        <div class="pc-icon">⭐</div>
+        <div style="flex:1">
+          <div class="pc-title">Go Premium — Remove ads</div>
+          <div class="pc-desc">Support the app, hide all ad slots, unlock a Premium badge on your profile.</div>
+        </div>
+        <div class="pill gold">Upgrade</div>
+      </div>
+    </div>
+
+    <h2 style="margin-top:18px">Play</h2>
+    <div class="card">
+      <h3 style="margin-bottom:8px">Find a match</h3>
+      <p class="muted small" style="margin:0 0 12px">Skill-based matchmaking — opponents within ±100 ELO.</p>
+      <button class="btn btn-block" id="btn-find-match">Find ranked opponent</button>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:8px">Invite a friend</h3>
+      <p class="muted small" style="margin:0 0 12px">Generate a link or code and share it however you like.</p>
+      <button class="btn btn-block" id="btn-invite">📨 Invite & Share</button>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:8px">Private match</h3>
+      <p class="muted small" style="margin:0 0 12px">Create a room code or join an existing one.</p>
+      <div class="row" style="gap:8px">
+        <button class="btn btn-secondary" id="btn-create-room" style="flex:1">Create room</button>
+        <button class="btn btn-secondary" id="btn-join-room" style="flex:1">Join room</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:8px">Challenge a player</h3>
+      <p class="muted small" style="margin:0 0 12px">Pass-and-play on this device. Both players sign in.</p>
+      <button class="btn btn-secondary btn-block" id="btn-new-match">Start a challenge</button>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:8px">Practice vs computer</h3>
+      <p class="muted small" style="margin:0 0 12px">Sharpen your skills — practice games don't affect your ELO.</p>
+      <div class="row" style="gap:8px;margin-bottom:10px">
+        <button class="btn btn-secondary" data-cpu="easy" style="flex:1">Easy</button>
+        <button class="btn btn-secondary" data-cpu="medium" style="flex:1">Medium</button>
+        <button class="btn btn-secondary" data-cpu="hard" style="flex:1">Hard</button>
+      </div>
+    </div>
+
+    <h2 style="margin-top:18px">Friends</h2>
+    <div class="card">
+      <div class="row between" style="margin-bottom:8px">
+        <div class="muted small" id="friends-summary">No friends yet</div>
+        <button class="btn btn-secondary small" id="btn-add-friend" style="padding:8px 14px">+ Add friend</button>
+      </div>
+      <div id="friends-list" class="stack"></div>
+    </div>
+
+    <h2 style="margin-top:18px">Learn</h2>
+    <div class="card row between" id="btn-academy" style="cursor:pointer">
+      <div class="row" style="gap:12px">
+        <div id="rank-icon" style="width:38px;height:38px;background:var(--panel-2);border-radius:8px;padding:4px"></div>
+        <div>
+          <div style="font-weight:600" id="rank-name">Novice</div>
+          <div class="muted small" id="rank-progress">0 lessons completed</div>
+        </div>
+      </div>
+      <div class="pill gold">Academy</div>
+    </div>
+
+    <h2 style="margin-top:18px">Progress</h2>
+    <div class="card row between" data-go="trophies" style="cursor:pointer">
+      <div>
+        <div style="font-weight:600">Trophy case</div>
+        <div class="muted small" id="lobby-trophy-summary">No trophies yet</div>
+      </div>
+      <div class="pill gold">View</div>
+    </div>
+    <div class="card row between" data-go="rankings" style="cursor:pointer">
+      <div>
+        <div style="font-weight:600">Rankings</div>
+        <div class="muted small" id="lobby-rank-summary">Local · Regional · Global</div>
+      </div>
+      <div class="pill">View</div>
+    </div>
+  </section>
+
+  <!-- GAME -->
+  <section id="screen-game" class="screen">
+    <div class="row between" style="padding:4px 0 6px">
+      <button class="btn btn-ghost small" id="btn-resign">Resign</button>
+      <div class="pill" id="game-status">Your move</div>
+      <button class="btn btn-ghost small" id="btn-flip">Flip</button>
+    </div>
+
+    <div class="player-card" id="player-top">
+      <div class="avatar" id="pt-avatar">?</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600" id="pt-name">—</div>
+        <div class="muted small" id="pt-elo">—</div>
+        <div class="captured" id="pt-captured"></div>
+      </div>
+    </div>
+
+    <div class="board-wrap">
+      <div class="board" id="board"></div>
+    </div>
+
+    <div class="player-card active" id="player-bot">
+      <div class="avatar" id="pb-avatar">?</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600" id="pb-name">—</div>
+        <div class="muted small" id="pb-elo">—</div>
+        <div class="captured" id="pb-captured"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROFILE -->
+  <section id="screen-profile" class="screen">
+    <div class="top-bar">
+      <h1>Profile</h1>
+    </div>
+    <div class="card center">
+      <div class="avatar lg" style="margin:0 auto 12px" id="prof-avatar">?</div>
+      <div style="font-weight:700;font-size:20px" id="prof-name">—</div>
+      <div class="muted small" id="prof-email">—</div>
+      <div class="muted small" id="prof-region" style="margin-top:4px">—</div>
+    </div>
+    <div class="stat-grid">
+      <div class="stat"><div class="v" id="prof-elo">—</div><div class="l">ELO</div></div>
+      <div class="stat"><div class="v" id="prof-games">—</div><div class="l">Games</div></div>
+      <div class="stat"><div class="v" id="prof-winrate">—</div><div class="l">Win rate</div></div>
+    </div>
+    <div class="stat-grid">
+      <div class="stat"><div class="v" id="prof-wins">—</div><div class="l">Wins</div></div>
+      <div class="stat"><div class="v" id="prof-losses">—</div><div class="l">Losses</div></div>
+      <div class="stat"><div class="v" id="prof-draws">—</div><div class="l">Draws</div></div>
+    </div>
+    <div class="card">
+      <h3>Streak</h3>
+      <div class="row between" style="margin-top:6px">
+        <div>
+          <div style="font-weight:700;font-size:24px" id="prof-streak">0</div>
+          <div class="muted small">Current</div>
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:24px" id="prof-best-streak">0</div>
+          <div class="muted small">Best</div>
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:24px;color:var(--accent)" id="prof-streak-trophies">0</div>
+          <div class="muted small">Streak trophies</div>
+        </div>
+      </div>
+    </div>
+    <div class="stat-grid">
+      <div class="stat"><div class="v" id="prof-mates">0</div><div class="l">Checkmates</div></div>
+      <div class="stat"><div class="v" id="prof-comebacks">0</div><div class="l">Comebacks</div></div>
+      <div class="stat"><div class="v" id="prof-trophies-total">0</div><div class="l">Trophies</div></div>
+    </div>
+    <div class="card row between" data-go="trophies" style="cursor:pointer">
+      <div>
+        <div style="font-weight:600">Trophy progress</div>
+        <div class="muted small" id="prof-trophy-progress">—</div>
+      </div>
+      <div class="pill gold">View case</div>
+    </div>
+  </section>
+
+  <!-- RANKINGS -->
+  <section id="screen-rankings" class="screen">
+    <div class="top-bar"><h1>Rankings</h1></div>
+    <div class="tabs" id="rank-metric-tabs">
+      <div class="tab active" data-metric="elo">ELO</div>
+      <div class="tab" data-metric="wins">Wins</div>
+      <div class="tab" data-metric="trophies">Trophies</div>
+      <div class="tab" data-metric="streak">Streak</div>
+    </div>
+    <div class="rank-sizes" id="rank-size-tabs">
+      <div class="rank-size active" data-size="100">Top 100</div>
+      <div class="rank-size" data-size="500">Top 500</div>
+      <div class="rank-size" data-size="5000">Top 5000</div>
+      <div class="rank-size" data-size="all">All-time</div>
+    </div>
+    <div id="rank-list"></div>
+    <p class="muted small center" style="margin-top:20px">Phase 2 will connect this to global servers — for now you see everyone who's signed up on this device.</p>
+  </section>
+
+  <!-- TROPHIES -->
+  <section id="screen-trophies" class="screen">
+    <div class="top-bar"><h1>Trophy case</h1></div>
+    <h3>Streak trophies</h3>
+    <p class="muted small">Every 7-game winning streak earns a trophy with the names of the 7 players you beat.</p>
+    <div class="trophy-grid" id="streak-trophies"></div>
+    <h3 style="margin-top:20px">Achievements</h3>
+    <div class="trophy-grid" id="achievement-trophies"></div>
+  </section>
+
+  <!-- ACADEMY -->
+  <section id="screen-academy" class="screen">
+    <div class="top-bar"><h1>Academy</h1><button class="btn btn-ghost small" id="btn-settings">⚙ Settings</button></div>
+    <div id="academy-content"></div>
+    <p class="muted small center" style="margin-top:18px">Each lesson is a puzzle — solve it to unlock the next. Your avatar levels up as you progress: pawn → knight → bishop → rook → queen → king.</p>
+  </section>
+
+  <!-- LESSON -->
+  <section id="screen-lesson" class="screen">
+    <div class="row between" style="padding:4px 0 6px">
+      <button class="btn btn-ghost small" id="lesson-back">← Back</button>
+      <div class="pill" id="lesson-chapter">—</div>
+      <span style="width:60px"></span>
+    </div>
+    <h2 id="lesson-title">Lesson</h2>
+    <p class="muted small" id="lesson-desc" style="margin:4px 0 6px">—</p>
+    <div class="pill gold" id="lesson-side" style="display:inline-block">White to move</div>
+    <div class="card" style="border-left:3px solid var(--accent);padding:12px 14px;margin-top:10px">
+      <div style="font-weight:700;font-size:13px;color:var(--accent);margin-bottom:4px">📚 Concept</div>
+      <p class="muted small" id="lesson-concept" style="margin:0;color:var(--text);line-height:1.5">—</p>
+    </div>
+    <div style="margin:12px 0">
+      <div class="lesson-board board" id="lesson-board"></div>
+    </div>
+    <button class="btn btn-block" id="lesson-demo" style="margin-bottom:8px">👁 Watch example</button>
+    <div id="lesson-feedback" class="card center" style="min-height:34px">&nbsp;</div>
+    <div class="row" style="gap:8px;margin-top:8px">
+      <button class="btn btn-secondary" id="lesson-hint" style="flex:1">Hint</button>
+      <button class="btn btn-secondary" id="lesson-reset" style="flex:1">Reset</button>
+      <button class="btn btn-secondary" id="lesson-solution" style="flex:1">Solution</button>
+    </div>
+    <button class="btn btn-block" id="lesson-next" style="display:none;margin-top:10px">Next lesson →</button>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="screen-settings" class="screen">
+    <div class="top-bar"><h1>Settings</h1></div>
+    <h3>Board theme</h3>
+    <div class="theme-grid" id="settings-boards"></div>
+    <h3 style="margin-top:18px">Piece colors</h3>
+    <div class="theme-grid" id="settings-pieces"></div>
+    <p class="muted small center" style="margin-top:18px">Your theme is saved to your profile — it stays the same every time you sign in on this device.</p>
+  </section>
+
+  <!-- BOTTOM NAV -->
+  <nav id="bottom-nav">
+    <div class="nav-item active" data-nav="lobby">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 12 3l9 9"/><path d="M5 10v10h14V10"/></svg>
+      <div>Home</div>
+    </div>
+    <div class="nav-item" data-nav="academy">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M21 10v5"/><path d="M6 9v5c0 1.5 3 3 6 3s6-1.5 6-3V9"/></svg>
+      <div>Academy</div>
+    </div>
+    <div class="nav-item" data-nav="trophies">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8v4a4 4 0 0 1-8 0V3z"/><path d="M4 5h4v2a4 4 0 0 1-4 0V5zM16 5h4v2a4 4 0 0 1-4 0V5z"/><path d="M9 13h6l-1 4h-4z"/><path d="M8 21h8"/></svg>
+      <div>Trophies</div>
+    </div>
+    <div class="nav-item" data-nav="rankings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><rect x="5" y="11" width="4" height="10"/><rect x="10" y="6" width="4" height="15"/><rect x="15" y="14" width="4" height="7"/></svg>
+      <div>Ranks</div>
+    </div>
+    <div class="nav-item" data-nav="profile">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+      <div>Profile</div>
+    </div>
+  </nav>
+</div>
+
+<!-- Modals -->
+<div class="modal-overlay" id="modal-opponent">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2>Who's challenging?</h2>
+    <p class="muted small" style="margin:4px 0 12px">Player 2 — sign in on this device to play a ranked match.</p>
+    <label>Email</label>
+    <input type="email" id="opp-email" autocomplete="off">
+    <label>Password</label>
+    <input type="password" id="opp-password" autocomplete="off">
+    <div class="error" id="opp-error"></div>
+    <div class="stack" style="margin-top:14px">
+      <button class="btn btn-block" id="btn-opp-signin">Sign in & start</button>
+      <button class="btn btn-secondary btn-block" id="btn-opp-guest">Play unranked (no opponent account)</button>
+      <button class="btn btn-ghost btn-block" id="btn-opp-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-result">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2 id="result-title">Checkmate</h2>
+    <p id="result-body" class="muted" style="margin:6px 0 16px">—</p>
+    <div id="result-rewards"></div>
+    <button class="btn btn-block" id="btn-result-close" style="margin-top:14px">Done</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-promotion">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2>Promote pawn</h2>
+    <div class="row" style="justify-content:space-around;margin-top:14px" id="promotion-choices"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-trophy-detail">
+  <div class="modal">
+    <div class="handle"></div>
+    <div class="trophy-detail" id="trophy-detail-body"></div>
+    <button class="btn btn-block" id="btn-trophy-close" style="margin-top:14px">Close</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-add-friend">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2>Add a friend</h2>
+    <p class="muted small" style="margin:4px 0 12px">Enter their ChessTrophies username. You'll be added to each other's friends list.</p>
+    <label>Username</label>
+    <input type="text" id="friend-username" autocomplete="off" placeholder="e.g. KnightRider42">
+    <div class="error" id="friend-error"></div>
+    <div class="stack" style="margin-top:14px">
+      <button class="btn btn-block" id="btn-friend-add">Add friend</button>
+      <button class="btn btn-ghost btn-block" id="btn-friend-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-friend-challenge">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2 id="fc-title">Challenge a friend</h2>
+    <p class="muted small" style="margin:4px 0 14px" id="fc-sub">—</p>
+    <div class="stack">
+      <button class="btn btn-block" id="btn-fc-friendly">Friendly match (doesn't count)</button>
+      <button class="btn btn-secondary btn-block" id="btn-fc-ranked">Ranked match (counts for ELO)</button>
+      <button class="btn btn-ghost btn-block" id="btn-fc-remove" style="color:var(--danger)">Remove friend</button>
+      <button class="btn btn-ghost btn-block" id="btn-fc-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-create-room">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2>Room created</h2>
+    <p class="muted small" style="margin:4px 0 14px">Share this code with your opponent. They tap <b>Join room</b> on their device and enter the code.</p>
+    <div class="card center" style="padding:20px 14px">
+      <div id="room-code" style="font-family:monospace;font-size:36px;letter-spacing:6px;font-weight:800;color:var(--accent)">------</div>
+      <div class="muted small" style="margin-top:6px" id="room-mode-label">Friendly · doesn't count</div>
+    </div>
+    <div class="row" style="gap:8px;margin-top:10px">
+      <button class="btn btn-secondary" id="btn-room-copy" style="flex:1">Copy code</button>
+      <button class="btn btn-secondary" id="btn-room-toggle" style="flex:1">Switch to ranked</button>
+    </div>
+    <p class="muted small center" style="margin-top:14px">Phase 2 of the app will pair players online via this code. For now, hand your device to your opponent — they sign in with their account and join the room.</p>
+    <div class="stack" style="margin-top:10px">
+      <button class="btn btn-block" id="btn-room-start">Opponent ready — start match</button>
+      <button class="btn btn-ghost btn-block" id="btn-room-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-premium">
+  <div class="modal">
+    <div class="handle"></div>
+    <div class="center" style="margin-bottom:14px">
+      <div style="font-size:48px">⭐</div>
+      <h2 style="margin-top:4px;background:linear-gradient(135deg,var(--accent),#ffd97a);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">ChessTrophies Premium</h2>
+    </div>
+    <div class="card" style="padding:14px">
+      <div style="font-weight:700;margin-bottom:6px">What you get:</div>
+      <ul style="margin:0;padding-left:20px;color:var(--text);line-height:1.7;font-size:14px">
+        <li>No ads anywhere in the app</li>
+        <li>⭐ Premium badge on your profile and rank rows</li>
+        <li>Support continued development</li>
+        <li>Early access to new themes and lessons (Phase 2)</li>
+      </ul>
+    </div>
+    <p class="muted small center" style="margin:10px 0">$4.99 / month · Cancel anytime</p>
+    <div class="stack">
+      <button class="btn btn-block" id="btn-premium-buy">Upgrade · $4.99/mo</button>
+      <button class="btn btn-secondary btn-block" id="btn-premium-cancel-paid" style="display:none">Cancel subscription</button>
+      <button class="btn btn-ghost btn-block" id="btn-premium-close">Not now</button>
+    </div>
+    <p class="muted small center" style="margin-top:14px;line-height:1.5">Demo build: tapping Upgrade flips a local flag — no real payment is processed. Replace this with Stripe / Apple IAP / Google Play Billing in production.</p>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-invite">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2>Invite to play</h2>
+    <p class="muted small" style="margin:4px 0 14px">Share this code or link with your opponent. They open it on their device to join the match.</p>
+    <div class="card center" style="padding:20px 14px">
+      <div id="invite-code" style="font-family:monospace;font-size:36px;letter-spacing:6px;font-weight:800;color:var(--accent)">------</div>
+      <div class="muted small" style="margin-top:6px">Match code</div>
+    </div>
+    <div class="card" style="padding:10px 12px">
+      <div class="muted small" style="margin-bottom:4px">Shareable link</div>
+      <div id="invite-link" style="font-family:monospace;font-size:11px;word-break:break-all;color:var(--text)">—</div>
+    </div>
+    <div class="row" style="gap:8px;margin-top:10px">
+      <button class="btn" id="btn-invite-share" style="flex:1">Share</button>
+      <button class="btn btn-secondary" id="btn-invite-copy-link" style="flex:1">Copy link</button>
+      <button class="btn btn-secondary" id="btn-invite-copy-code" style="flex:1">Copy code</button>
+    </div>
+    <p class="muted small center" style="margin-top:14px">Friendly match by default. Tap below to switch to ranked.</p>
+    <div class="row" style="gap:8px">
+      <button class="btn btn-secondary" id="btn-invite-toggle" style="flex:1">Switch to ranked</button>
+      <button class="btn btn-ghost" id="btn-invite-cancel" style="flex:1">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-join-room">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2>Join a room</h2>
+    <p class="muted small" style="margin:4px 0 12px">Enter the 6-character code from your opponent.</p>
+    <label>Room code</label>
+    <input type="text" id="join-code" autocomplete="off" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;font-family:monospace;font-size:18px">
+    <div class="error" id="join-error"></div>
+    <div class="stack" style="margin-top:14px">
+      <button class="btn btn-block" id="btn-join-go">Join match</button>
+      <button class="btn btn-ghost btn-block" id="btn-join-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- chess.js (move validation, check/mate detection) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script>
+  if (typeof Chess === 'undefined') {
+    document.addEventListener('DOMContentLoaded', function () {
+      document.body.innerHTML = '<div style="

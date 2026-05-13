@@ -1,0 +1,44 @@
+{
+  "name": "ChessTrophies",
+  "short_name": "ChessTrophies",
+  "description": "Play chess, earn trophies, climb the rankings.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1220",
+  "theme_color": "#f5c451",
+  "categories": ["games", "education", "entertainment"],
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Find Match",
+      "short_name": "Match",
+      "description": "Find a ranked opponent",
+      "url": "./index.html?action=match"
+    },
+    {
+      "name": "Academy",
+      "short_name": "Learn",
+      "description": "Chess lessons",
+      "url": "./index.html?action=academy"
+    }
+  ]
+}
