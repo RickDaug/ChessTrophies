@@ -7,25 +7,25 @@ const activeGames = new Map();     // gameId -> { white, black, chess, mode, sta
 const matchmakingQueue = new Map(); // userId -> { socketId, elo, joinedAt, mode }
 const userSocket = new Map();      // userId -> socketId
 const socketUser = new Map();      // socketId -> userId
-
-
-// --- Per-user rate limits for WebSocket events ----------------------------
-// Token bucket: each user gets `cap` tokens, refilling at `rate` per second.
-// Prevents chat/mm spam without needing Redis or a global limiter.
-const buckets = new Map(); // userId -> { tokens, last }
-function consume(userId, cap = 5, rate = 1) {
-  const now = Date.now();
-  const b = buckets.get(userId) || { tokens: cap, last: now };
-  const elapsed = (now - b.last) / 1000;
-  b.tokens = Math.min(cap, b.tokens + elapsed * rate);
-  b.last = now;
-  if (b.tokens < 1) { buckets.set(userId, b); return false; }
-  b.tokens -= 1;
-  buckets.set(userId, b);
-  return true;
-}
+const chatBuckets = new Map();     // userId -> { tokens, lastRefill }
+const mmBuckets = new Map();       // userId -> { tokens, lastRefill }
 
 function newGameId() { return 'g_' + crypto.randomBytes(6).toString('hex'); }
+
+function consumeBucket(map, key, burst, refillPerSecond) {
+  const now = Date.now();
+  const bucket = map.get(key) || { tokens: burst, lastRefill: now };
+  const elapsed = (now - bucket.lastRefill) / 1000;
+  bucket.tokens = Math.min(burst, bucket.tokens + elapsed * refillPerSecond);
+  bucket.lastRefill = now;
+  if (bucket.tokens < 1) {
+    map.set(key, bucket);
+    return false;
+  }
+  bucket.tokens -= 1;
+  map.set(key, bucket);
+  return true;
+}
 
 function eloDelta(a, b, score) {
   const K = 32;
@@ -49,13 +49,12 @@ export function attachSocketHandlers(io, verifyToken) {
     // Skill-based matchmaking
     socket.on('mm_join', ({ mode }) => {
       const uid = socket.data.userId; if (!uid) return;
-      // Rate limit: 3 join attempts, refilling 1 per 5 sec
-      if (!consume('mm:' + uid, 3, 0.2)) return;
+      if (!consumeBucket(mmBuckets, uid, 3, 0.2)) {
+        socket.emit('rate_limited', { event: 'mm_join', retryInMs: 5000 });
+        return;
+      }
       const user = getUserById(uid);
-      if (!user) return;
-      // Validate mode
-      if (mode != null && mode !== 'ranked' && mode !== 'friendly') return;
-      matchmakingQueue.set(uid, { socketId: socket.id, elo: user.elo, joinedAt: Date.now(), mode: mode || 'ranked' });
+      matchmakingQueue.set(uid, { socketId: socket.id, elo: user.elo, joinedAt: Date.now(), mode: typeof mode === 'string' ? mode : 'ranked' });
       tryMatchmake(io);
     });
     socket.on('mm_leave', () => {
@@ -84,21 +83,17 @@ export function attachSocketHandlers(io, verifyToken) {
     });
 
     socket.on('chat', ({ gameId, text }) => {
-      const game = activeGames.get(gameId); if (!game) return;
       const uid = socket.data.userId; if (!uid) return;
-      // Type + length check before anything else
-      if (typeof text !== 'string' || text.length === 0 || text.length > 200) return;
-      // Rate limit: 5 messages, refilling 1/sec
-      if (!consume(uid, 5, 1)) return;
-      // Sanitize: strip control chars + angle brackets. Clients should still
-      // render chat via textContent (not innerHTML) when wiring chat UI.
-      const sanitized = text
-        .replace(/[\u0000-\u001f\u007f]/g, '')
-        .replace(/[<>]/g, '')
-        .slice(0, 200);
+      if (!consumeBucket(chatBuckets, uid, 5, 1)) {
+        socket.emit('rate_limited', { event: 'chat', retryInMs: 1000 });
+        return;
+      }
+      const game = activeGames.get(gameId); if (!game) return;
+      if (typeof text !== 'string' || text.length > 200) return;
+      const cleanText = text.replace(/[\u0000-\u001F\u007F<>]/g, '');
       io.to(gameId).emit('chat', {
         from: uid,
-        text: sanitized,
+        text: cleanText,
         at: Date.now()
       });
     });

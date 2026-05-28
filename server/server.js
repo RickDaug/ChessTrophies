@@ -1,8 +1,8 @@
 // ChessTrophies main HTTP + WebSocket server.
 import express from 'express';
 import cors from 'cors';
-import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
 import http from 'http';
 import { Server as IO } from 'socket.io';
 import path from 'path';
@@ -17,62 +17,59 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const httpServer = http.createServer(app);
 
-// --- CORS configuration ----------------------------------------------------
-// Tighten the wide-open '*' default. In production set CORS_ORIGIN to the
-// exact origin(s) of the deployed client (comma-separated for multiple).
-// Example: CORS_ORIGIN="https://chesstrophies.com,https://www.chesstrophies.com"
-const allowedOrigins = (process.env.CORS_ORIGIN || '*').split(',').map(s => s.trim());
-const corsOptions = allowedOrigins[0] === '*'
-  ? { origin: '*' }
-  : { origin: allowedOrigins, credentials: true };
+function parseCorsOrigins(value) {
+  if (!value || value.trim() === '*') return '*';
+  return value.split(',').map(s => s.trim()).filter(Boolean);
+}
 
-const io = new IO(httpServer, { cors: corsOptions });
+const corsOrigins = parseCorsOrigins(process.env.CORS_ORIGIN);
+const io = new IO(httpServer, { cors: { origin: corsOrigins === '*' ? '*' : corsOrigins } });
 
-// --- Security middleware ---------------------------------------------------
-// helmet sets a sensible default of security headers (HSTS, X-Frame-Options,
-// X-Content-Type-Options, Referrer-Policy, etc.). We disable contentSecurityPolicy
-// because the static client is served from the same origin and ships its own
-// CSP via <meta http-equiv>. Re-enable here if/when the server stops serving
-// the static client.
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many auth attempts. Please try again later.' } });
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Please slow down.' } });
+
+app.disable('x-powered-by');
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors(corsOptions));
+app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(express.json({ limit: '256kb' }));
-
-// --- Rate limiting on auth endpoints ---------------------------------------
-// Prevents online brute-force on /api/auth/login and signup-spam. Tuned for
-// human-realistic interaction; bumps from a single legit user are fine.
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 min
-  max: 20,                  // 20 attempts per IP per window
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many attempts. Please wait a few minutes and try again.' },
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) return apiLimiter(req, res, next);
+  next();
 });
-// Lighter limiter on general API endpoints (still useful against scrapers).
-const apiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,  // 1 min
-  max: 120,                 // 120 reqs/min/IP
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api/', apiLimiter);
 
-// Health (intentionally unrate-limited so uptime monitors don't get blocked)
+// Health
 app.get('/health', (req, res) => res.json({ ok: true, time: Date.now() }));
 
+function requireStringField(body, name, { min = 1, max = 255 } = {}) {
+  const value = body[name];
+  if (typeof value !== 'string') throw new Error(`${name} must be a string.`);
+  const trimmed = value.trim();
+  if (trimmed.length < min || trimmed.length > max) throw new Error(`${name} must be ${min} to ${max} characters.`);
+  return trimmed;
+}
+
 // Auth
-app.post('/api/auth/signup', authLimiter, async (req, res) => {
+app.post('/api/auth/signup', authLimiter, async (req, res, next) => {
   try {
-    const token = await signup(req.body || {});
+    const body = req.body || {};
+    const email = requireStringField(body, 'email', { min: 3, max: 254 });
+    const username = requireStringField(body, 'username', { min: 3, max: 20 });
+    const password = requireStringField(body, 'password', { min: 6, max: 128 });
+    const region = typeof body.region === 'string' ? body.region.trim().slice(0, 64) : '';
+    const invitedBy = typeof body.invitedBy === 'string' && body.invitedBy.trim() ? body.invitedBy.trim().slice(0, 64) : null;
+    const token = await signup({ email, username, password, region, invitedBy });
     res.json({ token });
-  } catch (e) { res.status(400).json({ error: e.message }); }
+  } catch (e) { next(e); }
 });
 
-app.post('/api/auth/login', authLimiter, async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res, next) => {
   try {
-    const token = await login(req.body || {});
+    const body = req.body || {};
+    const email = requireStringField(body, 'email', { min: 3, max: 254 });
+    const password = requireStringField(body, 'password', { min: 1, max: 128 });
+    const token = await login({ email, password });
     res.json({ token });
-  } catch (e) { res.status(400).json({ error: e.message }); }
+  } catch (e) { next(e); }
 });
 
 // Profile
@@ -102,21 +99,17 @@ app.get('/api/friends', requireAuth, (req, res) => {
   `).all(req.userId);
   res.json({ friends: rows });
 });
-app.post('/api/friends/add', requireAuth, (req, res) => {
-  const { username } = req.body || {};
-  // Type/format validation — never trust req.body shape.
-  if (typeof username !== 'string' || !/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
-    return res.status(400).json({ error: 'Invalid username.' });
-  }
-  const friend = db.prepare('SELECT id, username FROM users WHERE LOWER(username) = LOWER(?)').get(username);
-  if (!friend) return res.status(404).json({ error: 'No user with that username' });
-  if (friend.id === req.userId) return res.status(400).json({ error: 'Cannot friend yourself' });
+app.post('/api/friends/add', requireAuth, (req, res, next) => {
   try {
+    const username = requireStringField(req.body || {}, 'username', { min: 1, max: 40 });
+    const friend = db.prepare('SELECT id, username FROM users WHERE LOWER(username) = LOWER(?)').get(username);
+    if (!friend) return res.status(404).json({ error: 'No user with that username' });
+    if (friend.id === req.userId) return res.status(400).json({ error: 'Cannot friend yourself' });
     const ins = db.prepare('INSERT OR IGNORE INTO friendships (user_id, friend_id, created_at) VALUES (?, ?, ?)');
     ins.run(req.userId, friend.id, Date.now());
     ins.run(friend.id, req.userId, Date.now());
     res.json({ ok: true, friend });
-  } catch (e) { res.status(500).json({ error: 'Could not add friend.' }); }
+  } catch (e) { next(e); }
 });
 
 // Recent game history
@@ -132,28 +125,18 @@ app.get('/api/games/recent', requireAuth, (req, res) => {
 });
 
 // Serve static client (optional — useful for one-command deploy)
-// Set SERVE_CLIENT=false to disable when client is on a separate origin.
-if (process.env.SERVE_CLIENT !== 'false') {
-  const staticDir = path.join(__dirname, '..', 'public');
-  app.use(express.static(staticDir));
-}
+const staticDir = path.join(__dirname, '..', 'public');
+app.use(express.static(staticDir));
+
+app.use((err, req, res, next) => {
+  console.error('[server]', err);
+  res.status(err.status || 500).json({ error: 'Internal server error' });
+});
 
 // WebSocket
 attachSocketHandlers(io, verifyToken);
 
-// --- Generic error handler -------------------------------------------------
-// Catches any uncaught throw in routes. Prevents stack traces leaking to
-// clients. Log internally; return a generic 500 to the caller.
-// eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-  console.error('Unhandled error on', req.method, req.url, err);
-  if (res.headersSent) return;
-  res.status(500).json({ error: 'Internal server error' });
-});
-
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`ChessTrophies server listening on :${PORT}`);
-  console.log(`  CORS_ORIGIN: ${allowedOrigins.join(', ')}`);
-  console.log(`  SERVE_CLIENT: ${process.env.SERVE_CLIENT !== 'false'}`);
 });

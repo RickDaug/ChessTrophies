@@ -1,93 +1,66 @@
-// JWT auth helpers + signup/login.
+// JWT auth helpers.
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { createUser, getUserByEmail, getUserByUsername, getUserById, db } from './db.js';
 
-// --- JWT secret: hard-crash if not set in production -----------------------
-// The previous default ('change-me-in-production') was a silent fallback that
-// would let an attacker forge tokens against a misconfigured prod deploy.
-// We now require JWT_SECRET in production and emit a loud warning in dev.
-const SECRET = process.env.JWT_SECRET;
-if (!SECRET) {
-  if (process.env.NODE_ENV === 'production') {
-    console.error('FATAL: JWT_SECRET is required in production. Refusing to start.');
-    process.exit(1);
-  } else {
-    console.warn('WARNING: JWT_SECRET not set. Using an ephemeral random secret for this dev session.');
-    console.warn('         Tokens will be invalidated on restart. Set JWT_SECRET in .env to persist.');
-  }
-}
-const EFFECTIVE_SECRET = SECRET || crypto.randomBytes(48).toString('hex');
+const DUMMY_HASH = bcrypt.hashSync('dummy-password-for-account-enumeration-hardening', 12);
 const TOKEN_EXPIRY = '30d';
 
-// --- Validation rules (must mirror client app.js) --------------------------
-// Charset/length applied here as defense-in-depth. The client validates the
-// same rules but a hostile client could skip them.
-const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
-const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-const MIN_PASSWORD = 6;
-const MAX_PASSWORD = 128;
+function resolveSecret() {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  if (process.env.NODE_ENV === 'production') {
+    console.error('JWT_SECRET is required in production. Aborting startup.');
+    process.exit(1);
+  }
+  const generated = crypto.randomBytes(48).toString('hex');
+  console.warn('WARNING: JWT_SECRET is not set; using an ephemeral dev secret. Tokens will not persist across restarts.');
+  return generated;
+}
 
-// Generic message used for any signup conflict (taken email OR taken username)
-// to avoid leaking which one matched. Same for login.
-const GENERIC_AUTH_ERROR = 'Email or password is incorrect.';
-const GENERIC_SIGNUP_CONFLICT = 'An account with that email or username already exists.';
+const SECRET = resolveSecret();
+
+function normalizeString(value, field, { min = 1, max = 255 } = {}) {
+  if (typeof value !== 'string') throw new Error(`${field} must be a string.`);
+  const trimmed = value.trim();
+  if (trimmed.length < min || trimmed.length > max) throw new Error(`${field} must be ${min} to ${max} characters.`);
+  return trimmed;
+}
 
 export async function signup({ email, username, password, region, invitedBy }) {
-  // Type guards — req.body is attacker-controlled; never trust shapes.
-  if (typeof email !== 'string' || typeof username !== 'string' || typeof password !== 'string') {
-    throw new Error('All fields required.');
-  }
-  if (!USERNAME_RE.test(username))
-    throw new Error('Username must be 3-20 characters: letters, numbers, underscore only.');
-  if (!EMAIL_RE.test(email))
-    throw new Error('Please enter a valid email address.');
-  if (password.length < MIN_PASSWORD || password.length > MAX_PASSWORD)
-    throw new Error(`Password must be ${MIN_PASSWORD}-${MAX_PASSWORD} characters.`);
-  if (region != null && (typeof region !== 'string' || region.length > 32))
-    throw new Error('Invalid region.');
-
-  const lowEmail = email.toLowerCase().trim();
-  // Single conflict message — do NOT distinguish taken email vs taken username.
-  // Distinguishing leaks account-enumeration info to attackers.
-  if (getUserByEmail(lowEmail) || getUserByUsername(username))
-    throw new Error(GENERIC_SIGNUP_CONFLICT);
-
-  const pw_hash = await bcrypt.hash(password, 12);
+  const lowEmail = normalizeString(email, 'email', { min: 3, max: 254 }).toLowerCase();
+  const safeUsername = normalizeString(username, 'username', { min: 3, max: 20 });
+  const safePassword = normalizeString(password, 'password', { min: 6, max: 128 });
+  const safeRegion = typeof region === 'string' ? region.trim().slice(0, 64) : '';
+  const safeInvitedBy = typeof invitedBy === 'string' && invitedBy.trim() ? invitedBy.trim().slice(0, 64) : null;
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(lowEmail)) throw new Error('Email is invalid.');
+  if (!/^[a-zA-Z0-9_]{3,20}$/.test(safeUsername)) throw new Error('Username must be 3–20 letters, numbers, or underscores.');
+  if (getUserByEmail(lowEmail) || getUserByUsername(safeUsername)) throw new Error('An account with that email or username already exists.');
+  const pw_hash = await bcrypt.hash(safePassword, 12);
   const id = 'u_' + crypto.randomBytes(8).toString('hex');
-  createUser({
-    id, email: lowEmail, username: username.trim(),
-    region: typeof region === 'string' ? region : '',
-    pw_hash,
-    invited_by: typeof invitedBy === 'string' && getUserById(invitedBy) ? invitedBy : null,
-  });
-  // If invited, credit the inviter
-  if (typeof invitedBy === 'string' && getUserById(invitedBy)) {
-    db.prepare('UPDATE users SET invites_accepted = invites_accepted + 1 WHERE id = ?').run(invitedBy);
+  createUser({ id, email: lowEmail, username: safeUsername, region: safeRegion, pw_hash, invited_by: safeInvitedBy });
+  if (safeInvitedBy && getUserById(safeInvitedBy)) {
+    db.prepare('UPDATE users SET invites_accepted = invites_accepted + 1 WHERE id = ?').run(safeInvitedBy);
   }
   return makeToken(id);
 }
 
 export async function login({ email, password }) {
-  if (typeof email !== 'string' || typeof password !== 'string')
-    throw new Error(GENERIC_AUTH_ERROR);
-  const u = getUserByEmail(email);
-  // Run bcrypt.compare even when user not found to keep timing constant.
-  // Without this, an attacker can probe valid emails by measuring response time.
-  const DUMMY_HASH = '$2a$12$abcdefghijklmnopqrstuuJv6vWcXDBcuFRdGB.YDOaA1u0aB1tEK';
-  const hash = u ? u.pw_hash : DUMMY_HASH;
-  const ok = await bcrypt.compare(password, hash);
-  if (!u || !ok) throw new Error(GENERIC_AUTH_ERROR);
+  const normalizedEmail = normalizeString(email, 'email', { min: 3, max: 254 }).toLowerCase();
+  const safePassword = typeof password === 'string' ? password : '';
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizedEmail)) throw new Error('Email or password is incorrect.');
+  const u = getUserByEmail(normalizedEmail);
+  const ok = await bcrypt.compare(safePassword, u ? u.pw_hash : DUMMY_HASH);
+  if (!ok || !u) throw new Error('Email or password is incorrect.');
   return makeToken(u.id);
 }
 
 export function makeToken(userId) {
-  return jwt.sign({ uid: userId }, EFFECTIVE_SECRET, { expiresIn: TOKEN_EXPIRY });
+  return jwt.sign({ uid: userId }, SECRET, { expiresIn: TOKEN_EXPIRY });
 }
 
 export function verifyToken(token) {
-  try { return jwt.verify(token, EFFECTIVE_SECRET); }
+  try { return jwt.verify(token, SECRET); }
   catch (e) { return null; }
 }
 
@@ -99,6 +72,6 @@ export function requireAuth(req, res, next) {
   if (!payload) return res.status(401).json({ error: 'Unauthorized' });
   req.userId = payload.uid;
   req.user = getUserById(payload.uid);
-  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (!req.user) return res.status(401).json({ error: 'User not found' });
   next();
 }
