@@ -735,7 +735,7 @@
     if (!acadCurrent) return;
     const s = acadCurrent.lesson.solution[0];
     const txt = s.san ? s.san : (s.from + '→' + s.to + (s.promotion ? '=' + s.promotion.toUpperCase() : ''));
-    document.getElementById('lesson-feedback').innerHTML = `<span class="muted small">Solution: <b>${txt}</b></span>`;
+    document.getElementById('lesson-feedback').innerHTML = `<span class="muted small">Solution: <b>${escapeHTML(txt)}</b></span>`;
   }
 
   function escapeHTML(s) {
