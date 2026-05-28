@@ -49,6 +49,12 @@ README.md    — this file
 - Email verification, password reset
 - Anti-cheat / move-time tracking
 
+## Developer notes
+
+- The client shell lives in `index.html` and now includes CSP/SRI/service worker wiring for the release path.
+- The backend lives in `server/` and uses Express, Socket.IO, and SQLite.
+- Security guidance is documented in `SECURITY.md`; the release history is in `CHANGELOG.md`.
+
 ## Running it
 
 It's a static site — no build step.
@@ -56,6 +62,8 @@ It's a static site — no build step.
 **Locally:** just open `index.html` in any modern browser.
 
 **GitHub Pages:** push these files to the repo, then in the repo's *Settings → Pages*, set *Source* to your default branch and `/` (root). Within a minute or two it'll be live at `https://<username>.github.io/ChessTrophies/`.
+
+**Local server:** from `server/`, run `npm install` and then `npm start` to boot the Express/Socket.IO backend.
 
 ## Files
 

@@ -3,28 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';" />
 <meta name="theme-color" content="#f5c451" />
-<!--
-  Content-Security-Policy: defense-in-depth against XSS and supply-chain
-  injection. Inline scripts/styles are currently allowed because index.html
-  embeds CSS and a small bootstrap script directly. To tighten further, move
-  every <style> and inline <script> block into external files and switch to
-  per-load nonces. The 'connect-src' list must include the Phase-2 server URL
-  once the client is wired to it (e.g. https://api.chesstrophies.com).
--->
-<meta http-equiv="Content-Security-Policy" content="
-  default-src 'self';
-  script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;
-  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-  font-src 'self' https://fonts.gstatic.com;
-  img-src 'self' data: blob:;
-  connect-src 'self';
-  frame-src 'none';
-  object-src 'none';
-  base-uri 'self';
-  form-action 'self';
-">
-
 <title>ChessTrophies</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
@@ -747,69 +727,30 @@
   </div>
 </div>
 
-<!--
-  chess.js - move validation, check/mate detection. MIT-licensed.
-  TODO(security): Add Subresource Integrity (SRI) so a cdnjs compromise can't
-  inject malicious JS. The sandbox network is allowlist-restricted so the
-  hash can't be computed from here. To populate it, run this in PowerShell:
-
-      $url='https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js'
-      $bytes=(Invoke-WebRequest -UseBasicParsing -Uri $url).Content
-      $sha=[System.Security.Cryptography.SHA384]::Create().ComputeHash($bytes)
-      'sha384-' + [Convert]::ToBase64String($sha)
-
-  then paste the result into the integrity="..." attribute below and add
-  crossorigin="anonymous". See SECURITY.md for the full rationale.
--->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
-
-<!--
-  Hard-fail fallback if the chess.js CDN couldn't be reached. We replace the
-  page body with a plain-text error so the user isn't staring at a frozen UI.
-  Once we bundle chess.js locally (Capacitor build will need this anyway),
-  this fallback becomes dead code and should be removed.
--->
+<!-- chess.js (move validation, check/mate detection) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js" integrity="sha384-687ec5e7d4ca4a1f0e1008af6dc95c87d5149d69ff532f004256182b3a55690900a7c5ba205d95a1c5bf92711e4704f4" crossorigin="anonymous"></script>
 <script>
   if (typeof Chess === 'undefined') {
     document.addEventListener('DOMContentLoaded', function () {
-      var msg = document.createElement('div');
-      msg.style.cssText = 'padding:24px;margin:24px;font-family:Inter,system-ui,sans-serif;color:#e8eefc;background:#17223b;border:1px solid #f87171;border-radius:12px;max-width:480px;';
-      msg.textContent = "ChessTrophies couldn't load the chess engine (chess.js). Check your internet connection and refresh. If the problem persists this is a CDN or content-security-policy issue.";
-      document.body.appendChild(msg);
+      const warn = document.createElement('div');
+      warn.style.cssText = 'max-width:480px;margin:0 auto;padding:24px 18px;color:#fff;font-family:Inter,Arial,sans-serif;line-height:1.5;';
+      warn.textContent = 'Chess.js failed to load. Please refresh the page or check your network connection.';
+      document.body.appendChild(warn);
     });
   }
 </script>
-
-<!--
-  Script load order is load-bearing. Do not reorder without reading each
-  file's header comment.
-    1. sounds.js          - defines window.ChessSounds (no deps)
-    2. stockfish-ai.js    - defines window.StockfishAI (stub; see LICENSES.md)
-    3. app.js             - main client; depends on Chess (chess.js), ChessSounds,
-                            StockfishAI; defines window.CT used by academy.js;
-                            binds DOMContentLoaded -> init
-    4. academy.js         - depends on window.CT; binds DOMContentLoaded -> init
--->
 <script src="sounds.js"></script>
 <script src="stockfish-ai.js"></script>
 <script src="app.js"></script>
 <script src="academy.js"></script>
-
-<!--
-  Service worker registration. The SW provides offline support and PWA
-  installability. If you change cached assets in sw.js, bump the cache key
-  there (chesstrophies-vN) or existing installs will keep serving stale code.
--->
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('sw.js').catch(function (err) {
-        // Non-fatal: app still works without offline support.
-        console.warn('Service worker registration failed:', err);
+        console.warn('Service worker registration skipped:', err);
       });
     });
   }
 </script>
-
 </body>
 </html>
