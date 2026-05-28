@@ -1,19 +1,43 @@
 <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#1a2647"/>
-      <stop offset="100%" stop-color="#0b1220"/>
+      <stop offset="0%" stop-color="#18253f"/>
+      <stop offset="55%" stop-color="#111a2d"/>
+      <stop offset="100%" stop-color="#070d18"/>
     </linearGradient>
-    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#ffd97a"/>
-      <stop offset="100%" stop-color="#e1a92a"/>
+    <radialGradient id="glow" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#ffd36b" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#ffd36b" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fff7d9"/>
+      <stop offset="28%" stop-color="#ffe799"/>
+      <stop offset="58%" stop-color="#f1c24b"/>
+      <stop offset="100%" stop-color="#c9881d"/>
     </linearGradient>
+    <linearGradient id="goldEdge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="40%" stop-color="#fff5d2" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#fff8dd" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fffdf8" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#fffdf8" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#02060d" flood-opacity="0.35"/>
+    </filter>
   </defs>
   <rect width="512" height="512" rx="96" fill="url(#bg)"/>
-  <g transform="translate(96 80)" fill="url(#gold)" stroke="#5b3a00" stroke-width="6" stroke-linejoin="round" stroke-linecap="round">
+  <circle cx="256" cy="190" r="170" fill="url(#glow)"/>
+  <g transform="translate(96 80)" filter="url(#softShadow)" fill="url(#gold)" stroke="#5b3a00" stroke-width="6" stroke-linejoin="round" stroke-linecap="round">
     <path d="M160 24 L200 90 L280 90 L220 150 L240 230 L160 190 L80 230 L100 150 L40 90 L120 90 Z"/>
-    <rect x="120" y="250" width="80" height="60" rx="6"/>
-    <rect x="96" y="312" width="128" height="32" rx="6"/>
-    <rect x="76" y="344" width="168" height="32" rx="8"/>
+    <path d="M80 150 C 124 125, 176 117, 240 132" fill="none" stroke="url(#goldEdge)" stroke-width="4" opacity="0.8"/>
+    <path d="M116 70 C 144 48, 178 42, 206 54" fill="none" stroke="url(#metal)" stroke-width="5" opacity="0.8"/>
+    <rect x="120" y="250" width="80" height="60" rx="8"/>
+    <rect x="96" y="312" width="128" height="32" rx="8"/>
+    <rect x="76" y="344" width="168" height="32" rx="10"/>
+    <path d="M126 265 H 194" fill="none" stroke="#fff5d8" stroke-width="3" stroke-linecap="round" opacity="0.35"/>
+    <path d="M103 325 H 209" fill="none" stroke="#fff5d8" stroke-width="3" stroke-linecap="round" opacity="0.22"/>
   </g>
 </svg>
