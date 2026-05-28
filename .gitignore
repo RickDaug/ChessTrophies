@@ -38,3 +38,10 @@ desktop.ini
 .idea/
 *.swp
 *~
+
+# Personal / local-only resume prompt — kept out of GitHub
+CLAUDE.md
+
+# Local test artifacts (created during a security audit session, kept here
+# because the sandbox couldn't unlink them - safe to delete manually)
+_sync_test*.txt

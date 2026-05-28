@@ -2,6 +2,18 @@
 
 A modern, mobile-friendly chess platform with player profiles, skill-based matchmaking, a chess AI for practice, ELO rankings, and a trophy system that records the names of every opponent you defeat during a winning streak.
 
+## For developers
+
+**Read these first, in this order:**
+
+1. [`SECURITY.md`](SECURITY.md) — threat model, security controls, onboarding checklist.
+2. [`CHANGELOG.md`](CHANGELOG.md) — what's changed and why (newest at top).
+3. [`HANDOFF.md`](HANDOFF.md) — original architecture, file map, vision.
+4. [`LICENSES.md`](LICENSES.md) — third-party IP audit. The Stockfish/MIT boundary matters.
+5. `server/README.md` — REST + WebSocket protocol reference if you're touching Phase 2.
+
+Run locally: open `index.html` in a browser. There's no build step. To start the server: `cd server && cp .env.example .env && npm install && npm run dev`.
+
 ## Features (Phase 1 — built)
 
 - **Email + password accounts** with per-user profiles (username, region, ELO, stats).

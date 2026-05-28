@@ -9,6 +9,15 @@
   'use strict';
 
   // ---------------------------------------------------------------------------
+  // Server wiring (Phase 2). Leave SERVER_URL empty to keep the original
+  // localStorage-only auth. Set it to your deployed backend (e.g. Railway URL)
+  // to route signup/login through REST. Trophy/ELO mutations still write to
+  // localStorage — full per-action sync is a separate piece of work.
+  // ---------------------------------------------------------------------------
+  const SERVER_URL = '';
+  const TOKEN_KEY = 'ct_token';
+
+  // ---------------------------------------------------------------------------
   // Modern flat SVG chess pieces (redesigned for clear silhouettes)
   // ---------------------------------------------------------------------------
   function pieceSVG(type, color) {
@@ -340,10 +349,81 @@
     return Object.values(db.users).find(u => u.email === email);
   }
 
+  async function api(path, { method = 'GET', body, token } = {}) {
+    if (!SERVER_URL) throw new Error('Server not configured.');
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = 'Bearer ' + token;
+    const res = await fetch(SERVER_URL.replace(/\/$/, '') + path, {
+      method, headers, body: body ? JSON.stringify(body) : undefined,
+    });
+    let payload = null;
+    try { payload = await res.json(); } catch (e) {}
+    if (!res.ok) throw new Error((payload && payload.error) || res.statusText || 'Request failed');
+    return payload;
+  }
+
+  // Mirror a server profile into local DB so the rest of the app (trophies,
+  // rankings, friends UI) keeps reading from the same shape it always has.
+  function mirrorServerUser(profile) {
+    const db = loadDB();
+    const email = (profile.email || '').toLowerCase();
+    let existing =
+      Object.values(db.users).find(u => u.serverId && u.serverId === profile.id) ||
+      (email ? findUserByEmail(db, email) : null);
+    if (!existing) existing = newUser(email, profile.username || '', profile.region || '');
+    existing.serverId = profile.id;
+    if (email) existing.email = email;
+    if (profile.username) existing.username = profile.username;
+    if (profile.region) existing.region = profile.region;
+    if (typeof profile.elo === 'number') existing.elo = profile.elo;
+    if (typeof profile.wins === 'number') existing.wins = profile.wins;
+    if (typeof profile.losses === 'number') existing.losses = profile.losses;
+    if (typeof profile.draws === 'number') existing.draws = profile.draws;
+    if (typeof profile.is_premium === 'boolean') existing.isPremium = profile.is_premium;
+    if (typeof profile.current_streak === 'number') existing.currentStreak = profile.current_streak;
+    if (typeof profile.best_streak === 'number') existing.bestStreak = profile.best_streak;
+    if (typeof profile.invites_accepted === 'number') existing.invitesAccepted = profile.invites_accepted;
+    db.users[existing.id] = existing;
+    saveDB(db);
+    return existing;
+  }
+
   async function signup(email, username, password, region) {
+    if (SERVER_URL) {
+      if (!email || !username || !password) throw new Error('Please fill in all fields.');
+      if (password.length < 6) throw new Error('Password must be at least 6 characters.');
+
+      // SECURITY: charset + length validation. The server should enforce
+      // the same rules (see server/auth.js) but this gives users immediate
+      // feedback and prevents XSS payloads from being stored where they
+      // could surface via any unguarded DOM sink later.
+      if (!/^[a-zA-Z0-9_]{3,20}$/.test(username))
+        throw new Error('Username must be 3-20 characters: letters, numbers, underscore only.');
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+        throw new Error('Please enter a valid email address.');
+      let invitedBy = null;
+      try {
+        invitedBy = new URLSearchParams(window.location.search).get('invitedBy') || null;
+      } catch (e) {}
+      const { token } = await api('/api/auth/signup', {
+        method: 'POST',
+        body: { email, username, password, region, invitedBy },
+      });
+      const profile = await api('/api/me', { token });
+      const user = mirrorServerUser(profile);
+      localStorage.setItem(TOKEN_KEY, token);
+      return user;
+    }
     const db = loadDB();
     if (!email || !username || !password) throw new Error('Please fill in all fields.');
     if (password.length < 6) throw new Error('Password must be at least 6 characters.');
+
+    // SECURITY: charset + length validation (see comment above on the
+    // SERVER_URL branch for full rationale).
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(username))
+      throw new Error('Username must be 3-20 characters: letters, numbers, underscore only.');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+      throw new Error('Please enter a valid email address.');
     if (findUserByEmail(db, email)) throw new Error('An account with that email already exists.');
     if (Object.values(db.users).some(u => u.username.toLowerCase() === username.toLowerCase()))
       throw new Error('That username is taken.');
@@ -365,7 +445,15 @@
     saveDB(db);
     return user;
   }
-  async function login(email, password) {
+  async function login(email, password, opts) {
+    const asSession = !opts || opts.asSession !== false;
+    if (SERVER_URL) {
+      const { token } = await api('/api/auth/login', { method: 'POST', body: { email, password } });
+      const profile = await api('/api/me', { token });
+      const user = mirrorServerUser(profile);
+      if (asSession) localStorage.setItem(TOKEN_KEY, token);
+      return user;
+    }
     const db = loadDB();
     const u = findUserByEmail(db, email);
     if (!u) throw new Error('No account with that email.');
@@ -603,7 +691,12 @@
   function toast(msg, gold) {
     const div = document.createElement('div');
     div.className = 'toast' + (gold ? ' gold' : '');
-    div.innerHTML = msg;
+    // SECURITY: textContent, not innerHTML. Callers concatenate usernames /
+    // room codes / opponent names into msg; using innerHTML here was a
+    // stored-XSS sink. If a toast ever needs styled HTML, sanitize at the
+    // call site and pass a pre-built Element rather than re-introducing
+    // innerHTML here.
+    div.textContent = msg;
     document.body.appendChild(div);
     setTimeout(() => div.style.opacity = '0', 2400);
     setTimeout(() => div.remove(), 2800);
@@ -670,6 +763,7 @@
 
   $('#btn-logout').addEventListener('click', () => {
     setSession(null);
+    try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
     state.user = null;
     showNav(false);
     showScreen('auth');
@@ -950,7 +1044,7 @@
   $('#btn-opp-signin').addEventListener('click', async () => {
     $('#opp-error').textContent = '';
     try {
-      const opp = await login($('#opp-email').value, $('#opp-password').value);
+      const opp = await login($('#opp-email').value, $('#opp-password').value, { asSession: false });
       if (opp.id === state.user.id) throw new Error("You can't play yourself.");
       state.opponent = { username: opp.username, elo: opp.elo, isAI: false, userId: opp.id };
       closeModal('opponent');
