@@ -791,7 +791,16 @@
     const premiumBadge = $('#premium-badge');
     if (premiumBadge) premiumBadge.style.display = u.isPremium ? '' : 'none';
   }
-  function renderFriendsList() {
+  function _addLobbyChatButton() {
+  const user = state.user;
+  if (user) {
+    addChatButton('lobby_global', 'Lobby Chat');
+  } else {
+    removeChatButton();
+  }
+}
+
+function renderFriendsList() {
     const u = state.user;
     const friends = getFriendUsers(u);
     const wrap = $('#friends-list');
@@ -1876,6 +1885,7 @@
   $('#btn-result-close').addEventListener('click', () => {
     closeModal('result');
     showScreen('lobby');
+  _addLobbyChatButton();
   });
 
   // ---------------------------------------------------------------------------
@@ -1883,8 +1893,56 @@
   // ---------------------------------------------------------------------------
   function renderProfile() {
     const u = state.user;
-    $('#prof-avatar').textContent = u.username[0].toUpperCase();
+    // Avatar: use custom/stock image or fallback to initial
+  const profAvEl = $('#prof-avatar');
+  if (profAvEl) {
+    if (u.avatarDataUrl) {
+      profAvEl.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = u.avatarDataUrl;
+      img.style.cssText = 'width:100%;height:100%;border-radius:50%;object-fit:cover;';
+      profAvEl.appendChild(img);
+    } else if (u.avatarStock) {
+      const av = (typeof STOCK_AVATARS !== 'undefined' ? STOCK_AVATARS : []).find(a => a.id === u.avatarStock);
+      if (av) {
+        profAvEl.textContent = av.emoji;
+        profAvEl.style.background = av.bg;
+        profAvEl.style.color = av.fg;
+        profAvEl.style.fontSize = '2rem';
+        profAvEl.style.display = 'flex';
+        profAvEl.style.alignItems = 'center';
+        profAvEl.style.justifyContent = 'center';
+      } else {
+        profAvEl.textContent = u.username[0].toUpperCase();
+      }
+    } else {
+      profAvEl.textContent = u.username[0].toUpperCase();
+    }
+    // Add click-to-edit if it's own profile
+    if (state.user && u.id === state.user.id) {
+      profAvEl.title = 'Click to change avatar';
+      profAvEl.style.cursor = 'pointer';
+      profAvEl.onclick = () => openAvatarEditor();
+    }
+  }
     $('#prof-name').textContent = u.username;
+  // Add "Change Avatar" button to profile if it's the user's own profile
+  const changeAvBtn = document.getElementById('ct-change-av-btn');
+  if (state.user && u.id === state.user.id) {
+    if (!changeAvBtn) {
+      const btn = document.createElement('button');
+      btn.id = 'ct-change-av-btn';
+      btn.textContent = '✏️ Change Avatar';
+      btn.style.cssText = 'margin-top:8px;background:#1a2438;border:1px solid #3b425a;border-radius:8px;color:#cdd3e6;padding:6px 14px;font-size:12px;cursor:pointer;';
+      btn.onclick = () => openAvatarEditor();
+      const profAvEl2 = $('#prof-avatar');
+      if (profAvEl2 && profAvEl2.parentNode) {
+        profAvEl2.parentNode.insertBefore(btn, profAvEl2.nextSibling);
+      }
+    }
+  } else if (changeAvBtn) {
+    changeAvBtn.remove();
+  }
     $('#prof-email').textContent = u.email;
     $('#prof-region').textContent = u.region || 'No region set';
     $('#prof-elo').textContent = u.elo;
@@ -2109,8 +2167,8 @@
   }
   async function init() {
     const session = getSession();
+    const db = loadDB();
     if (session && session.userId) {
-      const db = loadDB();
       let u = db.users[session.userId];
       if (session.token) {
         try {
@@ -2149,4 +2207,372 @@
   } else {
     init();
   }
+
+
+// ============================================================
+// INJECT STYLES for Chat, Avatar, Report features
+// ============================================================
+(function injectFeatureStyles() {
+  const style = document.createElement('style');
+  style.textContent = `
+    .ct-chat-msg { animation: ct-fade-in 0.2s ease; }
+    @keyframes ct-fade-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
+    #ct-chat-box::-webkit-scrollbar { width:4px; }
+    #ct-chat-box::-webkit-scrollbar-track { background:#0d1422; }
+    #ct-chat-box::-webkit-scrollbar-thumb { background:#2d3a52; border-radius:2px; }
+    #ct-chat-input:focus { border-color:#4a5578 !important; }
+    .ct-report-btn { background:none; border:1px solid #8b2020; color:#f07070; border-radius:6px; padding:4px 10px; font-size:11px; cursor:pointer; transition:background 0.15s; }
+    .ct-report-btn:hover { background:#8b2020; color:#fff; }
+    .ct-chat-fab-pulse { animation: ct-pulse 2s infinite; }
+    @keyframes ct-pulse { 0%,100%{ box-shadow:0 0 0 0 #3b425a88; } 50%{ box-shadow:0 0 0 8px #3b425a00; } }
+  `;
+  document.head.appendChild(style);
+})();
+
+// ============================================================
+// FEATURE: STOCK AVATAR PRESETS
+// ============================================================
+const STOCK_AVATARS = [
+  { id: 'av_knight',   emoji: '♞', label: 'Knight',   bg: '#1a2236', fg: '#cdd3e6' },
+  { id: 'av_king',     emoji: '♚', label: 'King',     bg: '#2d1a36', fg: '#e6cdd3' },
+  { id: 'av_queen',    emoji: '♛', label: 'Queen',    bg: '#1a362d', fg: '#cde6d3' },
+  { id: 'av_rook',     emoji: '♜', label: 'Rook',     bg: '#36281a', fg: '#e6d3cd' },
+  { id: 'av_bishop',   emoji: '♝', label: 'Bishop',   bg: '#1a3036', fg: '#cddbe6' },
+  { id: 'av_pawn',     emoji: '♟', label: 'Pawn',     bg: '#36361a', fg: '#e6e6cd' },
+  { id: 'av_trophy',   emoji: '🏆', label: 'Trophy',   bg: '#363320', fg: '#fff3b0' },
+  { id: 'av_fire',     emoji: '🔥', label: 'Blaze',    bg: '#36200a', fg: '#ffb347' },
+  { id: 'av_star',     emoji: '⭐', label: 'Star',     bg: '#20203a', fg: '#ffd700' },
+  { id: 'av_ghost',    emoji: '👻', label: 'Ghost',    bg: '#2a2a2a', fg: '#ffffff' },
+];
+
+function getAvatarHTML(user, size = 48) {
+  if (user && user.avatarDataUrl) {
+    return `<img src="${escapeHTML(user.avatarDataUrl)}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;" alt="avatar">`;
+  }
+  const stockId = (user && user.avatarStock) || 'av_knight';
+  const av = STOCK_AVATARS.find(a => a.id === stockId) || STOCK_AVATARS[0];
+  return `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${av.bg};font-size:${Math.round(size*0.5)}px;">${av.emoji}</span>`;
+}
+
+// ============================================================
+// FEATURE: CHAT SYSTEM (in-game + lobby)
+// ============================================================
+const chatState = {
+  messages: {},  // roomId -> [{sender, text, ts}]
+  activeRoom: null,
+};
+
+function getChatMessages(roomId) {
+  try {
+    const raw = localStorage.getItem('ct_chat_' + roomId);
+    return raw ? JSON.parse(raw) : [];
+  } catch(e) { return []; }
+}
+
+function saveChatMessages(roomId, messages) {
+  try {
+    // Keep last 200 messages per room
+    const trimmed = messages.slice(-200);
+    localStorage.setItem('ct_chat_' + roomId, JSON.stringify(trimmed));
+  } catch(e) {}
+}
+
+function sendChatMessage(roomId, text) {
+  if (!roomId || !text || !text.trim()) return;
+  const user = state.user;
+  if (!user) return toast('Sign in to chat.', false);
+  const clean = escapeHTML(text.trim()).substring(0, 500);
+  if (!clean) return;
+  const msgs = getChatMessages(roomId);
+  msgs.push({ sender: user.username, senderId: user.id, text: clean, ts: Date.now() });
+  saveChatMessages(roomId, msgs);
+  renderChat(roomId);
+}
+
+function renderChat(roomId) {
+  const wrap = document.getElementById('ct-chat-box');
+  if (!wrap) return;
+  const msgs = getChatMessages(roomId);
+  const db = loadDB();
+  wrap.innerHTML = msgs.map(m => {
+    const sender = Object.values(db.users).find(u => u.id === m.senderId);
+    const avatarHTML = getAvatarHTML(sender, 28);
+    const isMe = state.user && m.senderId === state.user.id;
+    return `<div class="ct-chat-msg ${isMe ? 'ct-chat-me' : ''}" style="display:flex;align-items:flex-start;gap:6px;margin-bottom:6px;flex-direction:${isMe?'row-reverse':'row'};">
+      <div style="flex-shrink:0">${avatarHTML}</div>
+      <div style="max-width:70%;">
+        <div style="font-size:10px;color:#888;margin-bottom:2px;${isMe?'text-align:right':''}">${escapeHTML(m.sender)}</div>
+        <div style="background:${isMe?'#3b425a':'#222b3a'};color:#f0f0f0;border-radius:10px;padding:6px 10px;font-size:13px;word-break:break-word;">${m.text}</div>
+        <div style="font-size:9px;color:#555;margin-top:2px;${isMe?'text-align:right':''}">${timeAgo(m.ts)}</div>
+      </div>
+    </div>`;
+  }).join('') || '<div style="color:#555;font-size:12px;text-align:center;padding:20px;">No messages yet. Say hello!</div>';
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function openChat(roomId, label) {
+  chatState.activeRoom = roomId;
+  const existing = document.getElementById('ct-chat-overlay');
+  if (existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'ct-chat-overlay';
+  overlay.style.cssText = 'position:fixed;bottom:70px;right:16px;width:320px;max-height:460px;background:#141d2b;border:1px solid #2d3a52;border-radius:14px;box-shadow:0 8px 32px #0008;z-index:9000;display:flex;flex-direction:column;overflow:hidden;';
+  overlay.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#1a2438;border-bottom:1px solid #2d3a52;">
+      <span style="font-weight:600;color:#cdd3e6;font-size:13px;">💬 ${escapeHTML(label||'Chat')}</span>
+      <button onclick="document.getElementById('ct-chat-overlay').remove()" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer;line-height:1;">×</button>
+    </div>
+    <div id="ct-chat-box" style="flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;"></div>
+    <div style="padding:8px;border-top:1px solid #2d3a52;display:flex;gap:6px;">
+      <input id="ct-chat-input" type="text" maxlength="500" placeholder="Type a message…" style="flex:1;background:#0d1422;border:1px solid #2d3a52;border-radius:8px;padding:7px 10px;color:#f0f0f0;font-size:13px;outline:none;"
+        onkeydown="if(event.key==='Enter'){window._sendChat();}">
+      <button onclick="window._sendChat()" style="background:#3b425a;border:none;border-radius:8px;color:#fff;padding:7px 12px;cursor:pointer;font-size:13px;">Send</button>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  window._sendChat = function() {
+    const inp = document.getElementById('ct-chat-input');
+    if (!inp) return;
+    sendChatMessage(chatState.activeRoom, inp.value);
+    inp.value = '';
+  };
+  renderChat(roomId);
+}
+
+function openGameChat(gameLabel) {
+  const user = state.user;
+  if (!user) return toast('Sign in to chat.', false);
+  // Use current game room id or create a lobby room
+  const roomId = (state.game && state.game.roomId) || ('lobby_' + user.id);
+  openChat(roomId, gameLabel || 'Game Chat');
+}
+
+// ============================================================
+// FEATURE: USERNAME UNIQUENESS ENFORCEMENT
+// ============================================================
+// Patch signup to enforce uniqueness case-insensitively
+const _origSignup = window._ctSignup;
+function enforceUsernameUnique(db, username) {
+  if (!username) return false;
+  const lower = username.trim().toLowerCase();
+  return Object.values(db.users).some(u => u.username && u.username.toLowerCase() === lower);
+}
+
+// The signup function already calls findUserByUsername which is case-insensitive.
+// We add an extra validation layer here:
+function validateUsernameAvailability(username) {
+  const db = loadDB();
+  const lower = (username || '').trim().toLowerCase();
+  if (!lower) return 'Username is required.';
+  if (!isValidUsername(username)) return 'Username must be 3-20 chars, letters/numbers/underscore only.';
+  // Check reserved words
+  const reserved = ['admin','moderator','system','chesstrophies','support','help','bot','ai'];
+  if (reserved.includes(lower)) return 'That username is reserved.';
+  if (enforceUsernameUnique(db, username)) return 'That username is already taken.';
+  return null; // valid
+}
+
+// ============================================================
+// FEATURE: PROFILE PICTURE (Upload + Stock Avatars)
+// ============================================================
+function openAvatarEditor() {
+  const user = state.user;
+  if (!user) return toast('Sign in first.', false);
+  const existing = document.getElementById('ct-avatar-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'ct-avatar-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:#0009;z-index:9999;display:flex;align-items:center;justify-content:center;';
+  const stockGrid = STOCK_AVATARS.map(av =>
+    `<button onclick="window._selectStockAvatar('${av.id}')" title="${av.label}"
+      style="width:52px;height:52px;border-radius:50%;background:${av.bg};border:${(user.avatarStock===av.id&&!user.avatarDataUrl)?'3px solid #6eb5ff':'2px solid #2d3a52'};cursor:pointer;font-size:26px;display:flex;align-items:center;justify-content:center;">${av.emoji}</button>`
+  ).join('');
+  modal.innerHTML = `
+    <div style="background:#141d2b;border-radius:16px;padding:24px;width:340px;max-width:95vw;color:#f0f0f0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+        <h3 style="margin:0;font-size:16px;">Edit Profile Picture</h3>
+        <button onclick="document.getElementById('ct-avatar-modal').remove()" style="background:none;border:none;color:#888;font-size:22px;cursor:pointer;">×</button>
+      </div>
+      <div style="text-align:center;margin-bottom:18px;">
+        <div id="ct-avatar-preview" style="display:inline-block;">${getAvatarHTML(user, 72)}</div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <div style="font-size:12px;color:#888;margin-bottom:8px;">STOCK AVATARS</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">${stockGrid}</div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <div style="font-size:12px;color:#888;margin-bottom:8px;">UPLOAD YOUR OWN (max 1MB)</div>
+        <input type="file" id="ct-avatar-upload" accept="image/*" style="display:none;" onchange="window._handleAvatarUpload(this)">
+        <button onclick="document.getElementById('ct-avatar-upload').click()"
+          style="width:100%;padding:9px;background:#1a2438;border:1px dashed #3b425a;border-radius:8px;color:#aaa;cursor:pointer;font-size:13px;">
+          📁 Choose Image…
+        </button>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px;">
+        <button onclick="window._clearCustomAvatar()" style="flex:1;padding:9px;background:#2d1a1a;border:none;border-radius:8px;color:#f0a0a0;cursor:pointer;font-size:13px;">Remove Custom</button>
+        <button onclick="document.getElementById('ct-avatar-modal').remove()" style="flex:1;padding:9px;background:#3b425a;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;">Done</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  window._selectStockAvatar = function(avId) {
+    const db = loadDB();
+    db.users[user.id].avatarStock = avId;
+    db.users[user.id].avatarDataUrl = null;
+    state.user = db.users[user.id];
+    saveDB(db);
+    document.getElementById('ct-avatar-preview').innerHTML = getAvatarHTML(state.user, 72);
+    // Refresh stock grid borders
+    document.querySelectorAll('#ct-avatar-modal button[onclick*="_selectStockAvatar"]').forEach(btn => {
+      const id = btn.getAttribute('onclick').match(/'([^']+)'/)[1];
+      btn.style.border = (id === avId) ? '3px solid #6eb5ff' : '2px solid #2d3a52';
+    });
+    toast('Avatar updated!', true);
+    if (document.getElementById('profile-screen')) renderProfile();
+  };
+
+  window._handleAvatarUpload = function(input) {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > 1024 * 1024) return toast('Image too large (max 1MB).', false);
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const db = loadDB();
+      db.users[user.id].avatarDataUrl = e.target.result;
+      state.user = db.users[user.id];
+      saveDB(db);
+      document.getElementById('ct-avatar-preview').innerHTML = getAvatarHTML(state.user, 72);
+      toast('Custom avatar set!', true);
+      if (document.getElementById('profile-screen')) renderProfile();
+    };
+    reader.readAsDataURL(file);
+  };
+
+  window._clearCustomAvatar = function() {
+    const db = loadDB();
+    db.users[user.id].avatarDataUrl = null;
+    state.user = db.users[user.id];
+    saveDB(db);
+    document.getElementById('ct-avatar-preview').innerHTML = getAvatarHTML(state.user, 72);
+    toast('Custom avatar removed.', true);
+  };
+}
+
+// ============================================================
+// FEATURE: HARASSMENT / BULLYING REPORT SYSTEM
+// ============================================================
+const REPORT_REASONS = [
+  'Harassment or bullying',
+  'Hate speech or discrimination',
+  'Threats or intimidation',
+  'Spam or scam messages',
+  'Inappropriate username',
+  'Cheating or exploits',
+  'Other',
+];
+
+function saveReport(report) {
+  try {
+    const reports = JSON.parse(localStorage.getItem('ct_reports') || '[]');
+    reports.push(report);
+    localStorage.setItem('ct_reports', JSON.stringify(reports));
+  } catch(e) {}
+}
+
+function openReportDialog(targetUserId, targetUsername) {
+  const reporter = state.user;
+  if (!reporter) return toast('Sign in to report a user.', false);
+  if (targetUserId === reporter.id) return toast('You cannot report yourself.', false);
+  const existing = document.getElementById('ct-report-modal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'ct-report-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:#0009;z-index:9999;display:flex;align-items:center;justify-content:center;';
+  const reasonOpts = REPORT_REASONS.map((r,i) =>
+    `<label style="display:flex;align-items:center;gap:8px;padding:6px;border-radius:6px;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background='#1a2438'" onmouseout="this.style.background=''" >
+      <input type="radio" name="ct-report-reason" value="${i}" style="accent-color:#6eb5ff;"> <span style="font-size:13px;">${escapeHTML(r)}</span>
+    </label>`
+  ).join('');
+  modal.innerHTML = `
+    <div style="background:#141d2b;border-radius:16px;padding:24px;width:360px;max-width:95vw;color:#f0f0f0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="margin:0;font-size:15px;">🚩 Report User</h3>
+        <button onclick="document.getElementById('ct-report-modal').remove()" style="background:none;border:none;color:#888;font-size:22px;cursor:pointer;">×</button>
+      </div>
+      <p style="color:#aaa;font-size:13px;margin:0 0 14px;">Reporting: <strong style="color:#f0f0f0;">${escapeHTML(targetUsername||targetUserId)}</strong></p>
+      <div style="margin-bottom:14px;">
+        <div style="font-size:11px;color:#888;margin-bottom:8px;">SELECT REASON</div>
+        ${reasonOpts}
+      </div>
+      <div style="margin-bottom:14px;">
+        <div style="font-size:11px;color:#888;margin-bottom:6px;">ADDITIONAL DETAILS (optional)</div>
+        <textarea id="ct-report-detail" maxlength="500" rows="3" placeholder="Describe what happened…"
+          style="width:100%;box-sizing:border-box;background:#0d1422;border:1px solid #2d3a52;border-radius:8px;padding:8px;color:#f0f0f0;font-size:13px;resize:vertical;outline:none;"></textarea>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button onclick="document.getElementById('ct-report-modal').remove()" style="flex:1;padding:10px;background:#1a2438;border:1px solid #2d3a52;border-radius:8px;color:#aaa;cursor:pointer;font-size:13px;">Cancel</button>
+        <button onclick="window._submitReport('${escapeHTML(targetUserId)}','${escapeHTML(targetUsername||targetUserId)}')" style="flex:1;padding:10px;background:#8b2020;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">Submit Report</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  window._submitReport = function(tid, tname) {
+    const reasonInput = document.querySelector('input[name="ct-report-reason"]:checked');
+    if (!reasonInput) return toast('Please select a reason.', false);
+    const detail = (document.getElementById('ct-report-detail') || {}).value || '';
+    const report = {
+      id: 'rpt_' + Date.now() + '_' + Math.random().toString(36).slice(2),
+      reporterId: reporter.id,
+      reporterName: reporter.username,
+      targetId: tid,
+      targetName: tname,
+      reason: REPORT_REASONS[parseInt(reasonInput.value)] || 'Other',
+      detail: detail.trim().substring(0, 500),
+      ts: Date.now(),
+      status: 'pending',
+    };
+    saveReport(report);
+    document.getElementById('ct-report-modal').remove();
+    toast('Report submitted. Thank you for keeping the community safe. 🛡️', true);
+  };
+}
+
+// ============================================================
+// CHAT BUTTON: Floating chat toggle for lobby/game
+// ============================================================
+function addChatButton(roomId, label) {
+  const existing = document.getElementById('ct-chat-fab');
+  if (existing) existing.remove();
+  const fab = document.createElement('button');
+  fab.id = 'ct-chat-fab';
+  fab.title = 'Open Chat';
+  fab.innerHTML = '💬';
+  fab.style.cssText = 'position:fixed;bottom:16px;right:16px;width:52px;height:52px;border-radius:50%;background:#3b425a;border:none;color:#fff;font-size:22px;cursor:pointer;box-shadow:0 4px 16px #0008;z-index:8000;display:flex;align-items:center;justify-content:center;transition:transform 0.15s;';
+  fab.onmouseover = () => { fab.style.transform = 'scale(1.12)'; };
+  fab.onmouseout = () => { fab.style.transform = 'scale(1)'; };
+  fab.onclick = () => openChat(roomId, label);
+  document.body.appendChild(fab);
+}
+
+function removeChatButton() {
+  const fab = document.getElementById('ct-chat-fab');
+  if (fab) fab.remove();
+  const overlay = document.getElementById('ct-chat-overlay');
+  if (overlay) overlay.remove();
+}
+
+// ============================================================
+// PATCH: Expose new functions to window for inline HTML use
+// ============================================================
+window.openAvatarEditor = openAvatarEditor;
+window.openReportDialog = openReportDialog;
+window.openChat = openChat;
+window.openGameChat = openGameChat;
+window.getAvatarHTML = getAvatarHTML;
+window.validateUsernameAvailability = validateUsernameAvailability;
+window.addChatButton = addChatButton;
+window.removeChatButton = removeChatButton;
+
 })();
