@@ -2914,7 +2914,7 @@ window.signOut = signOut;
     if (!duo.game || duo.over) return false;
     const turn = duo.game.turn();
     if (turn !== duo.youColor) return false;
-    return duo.seat === 0; // you are seat 0 on your color
+    return ((duo.turnCount ? duo.turnCount[duo.youColor] : 0) % 2) === 0; // you choose on even team-turns
   }
 
   function duoStart(opts) {
@@ -2925,6 +2925,7 @@ window.signOut = signOut;
     duo.aiLevel = opts.aiLevel || 'medium';
     duo.youColor = 'w';
     duo.seat = 0;
+    duo.turnCount = { w: 0, b: 0 }; // times each TEAM has had a turn; chooser = count%2
     duo.selected = null; duo.legalTargets = []; duo.lastMove = null;
     duo.suggestion = null; duo.over = false; duo.ended = false;
     duo.overrides = 0; duo.accepts = 0; duo.sawQueenDown = false;
@@ -2963,8 +2964,13 @@ window.signOut = signOut;
     } catch(e){}
     if (duo.game.game_over()) { duoRender(); duoUpdateStatus(); duoFinish(); return; }
     // seat rotates each ply within the same color until color flips
-    // chess.js flips turn automatically; seat alternates 0<->1 per ply
-    duo.seat = duo.seat === 0 ? 1 : 0;
+    // A team just completed its single move (normal chess: teams alternate).
+    // Record that this team took a turn, then the chooser within each team
+    // alternates (0->1->0...) the NEXT time that team is on move.
+    const moved = duo.game.turn() === 'w' ? 'b' : 'w'; // side that just moved
+    if (!duo.turnCount) duo.turnCount = { w: 0, b: 0 };
+    duo.turnCount[moved] = (duo.turnCount[moved] || 0) + 1;
+    duo.seat = (duo.turnCount[duo.game.turn()] || 0) % 2; // chooser for side now on move
     duoRender();
     duoUpdateStatus();
     // Drive non-human seats
