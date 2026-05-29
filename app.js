@@ -727,6 +727,12 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
   function showScreen(id) {
+    // Warn before leaving an in-progress match (acts as a forfeit if confirmed)
+    if (id !== 'game' && state.game && !state.gameEnded && document.querySelector('#screen-game.active')) {
+      if (!confirm('Are you sure you want to quit this match?\n\nLeaving now counts as a resignation — you will forfeit the game.')) return;
+      finishGame(state.userColor === 'w' ? 'b' : 'w', 'resignation');
+      return;
+    }
     $$('.screen').forEach(s => s.classList.remove('active'));
     $('#screen-' + id).classList.add('active');
     $$('#bottom-nav .nav-item').forEach(n => {
@@ -1207,6 +1213,7 @@ function renderFriendsList() {
   function startGame(mode) {
     state.gameMode = mode;
     state.game = new Chess();
+    state.gameEnded = false;
     state.selected = null;
     state.legalTargets = [];
     state.lastMove = null;
@@ -1689,6 +1696,7 @@ function renderFriendsList() {
 
   function finishGame(winnerColor, reason) {
     const me = state.user;
+    state.gameEnded = true;
     const opp = state.opponent;
     const myWon = winnerColor === state.userColor;
     const isDraw = winnerColor === null;
