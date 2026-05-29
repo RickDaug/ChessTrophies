@@ -360,7 +360,14 @@
       <input type="password" id="signup-password" autocomplete="new-password" required minlength="6">
       <label for="signup-region">Region (city, country)</label>
       <input type="text" id="signup-region" placeholder="e.g. Austin, USA">
-      <div class="error" id="signup-error"></div>
+      <label for="signup-skill">Skill level (sets your starting rating)</label>
+        <select id="signup-skill">
+          <option value="400">New to chess – 400</option>
+          <option value="800">Beginner – 800</option>
+          <option value="1200" selected>Intermediate – 1200</option>
+          <option value="1600">Advanced – 1600</option>
+        </select>
+        <div class="error" id="signup-error"></div>
       <button type="submit" class="btn btn-block" style="margin-top:14px">Create account</button>
     </form>
 

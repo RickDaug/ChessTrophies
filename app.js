@@ -273,13 +273,13 @@
     crypto.getRandomValues(bytes);
     return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
   }
-  function newUser(email, username, region) {
+  function newUser(email, username, region, startingElo) {
     return {
       id: 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       email: email.toLowerCase().trim(),
       username: username.trim(),
       region: (region || '').trim(),
-      elo: 1200,
+      elo: (function(e){ e = parseInt(e,10); if (!isFinite(e)) return 1200; return Math.max(100, Math.min(2800, e)); })(startingElo),
       wins: 0,
       losses: 0,
       draws: 0,
@@ -426,7 +426,7 @@
     return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value || '');
   }
 
-  async function signup(email, username, password, region) {
+  async function signup(email, username, password, region, startingElo) {
     const db = loadDB();
     if (!email || !username || !password) throw new Error('Please fill in all fields.');
     if (!isValidEmail(email)) throw new Error('Enter a valid email address.');
@@ -441,7 +441,7 @@
       const invitedBy = params.get('invitedBy') || undefined;
       const { token } = await api('/api/auth/signup', {
         method: 'POST',
-        body: JSON.stringify({ email, username, password, region, invitedBy }),
+        body: JSON.stringify({ email, username, password, region, invitedBy, startingElo }),
       });
       setSession({ userId: null, token });
       const profile = await fetchMe();
@@ -454,7 +454,7 @@
 
     const salt = randomSalt();
     const pwHash = await hashPassword(password, salt);
-    const user = newUser(email, username, region);
+    const user = newUser(email, username, region, startingElo);
     user.salt = salt;
     user.pwHash = pwHash;
     try {
@@ -603,7 +603,17 @@
   function unlockAchievement(user, id, meta) {
     if (hasAchievement(user, id)) return null;
     user.achievements.push({ id, awardedAt: Date.now(), meta });
-    return ACHIEVEMENT_TIERS.find(a => a.id === id) || ACHIEVEMENTS.find(a => a.id === id);
+    const def = ACHIEVEMENT_TIERS.find(a => a.id === id) || ACHIEVEMENTS.find(a => a.id === id);
+    // Play a sound when a trophy is earned: triumphant for normal trophies,
+    // a not-so-triumphant cue for embarrassing (Oops) trophies. Purely cosmetic;
+    // does not affect which trophies are granted or how they are stored.
+    try {
+      if (window.ChessSounds) {
+        if (def && def.embarrassing) window.ChessSounds.trophyOops();
+        else window.ChessSounds.trophy();
+      }
+    } catch (e) {}
+    return def;
   }
   // Check every tier — unlock anything newly eligible.
   // ctx may include { mateWin, justWon, moves, gameCheckCount }
@@ -637,8 +647,18 @@
   // ---------------------------------------------------------------------------
   // ELO
   // ---------------------------------------------------------------------------
-  function eloDelta(ratingA, ratingB, scoreA) {
-    const K = 32;
+  // Dynamic K-factor (FIDE/USCF style): new players converge fast,
+  // established players stay stable, masters move slowly.
+  //   < 30 rated games  -> K = 40 (provisional)
+  //   rating >= 2400     -> K = 10 (master)
+  //   otherwise          -> K = 20 (established)
+  function eloKFactor(rating, gamesPlayed) {
+    if ((gamesPlayed || 0) < 30) return 40;
+    if ((rating || 0) >= 2400) return 10;
+    return 20;
+  }
+  function eloDelta(ratingA, ratingB, scoreA, gamesA) {
+    const K = eloKFactor(ratingA, gamesA);
     const expected = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
     return Math.round(K * (scoreA - expected));
   }
@@ -771,7 +791,8 @@
         $('#signup-email').value,
         $('#signup-username').value,
         $('#signup-password').value,
-        $('#signup-region').value
+        $('#signup-region').value,
+          $('#signup-skill') ? parseInt($('#signup-skill').value, 10) : 1200
       );
       setSession({ userId: u.id });
       state.user = u;
@@ -1653,7 +1674,7 @@ function renderFriendsList() {
     if (isRanked) {
       // Compute ELO change
       const myScore = isDraw ? 0.5 : (myWon ? 1 : 0);
-      const delta = eloDelta(me.elo, opp.elo, myScore);
+      const delta = eloDelta(me.elo, opp.elo, myScore, (me.wins||0)+(me.losses||0)+(me.draws||0));
       me.elo += delta;
       rewards.push(`<div class="card row between"><div>ELO</div><div class="pill ${delta >= 0 ? 'success' : 'danger'}">${delta >= 0 ? '+' : ''}${delta} (now ${me.elo})</div></div>`);
 
@@ -1664,7 +1685,7 @@ function renderFriendsList() {
         const oppDelta = -delta; // zero-sum approximation for symmetric K
         // Better: recalc oppDelta from their perspective
         const oppScore = isDraw ? 0.5 : (myWon ? 0 : 1);
-        const realOppDelta = eloDelta(oppUser.elo, me.elo, oppScore);
+        const realOppDelta = eloDelta(oppUser.elo, me.elo, oppScore, (oppUser.wins||0)+(oppUser.losses||0)+(oppUser.draws||0));
         oppUser.elo += realOppDelta;
         // Track win/loss for opponent too
         if (isDraw) oppUser.draws++;

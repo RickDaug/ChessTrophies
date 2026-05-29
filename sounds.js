@@ -93,10 +93,20 @@
         setTimeout(() => note(349, 0.25, 'sine', 0.2), 170);   // F4
       }
     },
+    // Triumphant ascending fanfare for earning a (good) trophy.
     trophy() {
-      note(587, 0.1, 'sine', 0.2);              // D5
-      setTimeout(() => note(880, 0.1, 'sine', 0.22), 100);     // A5
-      setTimeout(() => note(1174, 0.25, 'sine', 0.25), 210);   // D6
+      note(523, 0.12, 'triangle', 0.22);            // C5
+      setTimeout(() => note(659, 0.12, 'triangle', 0.22), 90);   // E5
+      setTimeout(() => note(784, 0.12, 'triangle', 0.24), 180);  // G5
+      setTimeout(() => note(1047, 0.30, 'triangle', 0.28), 270); // C6
+      setTimeout(() => note(1319, 0.40, 'sine', 0.26), 430);     // E6 shimmer
+    },
+    // Comedic "not so triumphant" cue for an embarrassing (Oops) trophy.
+    trophyOops() {
+      note(415, 0.18, 'sawtooth', 0.16);           // Ab4
+      setTimeout(() => note(392, 0.20, 'sawtooth', 0.16), 170);  // G4
+      setTimeout(() => note(370, 0.22, 'sawtooth', 0.16), 360);  // Gb4
+      setTimeout(() => note(294, 0.42, 'sawtooth', 0.18), 560);  // D4 (wah-wah drop)
     },
     setMuted(m) {
       muted = !!m;
