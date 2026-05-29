@@ -101,6 +101,9 @@
   .sq.light { background: var(--light-sq); }
   .sq.dark  { background: var(--dark-sq); }
   .sq.selected { background: var(--highlight) !important; }
+    .sq.duo-suggest-sq { box-shadow: inset 0 0 0 4px #f5c451; }
+    #duo-suggest .duo-suggest-row { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; background:var(--card,#1b2030); border:1px solid rgba(245,196,81,.4); border-radius:10px; padding:10px 14px; }
+
   .sq.last { box-shadow: inset 0 0 0 4px rgba(245, 196, 81, .55); }
   .sq.check { background: var(--check) !important; }
   .sq .dot { width: 30%; height: 30%; border-radius: 50%; background: var(--move-dot); opacity: .8; pointer-events: none; }
@@ -464,7 +467,21 @@
       </div>
     </div>
 
-    <h2 style="margin-top:18px">Friends</h2>
+    <section style="margin-top:18px">
+        <h2>2v2 Team Chess</h2>
+        <div class="card">
+          <div class="row between" style="font-weight:600;letter-spacing:.04em;color:var(--muted)">RANKED 2v2</div>
+          <p class="muted small" style="margin:4px 0 10px">You + an ally vs two opponents. Separate 2v2 rating. Your partner suggests moves on your turn.</p>
+          <button class="btn btn-block" id="btn-duo-ranked">Find ranked 2v2</button>
+          <div class="row between" style="font-weight:600;letter-spacing:.04em;color:var(--muted);margin-top:14px">PRIVATE 2v2</div>
+          <p class="muted small" style="margin:4px 0 8px">Pick a partner and play a casual team match (no rating).</p>
+          <label class="muted small" for="duo-partner">Partner</label>
+          <select id="duo-partner" style="width:100%;margin:4px 0 10px"><option value="Ally">AI Ally</option></select>
+          <button class="btn btn-secondary btn-block" id="btn-duo-private">Start private 2v2</button>
+        </div>
+      </section>
+
+      <h2 style="margin-top:18px">Friends</h2>
     <div class="card">
       <div class="row between" style="margin-bottom:8px">
         <div class="muted small" id="friends-summary">No friends yet</div>
@@ -534,7 +551,15 @@
   </section>
 
   <!-- PROFILE -->
-  <section id="screen-profile" class="screen">
+      <section id="screen-duo" class="screen">
+      <h2 style="display:flex;align-items:center;gap:8px">2v2 Team Chess <button id="duo-quit" class="btn" style="margin-left:auto;padding:6px 12px">Quit</button></h2>
+      <div class="muted small" id="duo-teams" style="margin-bottom:6px"></div>
+      <div class="board-wrap"><div class="board" id="duo-board"></div></div>
+      <div id="duo-status" style="text-align:center;font-weight:600;margin:10px 0"></div>
+      <div id="duo-suggest" style="display:none;margin:8px 0"></div>
+    </section>
+
+    <section id="screen-profile" class="screen">
     <div class="top-bar">
       <h1>Profile</h1>
     </div>
@@ -907,7 +932,7 @@
 </div>
 
 <!-- chess.js (move validation, check/mate detection) -->
-<script src="chess.min.js?v=20260529c"></script>
+<script src="chess.min.js?v=20260529f"></script>
 <script>
   if (typeof Chess === 'undefined') {
     document.addEventListener('DOMContentLoaded', function () {
@@ -918,10 +943,10 @@
     });
   }
 </script>
-<script src="sounds.js?v=20260529c"></script>
-<script src="stockfish-ai.js?v=20260529c"></script>
-<script src="app.js?v=20260529c"></script>
-<script src="academy.js?v=20260529c"></script>
+<script src="sounds.js?v=20260529f"></script>
+<script src="stockfish-ai.js?v=20260529f"></script>
+<script src="app.js?v=20260529f"></script>
+<script src="academy.js?v=20260529f"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {

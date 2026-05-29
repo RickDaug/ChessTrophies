@@ -281,6 +281,11 @@
       region: (region || '').trim(),
       elo: (function(e){ e = parseInt(e,10); if (!isFinite(e)) return 1200; return Math.max(100, Math.min(2800, e)); })(startingElo),
     ratingHistory: [(function(e){ e = parseInt(e,10); if (!isFinite(e)) return 1200; return Math.max(100, Math.min(2800, e)); })(startingElo)], // rolling ELO snapshots for the profile sparkline
+    elo2v2: 1200,            // separate 2v2 (team) rating
+    ratingHistory2v2: [1200],// rolling 2v2 ELO snapshots
+    wins2v2: 0, losses2v2: 0, draws2v2: 0, games2v2: 0,
+    currentStreak2v2: 0, bestStreak2v2: 0,
+    duoSuggestAccepts: 0, duoOverrideWins: 0,
       wins: 0,
       losses: 0,
       draws: 0,
@@ -595,6 +600,16 @@
     { id: 'oops_pawn_pusher',   family: 'Oops', type: 'flag', flag: 'pawnsOnlyLosses',     threshold: 1, tier: 1, icon: '🥖', name: 'Just Pawns',            desc: 'Lose with only pawns left (no minor or major pieces).', embarrassing: true },
     { id: 'oops_doormat',       family: 'Oops', type: 'flag', flag: 'doormatTriggered',    threshold: 1, tier: 1, icon: '😬', name: 'The Doormat',           desc: 'Drop below 25% win rate with 20+ ranked games.', embarrassing: true },
     { id: 'oops_cold_streak',   family: 'Oops', type: 'flag', flag: 'coldStreakTriggered', threshold: 1, tier: 1, icon: '🥶', name: 'Cold Streak',           desc: 'Go 30 days without a win.', embarrassing: true },
+    { id: 'duo_first', family: 'Duo', type: 'duo', threshold: 1, tier: 1, icon: '🤝', name: 'Better Together', desc: 'Play your first 2v2 team match.' },
+    { id: 'duo_win1', family: 'Duo', type: 'duo', threshold: 1, tier: 1, icon: '🌟', name: 'Dream Team', desc: 'Win your first 2v2 match.' },
+    { id: 'duo_win10', family: 'Duo', type: 'duo', threshold: 10, tier: 2, icon: '🔥', name: 'Tag Team', desc: 'Win 10 2v2 matches.' },
+    { id: 'duo_win25', family: 'Duo', type: 'duo', threshold: 25, tier: 3, icon: '⚔️', name: 'Battle Buddies', desc: 'Win 25 2v2 matches.' },
+    { id: 'duo_streak3', family: 'Duo', type: 'duo', threshold: 3, tier: 2, icon: '🏃', name: 'In Sync', desc: 'Win 3 2v2 matches in a row.' },
+    { id: 'duo_streak5', family: 'Duo', type: 'duo', threshold: 5, tier: 3, icon: '⚡', name: 'Unstoppable Duo', desc: 'Win 5 2v2 matches in a row.' },
+    { id: 'duo_synergy', family: 'Duo', type: 'duo', threshold: 10, tier: 2, icon: '🧠', name: 'Mind Meld', desc: 'Accept 10 partner-suggested moves.' },
+    { id: 'duo_maverick', family: 'Duo', type: 'duo', threshold: 20, tier: 2, icon: '🎸', name: 'Maverick', desc: 'Override your partner 20 times and still win.' },
+    { id: 'duo_2400', family: 'Duo', type: 'duo', threshold: 1, tier: 3, icon: '👑', name: 'Duo Royalty', desc: 'Reach 1600 2v2 rating.' },
+    { id: 'duo_comeback', family: 'Duo', type: 'duo', threshold: 1, tier: 3, icon: '🔄', name: 'Clutch Comeback', desc: 'Win a 2v2 after being down a queen.' },
   ];
 
   function hasAchievement(user, id) {
@@ -727,6 +742,10 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
   function showScreen(id) {
+    // Warn before leaving an in-progress 2v2 match
+    if (id !== 'duo' && window.Duo && window.__duo && window.__duo.game && !window.__duo.ended && !window.__duo.over && document.querySelector('#screen-duo.active')) {
+      if (!window.Duo.quit()) return;
+    }
     // Warn before leaving an in-progress match (acts as a forfeit if confirmed)
     if (id !== 'game' && state.game && !state.gameEnded && document.querySelector('#screen-game.active')) {
       if (!confirm('Are you sure you want to quit this match?\n\nLeaving now counts as a resignation — you will forfeit the game.')) return;
@@ -938,6 +957,10 @@ function renderFriendsList() {
     openModal('opponent');
   });
   $('#btn-find-match').addEventListener('click', () => findMatch());
+    // 2v2 lobby buttons
+    { const b = $('#btn-duo-ranked'); if (b) b.addEventListener('click', () => { try { window.Duo.startRanked(); } catch(e){ console.error(e); } }); }
+    { const b = $('#btn-duo-private'); if (b) b.addEventListener('click', () => { const sel = $('#duo-partner'); const name = sel ? sel.value : 'Ally'; try { window.Duo.startPrivate(name); } catch(e){ console.error(e); } }); }
+    { const b = $('#duo-quit'); if (b) b.addEventListener('click', () => { if (window.Duo.quit()) { window.__duo.game = null; showScreen('lobby'); } }); }
   $$('[data-cpu]').forEach(btn => {
     btn.addEventListener('click', () => startPracticeGame(btn.dataset.cpu));
   });
@@ -2840,4 +2863,324 @@ function signOut() {
   toast('Signed out.', true);
 }
 window.signOut = signOut;
+
+  // ============================================================
+  // 2v2 TEAM CHESS ("Duo") \u2014 additive, self-contained module
+  // One board, relay turns: White = you + partner, Black = two opponents.
+  // White move order: you, partner, you, partner...  Black: opp1, opp2...
+  // On your move, your partner suggests a move you may accept or override.
+  // ============================================================
+  const duo = {
+    game: null, mode: null, ranked: false,
+    selected: null, legalTargets: [], lastMove: null,
+    teammate: null,   // { name, isAI }
+    opp1: null, opp2: null, // opponent team members (sim/AI)
+    seat: 0,          // whose turn within current color (0/1)
+    suggestion: null, // { from, to } from partner during your turn
+    over: false, ended: false,
+    overrides: 0, accepts: 0,
+    youColor: 'w',
+    aiLevel: 'medium',
+    sawQueenDown: false,
+  };
+  window.__duo = duo;
+
+  // Lightweight move chooser for a given chess instance + difficulty.
+  function duoPickMove(chess, level) {
+    const moves = chess.moves({ verbose: true });
+    if (moves.length === 0) return null;
+    const maximizing = chess.turn() === 'w';
+    if (level === 'easy') {
+      const caps = moves.filter(m => m.captured);
+      if (caps.length && Math.random() < 0.6) return caps[Math.floor(Math.random()*caps.length)];
+      return moves[Math.floor(Math.random()*moves.length)];
+    }
+    // greedy 1-ply on evaluateBoard with light randomness
+    let best = null, bestVal = maximizing ? -Infinity : Infinity;
+    const shuffled = moves.slice().sort(() => Math.random() - 0.5);
+    for (const m of shuffled) {
+      chess.move(m);
+      let v = evaluateBoard(chess);
+      if (chess.in_checkmate()) v = maximizing ? 99999 : -99999;
+      chess.undo();
+      if (level === 'medium') v += (Math.random()-0.5) * 40;
+      if (maximizing ? v > bestVal : v < bestVal) { bestVal = v; best = m; }
+    }
+    return best || shuffled[0];
+  }
+
+  // Is it the human player's seat to move right now?
+  function duoIsYourTurn() {
+    if (!duo.game || duo.over) return false;
+    const turn = duo.game.turn();
+    if (turn !== duo.youColor) return false;
+    return duo.seat === 0; // you are seat 0 on your color
+  }
+
+  function duoStart(opts) {
+    // opts: { ranked, teammateName, teammateIsAI, aiLevel }
+    duo.game = new Chess();
+    duo.ranked = !!opts.ranked;
+    duo.mode = opts.ranked ? 'ranked' : 'private';
+    duo.aiLevel = opts.aiLevel || 'medium';
+    duo.youColor = 'w';
+    duo.seat = 0;
+    duo.selected = null; duo.legalTargets = []; duo.lastMove = null;
+    duo.suggestion = null; duo.over = false; duo.ended = false;
+    duo.overrides = 0; duo.accepts = 0; duo.sawQueenDown = false;
+    duo.teammate = { name: opts.teammateName || 'Ally', isAI: opts.teammateIsAI !== false };
+    const pool = ['Nova','Rook','Blaze','Sable','Vega','Onyx','Quill','Drift'];
+    duo.opp1 = { name: pool[Math.floor(Math.random()*pool.length)] };
+    duo.opp2 = { name: pool[Math.floor(Math.random()*pool.length)] };
+    // Award "played a 2v2" trophy
+    try {
+      const me = state.user;
+      if (me) { unlockAchievement(me, 'duo_first'); { const _db = loadDB(); if (state.user) _db.users[state.user.id] = state.user; saveDB(_db); } }
+    } catch(e){}
+    showScreen('duo');
+    duoRender();
+    duoUpdateStatus();
+    duoComputeSuggestion();
+  }
+
+  // Advance one ply has been made; rotate seat and drive AI seats.
+  function duoAfterPly(move) {
+    duo.lastMove = move ? { from: move.from, to: move.to } : null;
+    duo.selected = null; duo.legalTargets = [];
+    // sound
+    try {
+      if (window.ChessSounds) {
+        if (move && move.captured) window.ChessSounds.capture();
+        else window.ChessSounds.move();
+        if (duo.game.in_check()) setTimeout(() => window.ChessSounds.check(), 80);
+      }
+    } catch(e){}
+    // track queen-down for comeback trophy (your side lost its queen earlier)
+    try {
+      const fen = duo.game.fen();
+      const youHasQ = duo.youColor === 'w' ? fen.split(' ')[0].includes('Q') : fen.split(' ')[0].includes('q');
+      if (!youHasQ) duo.sawQueenDown = true;
+    } catch(e){}
+    if (duo.game.game_over()) { duoRender(); duoUpdateStatus(); duoFinish(); return; }
+    // seat rotates each ply within the same color until color flips
+    // chess.js flips turn automatically; seat alternates 0<->1 per ply
+    duo.seat = duo.seat === 0 ? 1 : 0;
+    duoRender();
+    duoUpdateStatus();
+    // Drive non-human seats
+    duoDriveTurn();
+  }
+
+  // Decide who controls the current ply and auto-play AI/sim seats.
+  function duoDriveTurn() {
+    if (duo.over || !duo.game || duo.game.game_over()) return;
+    const turn = duo.game.turn();
+    // Your seat: turn === youColor && seat 0 -> wait for human input
+    if (turn === duo.youColor && duo.seat === 0) {
+      duoComputeSuggestion();
+      return;
+    }
+    // Otherwise an AI/sim seat plays after a short delay
+    const level = (turn === duo.youColor) ? duo.aiLevel /* teammate */ : duo.aiLevel /* opponents */;
+    setTimeout(() => {
+      if (duo.over || duo.game.game_over()) return;
+      const m = duoPickMove(duo.game, level);
+      if (!m) { duoFinish(); return; }
+      const applied = duo.game.move({ from: m.from, to: m.to, promotion: m.promotion || 'q' });
+      duoAfterPly(applied);
+    }, 420);
+  }
+
+  // Partner computes a suggested move for YOUR turn.
+  function duoComputeSuggestion() {
+    duo.suggestion = null;
+    if (!duoIsYourTurn()) { duoRenderSuggestion(); return; }
+    const clone = new Chess(duo.game.fen());
+    const m = duoPickMove(clone, duo.aiLevel);
+    if (m) duo.suggestion = { from: m.from, to: m.to, promotion: m.promotion || 'q', san: m.san };
+    duoRenderSuggestion();
+  }
+
+  // Human accepts the partner suggestion.
+  function duoAcceptSuggestion() {
+    if (!duo.suggestion || !duoIsYourTurn()) return;
+    const s = duo.suggestion;
+    const applied = duo.game.move({ from: s.from, to: s.to, promotion: s.promotion || 'q' });
+    if (!applied) return;
+    duo.accepts++;
+    try { const me = state.user; if (me) { me.duoSuggestAccepts = (me.duoSuggestAccepts||0)+1; if (me.duoSuggestAccepts >= 10) unlockAchievement(me, 'duo_synergy'); { const _db = loadDB(); if (state.user) _db.users[state.user.id] = state.user; saveDB(_db); } } } catch(e){}
+    duoAfterPly(applied);
+  }
+
+  // Human clicks a board square during their seat.
+  function duoClick(name) {
+    if (!duoIsYourTurn()) return;
+    const g = duo.game;
+    const piece = g.get(name);
+    if (duo.selected) {
+      if (duo.selected === name) { duo.selected = null; duo.legalTargets = []; duoRender(); return; }
+      // try move
+      const legal = g.moves({ square: duo.selected, verbose: true }).find(m => m.to === name);
+      if (legal) {
+        // count as override if it differs from partner suggestion
+        if (duo.suggestion && !(duo.suggestion.from === duo.selected && duo.suggestion.to === name)) {
+          duo.overrides++;
+        }
+        const applied = g.move({ from: duo.selected, to: name, promotion: 'q' });
+        duoAfterPly(applied);
+        return;
+      }
+      if (piece && piece.color === duo.youColor) { duoSelect(name); return; }
+      duo.selected = null; duo.legalTargets = []; duoRender(); return;
+    }
+    if (piece && piece.color === duo.youColor) duoSelect(name);
+  }
+
+  function duoSelect(name) {
+    duo.selected = name;
+    duo.legalTargets = duo.game.moves({ square: name, verbose: true }).map(m => m.to);
+    duoRender();
+  }
+
+  function duoRender() {
+    const el = $('#duo-board');
+    if (!el || !duo.game) return;
+    el.innerHTML = '';
+    const board = duo.game.board();
+    const flip = duo.youColor === 'b';
+    for (let r = 7; r >= 0; r--) {
+      for (let f = 0; f < 8; f++) {
+        const rr = flip ? 7 - r : r;
+        const ff = flip ? 7 - f : f;
+        const sq = document.createElement('div');
+        const isLight = (rr + ff) % 2 === 1;
+        const name = squareName(ff, rr);
+        sq.className = 'sq ' + (isLight ? 'light' : 'dark');
+        sq.dataset.sq = name;
+        const pieceObj = board[7 - rr][ff];
+        if (pieceObj) sq.innerHTML = pieceSVG(pieceObj.type, pieceObj.color);
+        if (duo.selected === name) sq.classList.add('selected');
+        if (duo.legalTargets.indexOf(name) !== -1) sq.classList.add('target');
+        if (duo.lastMove && (duo.lastMove.from === name || duo.lastMove.to === name)) sq.classList.add('lastmove');
+        if (duo.suggestion && duoIsYourTurn() && (duo.suggestion.from === name || duo.suggestion.to === name)) sq.classList.add('duo-suggest-sq');
+        sq.addEventListener('click', () => duoClick(name));
+        el.appendChild(sq);
+      }
+    }
+  }
+
+  function duoColorLabel(c) { return c === 'w' ? 'White' : 'Black'; }
+
+  function duoUpdateStatus() {
+    const s = $('#duo-status'); if (!s || !duo.game) return;
+    const turn = duo.game.turn();
+    let who;
+    if (turn === duo.youColor) who = duo.seat === 0 ? 'Your move' : duo.teammate.name + ' (partner) is thinking\u2026';
+    else who = (duo.seat === 0 ? duo.opp1.name : duo.opp2.name) + ' (opponent) is thinking\u2026';
+    let extra = '';
+    if (duo.game.in_check()) extra = ' \u2014 Check!';
+    s.textContent = who + extra;
+  }
+
+  function duoRenderSuggestion() {
+    const p = $('#duo-suggest'); if (!p) return;
+    if (duo.suggestion && duoIsYourTurn()) {
+      const sanTxt = duo.suggestion.san || (duo.suggestion.from + '\u2192' + duo.suggestion.to);
+      p.style.display = '';
+      p.innerHTML = '<div class="duo-suggest-row"><span>\ud83e\udd1d ' + duo.teammate.name + ' suggests: <b>' + sanTxt + '</b></span>' +
+        '<span><button id="duo-accept" class="btn btn-secondary" style="padding:6px 12px">Play it</button> ' +
+        '<button id="duo-ignore" class="btn" style="padding:6px 12px">I\u2019ll decide</button></span></div>';
+      const a = $('#duo-accept'); if (a) a.addEventListener('click', duoAcceptSuggestion);
+      const ig = $('#duo-ignore'); if (ig) ig.addEventListener('click', () => { p.style.display='none'; });
+    } else { p.style.display = 'none'; p.innerHTML = ''; }
+  }
+
+  function duoFinish() {
+    if (duo.ended) return;
+    duo.ended = true; duo.over = true;
+    const g = duo.game;
+    let winnerColor = null, reason = 'draw';
+    if (g.in_checkmate()) { winnerColor = g.turn() === 'w' ? 'b' : 'w'; reason = 'checkmate'; }
+    else if (g.in_stalemate()) { reason = 'stalemate'; }
+    else if (g.in_draw() || g.insufficient_material() || g.in_threefold_repetition()) { reason = 'draw'; }
+    const youWon = winnerColor === duo.youColor;
+    const isDraw = winnerColor === null;
+    const me = state.user;
+    let delta = 0;
+    if (me) {
+      me.games2v2 = (me.games2v2||0) + 1; // count completed game
+      if (youWon) { me.wins2v2 = (me.wins2v2||0)+1; me.currentStreak2v2 = (me.currentStreak2v2||0)+1; me.bestStreak2v2 = Math.max(me.bestStreak2v2||0, me.currentStreak2v2); }
+      else if (isDraw) { me.draws2v2 = (me.draws2v2||0)+1; me.currentStreak2v2 = 0; }
+      else { me.losses2v2 = (me.losses2v2||0)+1; me.currentStreak2v2 = 0; }
+      // ELO (ranked 2v2 only): team rating vs a simulated team rating near yours
+      if (duo.ranked) {
+        const myR = me.elo2v2 || 1200;
+        const oppR = Math.max(400, myR + Math.floor((Math.random()-0.5)*200));
+        const score = isDraw ? 0.5 : (youWon ? 1 : 0);
+        const k = (typeof eloKFactor === 'function') ? eloKFactor(myR, me.games2v2||0) : 24;
+        delta = Math.round(k * (score - (1/(1+Math.pow(10,(oppR-myR)/400)))));
+        me.elo2v2 = Math.max(100, Math.min(2800, myR + delta));
+        if (!Array.isArray(me.ratingHistory2v2)) me.ratingHistory2v2 = [myR];
+        me.ratingHistory2v2.push(me.elo2v2);
+        if (me.ratingHistory2v2.length > 30) me.ratingHistory2v2 = me.ratingHistory2v2.slice(-30);
+      }
+      // Trophies
+      if (youWon) {
+        unlockAchievement(me, 'duo_win1');
+        if ((me.wins2v2||0) >= 10) unlockAchievement(me, 'duo_win10');
+        if ((me.wins2v2||0) >= 25) unlockAchievement(me, 'duo_win25');
+        if ((me.currentStreak2v2||0) >= 3) unlockAchievement(me, 'duo_streak3');
+        if ((me.currentStreak2v2||0) >= 5) unlockAchievement(me, 'duo_streak5');
+        if (duo.overrides > 0) { me.duoOverrideWins = (me.duoOverrideWins||0)+duo.overrides; if ((me.duoOverrideWins||0) >= 20) unlockAchievement(me, 'duo_maverick'); }
+        if ((me.elo2v2||1200) >= 1600) unlockAchievement(me, 'duo_2400');
+        if (duo.sawQueenDown) unlockAchievement(me, 'duo_comeback');
+      }
+      try { { const _db = loadDB(); if (state.user) _db.users[state.user.id] = state.user; saveDB(_db); } } catch(e){}
+    }
+    // celebrate / sound
+    try { if (window.ChessSounds) { if (isDraw) window.ChessSounds.note && window.ChessSounds.note(523,0.4,'sine',0.18); else window.ChessSounds.gameOver(youWon); } } catch(e){}
+    if (youWon && typeof ctCelebrate === 'function') { try { ctCelebrate('big'); } catch(e){} }
+    duoShowResult(youWon, isDraw, reason, delta);
+  }
+
+  function duoShowResult(youWon, isDraw, reason, delta) {
+    const s = $('#duo-status');
+    if (s) s.textContent = isDraw ? 'Draw \u2014 ' + reason : (youWon ? 'Victory! Your team wins.' : 'Defeat \u2014 your team lost.');
+    const p = $('#duo-suggest');
+    if (p) {
+      const dtxt = duo.ranked ? ('<div class="muted small">2v2 rating ' + (delta>=0?'+':'') + delta + ' (now ' + (state.user?state.user.elo2v2:'?') + ')</div>') : '<div class="muted small">Private match \u2014 no rating change.</div>';
+      p.style.display = '';
+      p.innerHTML = '<div style="text-align:center"><h3 style="margin:4px 0">' + (isDraw?'\ud83e\udd1d Draw':(youWon?'\ud83c\udfc6 Victory':'\ud83d\ude45 Defeat')) + '</h3>' + dtxt +
+        '<button id="duo-again" class="btn btn-primary" style="margin-top:10px">Back to lobby</button></div>';
+      const again = $('#duo-again'); if (again) again.addEventListener('click', () => { duo.over = true; duo.game = null; showScreen('lobby'); });
+    }
+  }
+
+  // Forfeit / leave a 2v2 in progress (warns first).
+  function duoQuit() {
+    if (duo.game && !duo.ended && !duo.over) {
+      if (!confirm('Are you sure you want to quit this 2v2 match?\n\nLeaving now counts as a forfeit for your team.')) return false;
+      const me = state.user;
+      if (me) { me.losses2v2 = (me.losses2v2||0)+1; me.currentStreak2v2 = 0; try { { const _db = loadDB(); if (state.user) _db.users[state.user.id] = state.user; saveDB(_db); } } catch(e){} }
+      duo.ended = true; duo.over = true;
+    }
+    return true;
+  }
+
+  // Lobby entry points
+  function duoStartRanked() {
+    duoStart({ ranked: true, teammateName: 'Ally', teammateIsAI: true, aiLevel: 'medium' });
+  }
+  function duoStartPrivate(partnerName) {
+    duoStart({ ranked: false, teammateName: partnerName || 'Ally', teammateIsAI: true, aiLevel: 'easy' });
+  }
+
+  window.Duo = {
+    startRanked: duoStartRanked,
+    startPrivate: duoStartPrivate,
+    quit: duoQuit,
+    accept: duoAcceptSuggestion,
+    state: duo,
+  };
+
 })();
