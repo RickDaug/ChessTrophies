@@ -684,6 +684,8 @@
     if (id === 'profile') renderProfile();
     if (id === 'rankings') renderRankings();
     if (id === 'trophies') renderTrophies();
+    if (id === 'friends') { renderFriendsList(); }
+    if (id === 'settings') { /* settings already rendered statically */ }
   }
 
   function showNav(visible) {
@@ -2107,10 +2109,10 @@ function renderFriendsList() {
         const pillStyle = isOops && got
           ? 'background:rgba(248,113,113,.2);color:var(--danger)'
           : `background:${color}22;color:${color}`;
-        const pillLabel = isOops ? '😬' : (isHidden ? 'Hidden' : 'T' + t.tier);
+        const pillLabel = isOops ? '😬' : (isHidden ? 'Hidden' : '');
         html += `<div class="trophy ${got ? '' : 'locked'}" style="${cardStyle}">
           <div class="icon">${displayIcon}</div>
-          <div class="name">${displayName} <span class="pill" style="${pillStyle}">${pillLabel}</span></div>
+          <div class="name">${displayName} ${pillLabel ? `<span class="pill" style="${pillStyle}">${pillLabel}</span>` : ""}</div>
           <div class="desc">${displayDesc}</div>
         </div>`;
       }
@@ -2575,4 +2577,71 @@ window.validateUsernameAvailability = validateUsernameAvailability;
 window.addChatButton = addChatButton;
 window.removeChatButton = removeChatButton;
 
+
+// ============================================================
+// FRIENDS SCREEN: search function
+// ============================================================
+function renderFriendSearchResults(query) {
+  const wrap = document.getElementById('friend-search-results');
+  if (!wrap) return;
+  const user = state.user;
+  if (!user) { wrap.innerHTML = ''; return; }
+  if (!query || query.trim().length < 2) { wrap.innerHTML = ''; return; }
+  const db = loadDB();
+  const lower = query.trim().toLowerCase();
+  const results = Object.values(db.users)
+    .filter(u => u.id !== user.id && u.username && u.username.toLowerCase().includes(lower))
+    .slice(0, 8);
+  if (!results.length) {
+    wrap.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;">No users found</p>';
+    return;
+  }
+  wrap.innerHTML = results.map(u => {
+    const isFriend = (user.friends || []).includes(u.id);
+    const safeName = escapeHTML(u.username);
+    const btn = isFriend
+      ? '<span style="font-size:12px;color:var(--accent);padding:4px 10px;background:rgba(100,150,255,.1);border-radius:20px;">Friends ✓</span>'
+      : '<button class="ct-add-friend-btn" data-uname="' + safeName + '" style="background:var(--accent);border:none;border-radius:20px;color:#fff;padding:6px 14px;font-size:12px;cursor:pointer;white-space:nowrap;">+ Add</button>';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">'
+      + '<div style="flex-shrink:0;">' + getAvatarHTML(u, 36) + '</div>'
+      + '<div style="flex:1;min-width:0;">'
+      +   '<div style="font-weight:600;font-size:14px;">' + safeName + '</div>'
+      +   '<div style="font-size:12px;color:var(--muted);">ELO ' + (u.elo || 1200) + '</div>'
+      + '</div>'
+      + btn
+      + '</div>';
+  }).join('');
+  // Wire up add buttons via event delegation
+  wrap.querySelectorAll('.ct-add-friend-btn').forEach(btn => {
+    btn.onclick = function() {
+      addFriendAndRefresh(this.dataset.uname);
+    };
+  });
+}
+function addFriendAndRefresh(username) {
+  try {
+    addFriendByUsername(state.user, username);
+    toast('Friend added!', true);
+    renderFriendSearchResults(username);
+    renderFriendsList();
+  } catch(e) {
+    toast(e.message, false);
+  }
+}
+window.renderFriendSearchResults = renderFriendSearchResults;
+window.addFriendAndRefresh = addFriendAndRefresh;
+
+
+function signOut() {
+  if (!confirm('Sign out of ChessTrophies?')) return;
+  // Clear session
+  try { localStorage.removeItem('chesstrophies_session_v1'); } catch(e) {}
+  state.user = null;
+  state.userId = null;
+  showScreen('lobby');
+  renderLobby();
+  showNav(true);
+  toast('Signed out.', true);
+}
+window.signOut = signOut;
 })();

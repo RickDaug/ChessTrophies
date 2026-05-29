@@ -214,6 +214,102 @@
   @media (min-width: 600px) {
     .stat .v { font-size: 24px; }
   }
+
+    /* === ENHANCED NAV === */
+    #bottom-nav {
+      display: flex;
+      justify-content: space-around;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
+      padding: 6px 0 env(safe-area-inset-bottom, 6px);
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      z-index: 100;
+    }
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 2px 4px;
+      cursor: pointer;
+      border-radius: 10px;
+      transition: background .15s;
+      min-width: 0;
+    }
+    .nav-icon {
+      font-size: 20px;
+      line-height: 1;
+      margin-bottom: 3px;
+      display: block;
+    }
+    .nav-label {
+      font-size: 9px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+    .nav-item.active .nav-icon { filter: drop-shadow(0 0 4px var(--accent)); }
+    .nav-item.active .nav-label { color: var(--accent); font-weight: 600; }
+    .nav-item:hover { background: rgba(255,255,255,.04); }
+
+    /* === LOBBY CLEANER === */
+    #lobby-play-section { margin-bottom: 0; }
+    .lobby-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .lobby-card h3 {
+      font-size: 13px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      margin: 0 0 12px;
+    }
+
+    /* === TROPHY CARD CLEANUP === */
+    .trophy-tier-label { display: none !important; }
+    .trophy-card .tier-badge { display: none !important; }
+
+    /* === SETTINGS ENHANCED === */
+    .settings-section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    .settings-section h3 {
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      margin: 0 0 12px;
+    }
+
+    /* === FRIENDS SCREEN === */
+    #screen-friends .top-bar { margin-bottom: 0; }
+    #friend-search-input:focus {
+      border-color: var(--accent) !important;
+      box-shadow: 0 0 0 2px rgba(var(--accent-rgb, 100,150,255),.15);
+    }
+
+    /* === STAT GRID CLEANUP === */
+    .stat-grid { gap: 8px; margin: 0 0 12px; }
+    .stat { border-radius: 12px; padding: 10px 8px; }
+
+    /* Sound toggle animation */
+    #toggle-sounds-track { transition: background .2s; }
+    #toggle-sounds:not(:checked) + #toggle-sounds-track { background: var(--border) !important; }
+    #toggle-sounds:checked ~ #toggle-sounds-thumb { transform: translateX(18px); }
 </style>
 </head>
 <body>
@@ -532,37 +628,111 @@
 
   <!-- SETTINGS -->
   <section id="screen-settings" class="screen">
-    <div class="top-bar"><h1>Settings</h1></div>
-    <h3>Board theme</h3>
-    <div class="theme-grid" id="settings-boards"></div>
-    <h3 style="margin-top:18px">Piece colors</h3>
-    <div class="theme-grid" id="settings-pieces"></div>
-    <p class="muted small center" style="margin-top:18px">Your theme is saved to your profile — it stays the same every time you sign in on this device.</p>
-  </section>
+      <div class="top-bar"><h1>Settings</h1></div>
+      <div style="padding:12px 16px;padding-bottom:80px;">
 
-  <!-- BOTTOM NAV -->
-  <nav id="bottom-nav">
-    <div class="nav-item active" data-nav="lobby">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 12 3l9 9"/><path d="M5 10v10h14V10"/></svg>
-      <div>Home</div>
-    </div>
-    <div class="nav-item" data-nav="academy">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M21 10v5"/><path d="M6 9v5c0 1.5 3 3 6 3s6-1.5 6-3V9"/></svg>
-      <div>Academy</div>
-    </div>
-    <div class="nav-item" data-nav="trophies">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8v4a4 4 0 0 1-8 0V3z"/><path d="M4 5h4v2a4 4 0 0 1-4 0V5zM16 5h4v2a4 4 0 0 1-4 0V5z"/><path d="M9 13h6l-1 4h-4z"/><path d="M8 21h8"/></svg>
-      <div>Trophies</div>
-    </div>
-    <div class="nav-item" data-nav="rankings">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><rect x="5" y="11" width="4" height="10"/><rect x="10" y="6" width="4" height="15"/><rect x="15" y="14" width="4" height="7"/></svg>
-      <div>Ranks</div>
-    </div>
-    <div class="nav-item" data-nav="profile">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
-      <div>Profile</div>
-    </div>
-  </nav>
+        <!-- APPEARANCE -->
+        <div class="settings-section">
+          <h3>🎨 Appearance</h3>
+          <h4 style="font-size:12px;color:var(--text);margin:0 0 8px;font-weight:500;">Board Theme</h4>
+          <div class="theme-grid" id="settings-boards"></div>
+          <h4 style="font-size:12px;color:var(--text);margin:14px 0 8px;font-weight:500;">Piece Style</h4>
+          <div class="theme-grid" id="settings-pieces"></div>
+        </div>
+
+        <!-- PROFILE PERSONALIZATION -->
+        <div class="settings-section">
+          <h3>👤 Profile</h3>
+          <button onclick="openAvatarEditor()" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:8px;">
+            🖼️ &nbsp; Change Profile Picture
+          </button>
+          <button onclick="showScreen('profile')" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;">
+            ✏️ &nbsp; View My Profile
+          </button>
+        </div>
+
+        <!-- NOTIFICATIONS (placeholder) -->
+        <div class="settings-section">
+          <h3>🔔 Notifications</h3>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;">
+            <span style="font-size:14px;color:var(--text);">Game sounds</span>
+            <label style="position:relative;display:inline-block;width:42px;height:24px;">
+              <input type="checkbox" id="toggle-sounds" checked style="opacity:0;width:0;height:0;" onchange="localStorage.setItem('ct_sounds', this.checked)">
+              <span id="toggle-sounds-track" style="position:absolute;cursor:pointer;inset:0;background:var(--accent);border-radius:24px;transition:.2s;"></span>
+              <span id="toggle-sounds-thumb" style="position:absolute;content:'';height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- ACCOUNT -->
+        <div class="settings-section">
+          <h3>⚙️ Account</h3>
+          <p class="muted small" style="margin-bottom:10px;">Your theme is saved to your profile — it stays the same every time you sign in on this device.</p>
+          <button onclick="signOut()" style="width:100%;padding:11px;background:#8b2020;border:none;border-radius:10px;color:#fff;font-size:14px;cursor:pointer;font-weight:600;">Sign Out</button>
+        </div>
+
+      </div>
+    </section>
+
+  
+    <!-- FRIENDS SCREEN -->
+    <section id="screen-friends" class="screen">
+      <div class="top-bar"><h1>Friends</h1></div>
+      <div style="padding:12px 16px 0;">
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+          <input id="friend-search-input" type="text" placeholder="Search by username…"
+            style="flex:1;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;"
+            oninput="renderFriendSearchResults(this.value)">
+        </div>
+        <div id="friend-search-results" style="margin-bottom:16px;"></div>
+      </div>
+      <div style="padding:0 16px;">
+        <h3 style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px;">Your Friends</h3>
+        <div id="friends-list"></div>
+        <p id="friends-summary" style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0;"></p>
+      </div>
+      <!-- Friend challenge modal -->
+      <div id="modal-friend-challenge" class="modal">
+        <div class="modal-box">
+          <h2 id="fc-title">Challenge a friend</h2>
+          <label class="muted small" style="margin-top:12px;display:block;">Enter their password to verify</label>
+          <input id="opp-email" type="email" placeholder="Their email" style="margin-top:6px;">
+          <input id="opp-password" type="password" placeholder="Their password" style="margin-top:8px;">
+          <div style="display:flex;gap:8px;margin-top:16px;">
+            <button id="btn-fc-cancel" class="secondary" style="flex:1">Cancel</button>
+            <button id="btn-fc-start" style="flex:1">Start Game</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+<!-- BOTTOM NAV -->
+    <nav id="bottom-nav">
+      <div class="nav-item active" data-nav="lobby">
+        <span class="nav-icon">♟</span>
+        <span class="nav-label">Play</span>
+      </div>
+      <div class="nav-item" data-nav="friends">
+        <span class="nav-icon">👥</span>
+        <span class="nav-label">Friends</span>
+      </div>
+      <div class="nav-item" data-nav="trophies">
+        <span class="nav-icon">🏆</span>
+        <span class="nav-label">Trophies</span>
+      </div>
+      <div class="nav-item" data-nav="rankings">
+        <span class="nav-icon">🏅</span>
+        <span class="nav-label">Rankings</span>
+      </div>
+      <div class="nav-item" data-nav="profile">
+        <span class="nav-icon">👤</span>
+        <span class="nav-label">Profile</span>
+      </div>
+      <div class="nav-item" data-nav="settings">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">Settings</span>
+      </div>
+    </nav>
 </div>
 
 <!-- Modals -->
