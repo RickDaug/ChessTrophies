@@ -311,7 +311,21 @@
     #toggle-sounds-track { transition: background .2s; }
     #toggle-sounds:not(:checked) + #toggle-sounds-track { background: var(--border) !important; }
     #toggle-sounds:checked ~ #toggle-sounds-thumb { transform: translateX(18px); }
-</style>
+
+    /* ---- Celebration: confetti + trophy shine (enhancement) ---- */
+    #ct-confetti { position: fixed; inset: 0; pointer-events: none; z-index: 9999; overflow: hidden; }
+    .ct-confetti-piece { position: absolute; top: -12px; width: 9px; height: 14px; opacity: 0.95; will-change: transform; animation: ct-fall linear forwards; }
+    @keyframes ct-fall { 0% { transform: translateY(-20px) rotate(0deg); opacity: 1; } 100% { transform: translateY(102vh) rotate(720deg); opacity: 0.9; } }
+    @keyframes ct-elo-pop { 0% { transform: scale(0.6); opacity: 0; } 55% { transform: scale(1.18); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+    .ct-elo-pop { display: inline-block; animation: ct-elo-pop 0.6s cubic-bezier(.2,.9,.3,1.3) both; }
+    @keyframes ct-shine { 0% { background-position: -150% 0; } 100% { background-position: 250% 0; } }
+    .ct-trophy-shine { background-image: linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.55) 50%, transparent 70%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; animation: ct-shine 1.1s ease-in-out 1; }
+    /* ---- Rating sparkline + provisional badge ---- */
+    .ct-sparkline { display: block; margin: 6px auto 0; width: 120px; height: 28px; }
+    .ct-sparkline path { fill: none; stroke: var(--accent, #f5c451); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    .ct-provisional { display: inline-block; margin-left: 6px; font-size: 0.62em; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px; background: rgba(245,196,81,.16); color: var(--accent, #f5c451); vertical-align: middle; }
+    @media (prefers-reduced-motion: reduce) { .ct-confetti-piece, .ct-elo-pop, .ct-trophy-shine { animation: none !important; } }
+  </style>
 </head>
 <body>
 
@@ -893,7 +907,7 @@
 </div>
 
 <!-- chess.js (move validation, check/mate detection) -->
-<script src="chess.min.js"></script>
+<script src="chess.min.js?v=20260529b"></script>
 <script>
   if (typeof Chess === 'undefined') {
     document.addEventListener('DOMContentLoaded', function () {
@@ -904,10 +918,10 @@
     });
   }
 </script>
-<script src="sounds.js"></script>
-<script src="stockfish-ai.js"></script>
-<script src="app.js"></script>
-<script src="academy.js"></script>
+<script src="sounds.js?v=20260529b"></script>
+<script src="stockfish-ai.js?v=20260529b"></script>
+<script src="app.js?v=20260529b"></script>
+<script src="academy.js?v=20260529b"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {

@@ -108,6 +108,16 @@
       setTimeout(() => note(370, 0.22, 'sawtooth', 0.16), 360);  // Gb4
       setTimeout(() => note(294, 0.42, 'sawtooth', 0.18), 560);  // D4 (wah-wah drop)
     },
+    // Distinct, grander cue for completing a 7-win streak trophy.
+    streakMilestone() {
+      note(523, 0.12, 'triangle', 0.22);            // C5
+      setTimeout(() => note(659, 0.12, 'triangle', 0.22), 80);   // E5
+      setTimeout(() => note(784, 0.12, 'triangle', 0.24), 160);  // G5
+      setTimeout(() => note(1047, 0.14, 'triangle', 0.26), 240); // C6
+      setTimeout(() => note(1319, 0.16, 'square', 0.20), 340);   // E6
+      setTimeout(() => note(1568, 0.45, 'sine', 0.30), 460);     // G6 big finish
+      setTimeout(() => thud(0.18, 0.10), 470);                     // soft boom
+    },
     setMuted(m) {
       muted = !!m;
       try { localStorage.setItem('ct_sound_muted', muted ? '1' : '0'); } catch (e) {}

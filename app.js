@@ -280,6 +280,7 @@
       username: username.trim(),
       region: (region || '').trim(),
       elo: (function(e){ e = parseInt(e,10); if (!isFinite(e)) return 1200; return Math.max(100, Math.min(2800, e)); })(startingElo),
+    ratingHistory: [(function(e){ e = parseInt(e,10); if (!isFinite(e)) return 1200; return Math.max(100, Math.min(2800, e)); })(startingElo)], // rolling ELO snapshots for the profile sparkline
       wins: 0,
       losses: 0,
       draws: 0,
@@ -744,6 +745,30 @@
     $('#bottom-nav').classList.toggle('show', visible);
   }
 
+  function ctCelebrate(intensity) {
+    // Lightweight confetti burst for trophy/streak celebrations. Visual only.
+    try {
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      var count = intensity === 'big' ? 90 : 55;
+      var layer = document.getElementById('ct-confetti');
+      if (!layer) { layer = document.createElement('div'); layer.id = 'ct-confetti'; document.body.appendChild(layer); }
+      var colors = ['#f5c451','#7dd4ff','#c084fc','#34d399','#fb7185','#ffffff'];
+      var frag = document.createDocumentFragment();
+      for (var i = 0; i < count; i++) {
+        var p = document.createElement('div');
+        p.className = 'ct-confetti-piece';
+        p.style.left = (Math.random() * 100) + 'vw';
+        p.style.background = colors[(Math.random() * colors.length) | 0];
+        var dur = 1.6 + Math.random() * 1.6;
+        p.style.animationDuration = dur + 's';
+        p.style.animationDelay = (Math.random() * 0.35) + 's';
+        if (Math.random() < 0.5) p.style.borderRadius = '50%';
+        frag.appendChild(p);
+        (function(el){ setTimeout(function(){ if (el && el.parentNode) el.parentNode.removeChild(el); }, (dur + 0.6) * 1000); })(p);
+      }
+      layer.appendChild(frag);
+    } catch (e) {}
+  }
   function toast(msg, gold) {
     const div = document.createElement('div');
     div.className = 'toast' + (gold ? ' gold' : '');
@@ -1109,9 +1134,14 @@ function renderFriendsList() {
     const db = loadDB();
     const me = state.user;
     const candidates = Object.values(db.users).filter(u => u.id !== me.id);
-    const range = 100;
-    let pool = candidates.filter(u => Math.abs(u.elo - me.elo) <= range);
-    if (pool.length === 0) pool = candidates.filter(u => Math.abs(u.elo - me.elo) <= 250);
+    // Progressive matchmaking: start tight (±100), then widen so players at the
+    // rating extremes are not left without an opponent. Picks the closest available.
+    const bands = [100, 200, 400, Infinity];
+    let pool = [];
+    for (let bi = 0; bi < bands.length; bi++) {
+      pool = candidates.filter(u => Math.abs(u.elo - me.elo) <= bands[bi]);
+      if (pool.length > 0) break;
+    }
     if (pool.length === 0) {
       toast('No ranked players available — try Practice vs Computer.');
       return;
@@ -1676,7 +1706,11 @@ function renderFriendsList() {
       const myScore = isDraw ? 0.5 : (myWon ? 1 : 0);
       const delta = eloDelta(me.elo, opp.elo, myScore, (me.wins||0)+(me.losses||0)+(me.draws||0));
       me.elo += delta;
-      rewards.push(`<div class="card row between"><div>ELO</div><div class="pill ${delta >= 0 ? 'success' : 'danger'}">${delta >= 0 ? '+' : ''}${delta} (now ${me.elo})</div></div>`);
+      // Record an ELO snapshot for the profile sparkline (keep the last 30).
+      if (!Array.isArray(me.ratingHistory)) me.ratingHistory = [me.elo - delta];
+      me.ratingHistory.push(me.elo);
+      if (me.ratingHistory.length > 30) me.ratingHistory = me.ratingHistory.slice(-30);
+      rewards.push(`<div class="card row between"><div>ELO</div><div class="pill ${delta >= 0 ? 'success' : 'danger'}"><span class="ct-elo-pop">${delta >= 0 ? '+' : ''}${delta}</span> (now ${me.elo})</div></div>`);
 
       // Opponent ELO update (saved in DB)
       const db = loadDB();
@@ -1720,6 +1754,9 @@ function renderFriendsList() {
             victims: me.streakVictims.slice(),
           };
           me.streakTrophies.push(trophy);
+            // Distinct grander cue for a completed 7-win streak (overrides the normal trophy sound timing).
+            try { if (window.ChessSounds && window.ChessSounds.streakMilestone) window.ChessSounds.streakMilestone(); } catch (e) {}
+            ctCelebrate('big');
           me.streakVictims = []; // reset accumulator; streak continues, next 7 = next trophy
           rewards.push(trophyRewardHTML(trophy));
         }
@@ -1894,7 +1931,7 @@ function renderFriendsList() {
         rewards.push(`<div class="card row" style="gap:12px;border-color:${isOops ? 'var(--danger)' : color + 'aa'};background:linear-gradient(135deg, ${isOops ? 'rgba(248,113,113,.1)' : color + '12'}, var(--panel))">
           <div style="font-size:30px">${a.icon}</div>
           <div style="flex:1">
-            <div style="font-weight:700">${isOops ? '😬 Embarrassing trophy' : (a.hidden ? '🔓 Hidden trophy unlocked' : 'Trophy unlocked')}<span class="pill" style="background:${color}22;color:${color};margin-left:6px">${a.family}</span></div>
+            <div style="font-weight:700">${isOops ? '😅 Oops! A cheeky trophy' : (a.hidden ? '🔓 Hidden trophy unlocked' : 'Trophy unlocked')}<span class="pill" style="background:${color}22;color:${color};margin-left:6px">${a.family}</span></div>
             <div>${a.name} — <span class="muted small">${a.desc}</span></div>
           </div>
         </div>`);
@@ -1931,6 +1968,15 @@ function renderFriendsList() {
     $('#result-body').textContent = body;
     $('#result-rewards').innerHTML = rewards.join('') + renderAdSlot('medium');
     openModal('result');
+    // Celebrate trophy unlocks: confetti + title shine, timed with the fanfare.
+    try {
+      var _newTrophies = (typeof unlocked !== 'undefined' ? unlocked.length : 0) + (typeof moreUnlocks !== 'undefined' ? moreUnlocks.length : 0);
+      if (_newTrophies > 0) {
+        var _t = $('#result-title'); if (_t) { _t.classList.remove('ct-trophy-shine'); void _t.offsetWidth; _t.classList.add('ct-trophy-shine'); }
+        ctCelebrate(_newTrophies >= 2 ? 'big' : 'normal');
+        setTimeout(function(){ ctCelebrate('normal'); }, 260);
+      }
+    } catch (e) {}
   }
 
   function checkOppMilestones(oppUser) {
@@ -2028,6 +2074,41 @@ function renderFriendsList() {
     $('#prof-elo').textContent = u.elo;
     const games = u.wins + u.losses + u.draws;
     $('#prof-games').textContent = games;
+    // Provisional badge (until 30 ranked games) + rating sparkline next to ELO.
+    (function(){
+      var eloEl = $('#prof-elo');
+      if (!eloEl) return;
+      var card = eloEl.parentElement;
+      // Clear any previously rendered extras so re-renders don't stack.
+      var oldBadge = card.querySelector('.ct-provisional'); if (oldBadge) oldBadge.remove();
+      var oldSpark = card.querySelector('.ct-sparkline'); if (oldSpark) oldSpark.remove();
+      if (games < 30) {
+        var badge = document.createElement('span');
+        badge.className = 'ct-provisional';
+        badge.textContent = 'Provisional';
+        badge.title = 'Your rating is still settling. After 30 ranked games it stabilises (lower K-factor).';
+        eloEl.appendChild(badge);
+      }
+      var hist = Array.isArray(u.ratingHistory) ? u.ratingHistory.slice(-30) : [u.elo];
+      if (hist.length >= 2) {
+        var w = 120, h = 28, pad = 3;
+        var min = Math.min.apply(null, hist), max = Math.max.apply(null, hist);
+        var span = (max - min) || 1;
+        var pts = hist.map(function(v, i){
+          var x = pad + (i / (hist.length - 1)) * (w - 2 * pad);
+          var y = pad + (1 - (v - min) / span) * (h - 2 * pad);
+          return x.toFixed(1) + ',' + y.toFixed(1);
+        });
+        var svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+        svg.setAttribute('class','ct-sparkline');
+        svg.setAttribute('viewBox','0 0 ' + w + ' ' + h);
+        svg.setAttribute('aria-label','Rating trend');
+        var path = document.createElementNS('http://www.w3.org/2000/svg','path');
+        path.setAttribute('d','M' + pts.join(' L'));
+        svg.appendChild(path);
+        card.appendChild(svg);
+      }
+    })();
     $('#prof-winrate').textContent = games === 0 ? '—' : Math.round((u.wins / games) * 100) + '%';
     $('#prof-wins').textContent = u.wins;
     $('#prof-losses').textContent = u.losses;
@@ -2196,7 +2277,7 @@ function renderFriendsList() {
       const subText = isHiddenFamily
         ? (owned.length ? `Discovered ${owned.length} of ${total} — keep playing` : 'Locked — discovered by accomplishing rare feats')
         : isEmbarrassingFamily
-          ? (owned.length ? `${owned.length} of ${total} embarrassments` : 'Hopefully you never see these')
+          ? (owned.length ? `${owned.length} of ${total} embarrassments` : 'Worn with a wink — we all have these days')
           : (nextLocked ? `Next: ${escapeHTML(nextLocked.name)}` : 'Maxed');
       html += `<div style="grid-column:1/-1;margin-top:14px">
         <div class="row between" style="margin:4px 4px 6px">
