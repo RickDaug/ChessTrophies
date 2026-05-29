@@ -135,7 +135,8 @@
   .trophy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .trophy { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 12px; text-align: center; position: relative; overflow: hidden; }
   .trophy.locked { opacity: .5; filter: grayscale(.6); }
-  .trophy .icon { font-size: 32px; margin-bottom: 4px; }
+  .trophy .icon { width: 58px; height: 58px; margin: 0 auto 6px; display: flex; align-items: center; justify-content: center; }
+    .trophy .icon svg { width: 100%; height: 100%; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
   .trophy .name { font-weight: 700; font-size: 14px; }
   .trophy .desc { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
   .trophy.streak { background: linear-gradient(160deg, rgba(245, 196, 81, .15), var(--panel)); border-color: rgba(245, 196, 81, .35); }
@@ -690,19 +691,6 @@
         <h3 style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px;">Your Friends</h3>
         <div id="friends-list"></div>
         <p id="friends-summary" style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0;"></p>
-      </div>
-      <!-- Friend challenge modal -->
-      <div id="modal-friend-challenge" class="modal">
-        <div class="modal-box">
-          <h2 id="fc-title">Challenge a friend</h2>
-          <label class="muted small" style="margin-top:12px;display:block;">Enter their password to verify</label>
-          <input id="opp-email" type="email" placeholder="Their email" style="margin-top:6px;">
-          <input id="opp-password" type="password" placeholder="Their password" style="margin-top:8px;">
-          <div style="display:flex;gap:8px;margin-top:16px;">
-            <button id="btn-fc-cancel" class="secondary" style="flex:1">Cancel</button>
-            <button id="btn-fc-start" style="flex:1">Start Game</button>
-          </div>
-        </div>
       </div>
     </section>
 

@@ -326,19 +326,51 @@
   }
   function addFriendByUsername(me, username) {
     if (!username) throw new Error('Enter a username.');
-    const db = loadDB();
-    const friend = findUserByUsername(db, username);
+    var db = loadDB();
+    var friend = findUserByUsername(db, username);
     if (!friend) throw new Error('No user with that username on this device.');
     if (friend.id === me.id) throw new Error("You can't add yourself.");
     me.friends = me.friends || [];
     friend.friends = friend.friends || [];
-    if (me.friends.includes(friend.id)) throw new Error('Already friends with ' + friend.username + '.');
-    me.friends.push(friend.id);
-    if (!friend.friends.includes(me.id)) friend.friends.push(me.id);
-    db.users[me.id] = me;
-    db.users[friend.id] = friend;
-    saveDB(db);
-    return friend;
+    friend.incomingRequests = friend.incomingRequests || [];
+    me.outgoingRequests = me.outgoingRequests || [];
+    if (me.friends.indexOf(friend.id) !== -1) throw new Error('Already friends with ' + friend.username + '.');
+    if (friend.incomingRequests.indexOf(me.id) !== -1) throw new Error('Request already sent to ' + friend.username + '.');
+    // If they already requested you, accept it instead of duplicating.
+    me.incomingRequests = me.incomingRequests || [];
+    if (me.incomingRequests.indexOf(friend.id) !== -1) {
+      db.users[me.id] = me; db.users[friend.id] = friend; saveDB(db);
+      acceptFriendRequest(me, friend.id);
+      return { accepted: true, username: friend.username };
+    }
+    friend.incomingRequests.push(me.id);
+    if (me.outgoingRequests.indexOf(friend.id) === -1) me.outgoingRequests.push(friend.id);
+    db.users[me.id] = me; db.users[friend.id] = friend; saveDB(db);
+    return { requested: true, username: friend.username };
+  }
+
+  function acceptFriendRequest(me, requesterId) {
+    var db = loadDB();
+    me = db.users[me.id] || me;
+    var other = db.users[requesterId];
+    if (!other) throw new Error('That user no longer exists.');
+    me.friends = me.friends || []; other.friends = other.friends || [];
+    me.incomingRequests = (me.incomingRequests || []).filter(function(id){ return id !== requesterId; });
+    other.outgoingRequests = (other.outgoingRequests || []).filter(function(id){ return id !== me.id; });
+    if (me.friends.indexOf(other.id) === -1) me.friends.push(other.id);
+    if (other.friends.indexOf(me.id) === -1) other.friends.push(me.id);
+    db.users[me.id] = me; db.users[other.id] = other; saveDB(db);
+    if (state && state.user && state.user.id === me.id) state.user = me;
+  }
+
+  function declineFriendRequest(me, requesterId) {
+    var db = loadDB();
+    me = db.users[me.id] || me;
+    var other = db.users[requesterId];
+    me.incomingRequests = (me.incomingRequests || []).filter(function(id){ return id !== requesterId; });
+    if (other) other.outgoingRequests = (other.outgoingRequests || []).filter(function(id){ return id !== me.id; });
+    db.users[me.id] = me; if (other) db.users[other.id] = other; saveDB(db);
+    if (state && state.user && state.user.id === me.id) state.user = me;
   }
   function removeFriendById(me, friendId) {
     const db = loadDB();
@@ -803,28 +835,46 @@
 }
 
 function renderFriendsList() {
-    const u = state.user;
-    const friends = getFriendUsers(u);
-    const wrap = $('#friends-list');
-    $('#friends-summary').textContent = friends.length === 0
-      ? 'No friends yet — tap + Add friend'
-      : `${friends.length} ${friends.length === 1 ? 'friend' : 'friends'}`;
-    if (friends.length === 0) {
-      wrap.innerHTML = '';
-      return;
+    var wrap = $('#friends-list');
+    if (!wrap) return;
+    var db = loadDB();
+    var me = db.users[state.user.id] || state.user;
+    var incoming = (me.incomingRequests || []).map(function(id){ return db.users[id]; }).filter(Boolean);
+    var friends = (me.friends || []).map(function(id){ return db.users[id]; }).filter(Boolean);
+    var html = '';
+    if (incoming.length) {
+      html += '<div class="muted small" style="text-transform:uppercase;letter-spacing:.6px;margin:4px 0 6px;">Friend requests</div>';
+      html += incoming.map(function(u){
+        return '<div class="friend-row" data-req-id="' + u.id + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--panel-2);border-radius:10px;margin-bottom:8px;">' +
+          (typeof getAvatarHTML === 'function' ? getAvatarHTML(u, 34) : '') +
+          '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(u.username) + '</div>' +
+          '<div class="muted small">wants to be friends</div></div>' +
+          '<button class="btn-accept-req" data-id="' + u.id + '" style="background:var(--accent);color:#1a1d24;border:none;border-radius:8px;padding:6px 12px;font-weight:600;cursor:pointer;">Accept</button>' +
+          '<button class="btn-decline-req" data-id="' + u.id + '" style="background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;">Decline</button>' +
+          '</div>';
+      }).join('');
     }
-    wrap.innerHTML = friends.map(f => `
-      <div class="row" data-friend-id="${f.id}" style="gap:10px;padding:8px;border-radius:10px;background:var(--panel-2);cursor:pointer">
-        <div class="avatar" style="width:36px;height:36px;font-size:14px">${escapeHTML(f.username[0].toUpperCase())}</div>
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:600">${escapeHTML(f.username)}</div>
-          <div class="muted small">ELO ${f.elo} · ${f.wins}W ${f.losses}L</div>
-        </div>
-        <div class="pill gold">Challenge</div>
-      </div>
-    `).join('');
-    $$('#friends-list [data-friend-id]').forEach(row => {
-      row.addEventListener('click', () => openFriendChallenge(row.dataset.friendId));
+    html += '<div class="muted small" style="text-transform:uppercase;letter-spacing:.6px;margin:10px 0 6px;">Your friends</div>';
+    if (!friends.length) {
+      html += '<div class="muted small" style="padding:8px 2px;">No friends yet. Search by username above to send a request.</div>';
+    } else {
+      html += friends.map(function(f){
+        return '<div class="friend-row" data-friend-id="' + f.id + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--panel-2);border-radius:10px;margin-bottom:8px;cursor:pointer;">' +
+          (typeof getAvatarHTML === 'function' ? getAvatarHTML(f, 34) : '') +
+          '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(f.username) + '</div>' +
+          '<div class="muted small">ELO ' + f.elo + ' \u00b7 ' + (f.wins||0) + 'W ' + (f.losses||0) + 'L</div></div>' +
+          '<div class="pill gold">Challenge</div></div>';
+      }).join('');
+    }
+    wrap.innerHTML = html;
+    $$('#friends-list [data-friend-id]').forEach(function(row){
+      row.addEventListener('click', function(){ openFriendChallenge(row.dataset.friendId); });
+    });
+    $$('#friends-list .btn-accept-req').forEach(function(b){
+      b.addEventListener('click', function(e){ e.stopPropagation(); acceptFriendRequest(state.user, b.dataset.id); toast('Friend added \ud83e\udd1d'); renderFriendsList(); });
+    });
+    $$('#friends-list .btn-decline-req').forEach(function(b){
+      b.addEventListener('click', function(e){ e.stopPropagation(); declineFriendRequest(state.user, b.dataset.id); renderFriendsList(); });
     });
   }
 
@@ -892,14 +942,21 @@ function renderFriendsList() {
   $('#btn-fc-cancel').addEventListener('click', () => closeModal('friend-challenge'));
 
   function startFriendChallenge(mode) {
-    const db = loadDB();
-    const friend = db.users[state.selectedFriendId];
+    var db = loadDB();
+    var friend = db.users[state.selectedFriendId];
     if (!friend) return;
-    state.pendingChallenge = { friendId: friend.id, mode };
-    $('#opp-email').value = friend.email;
-    $('#opp-password').value = '';
-    $('#opp-error').textContent = '';
-    openModal('opponent');
+    closeModal('friend-challenge');
+    state.opponent = {
+      id: friend.id,
+      username: friend.username,
+      elo: friend.elo,
+      avatar: friend.avatar,
+      avatarStock: friend.avatarStock,
+      isAI: false,
+      isGuest: false
+    };
+    state.pendingChallenge = null;
+    startGame(mode === 'friendly' ? 'unranked' : 'ranked');
   }
 
   // Private rooms
@@ -2039,6 +2096,39 @@ function renderFriendsList() {
   // ---------------------------------------------------------------------------
   // Trophies screen — tiered, grouped by family
   // ---------------------------------------------------------------------------
+    function trophyTierColors(tier, unlocked) {
+    var ramp = [
+      ['#c8794a','#a85e34'],
+      ['#cfd6dd','#9aa5b1'],
+      ['#f4c64b','#d99e2b'],
+      ['#7fd1ff','#3f9fe0'],
+      ['#b388ff','#7c4dff'],
+      ['#ff8fa3','#e8506e'],
+      ['#7af0d3','#26c6a4']
+    ];
+    var idx = Math.max(1, Math.min(7, tier || 1)) - 1;
+    if (!unlocked) return ['#3a4150','#2b313d'];
+    return ramp[idx];
+  }
+  function trophyIconHTML(tier, unlocked, accent) {
+    var cols = trophyTierColors(tier, unlocked);
+    var light = cols[0], dark = cols[1];
+    var gid = 'tg' + (tier||1) + (unlocked ? 'u' : 'l') + Math.floor(Math.random()*100000);
+    var op = unlocked ? '1' : '0.5';
+    var acc = accent ? '<text x="24" y="22" font-size="13" text-anchor="middle" dominant-baseline="middle">' + accent + '</text>' : '';
+    return '<svg viewBox="0 0 48 48" width="100%" height="100%" style="opacity:' + op + '" aria-hidden="true">' +
+      '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="' + light + '"/><stop offset="1" stop-color="' + dark + '"/>' +
+      '</linearGradient></defs>' +
+      '<path d="M11 11 H7 a5 5 0 0 0 5 8" fill="none" stroke="' + dark + '" stroke-width="2.4"/>' +
+      '<path d="M37 11 H41 a5 5 0 0 1 -5 8" fill="none" stroke="' + dark + '" stroke-width="2.4"/>' +
+      '<path d="M12 8 H36 V16 a12 12 0 0 1 -24 0 Z" fill="url(#' + gid + ')" stroke="' + dark + '" stroke-width="1.2"/>' +
+      '<rect x="22" y="28" width="4" height="6" fill="' + dark + '"/>' +
+      '<rect x="16" y="34" width="16" height="3.5" rx="1.5" fill="' + dark + '"/>' +
+      '<rect x="13" y="37.5" width="22" height="4" rx="2" fill="' + light + '" stroke="' + dark + '" stroke-width="1"/>' +
+      acc + '</svg>';
+  }
+
   function renderTrophies() {
     const u = state.user;
     const sWrap = $('#streak-trophies');
@@ -2103,7 +2193,7 @@ function renderFriendsList() {
               ? 'border-color:var(--danger);background:linear-gradient(160deg, rgba(248,113,113,.18), var(--panel))'
               : `border-color:${color}55;background:linear-gradient(160deg, ${color}18, var(--panel))`)
           : '';
-        const displayIcon = isHidden ? '❓' : t.icon;
+        const displayIcon = trophyIconHTML(t.tier, got, isHidden ? '' : t.icon);
         const displayName = isHidden ? '???' : escapeHTML(t.name);
         const displayDesc = isHidden ? 'Complete this hidden feat to reveal it.' : escapeHTML(t.desc);
         const pillStyle = isOops && got
@@ -2582,54 +2672,50 @@ window.removeChatButton = removeChatButton;
 // FRIENDS SCREEN: search function
 // ============================================================
 function renderFriendSearchResults(query) {
-  const wrap = document.getElementById('friend-search-results');
-  if (!wrap) return;
-  const user = state.user;
-  if (!user) { wrap.innerHTML = ''; return; }
-  if (!query || query.trim().length < 2) { wrap.innerHTML = ''; return; }
-  const db = loadDB();
-  const lower = query.trim().toLowerCase();
-  const results = Object.values(db.users)
-    .filter(u => u.id !== user.id && u.username && u.username.toLowerCase().includes(lower))
-    .slice(0, 8);
-  if (!results.length) {
-    wrap.innerHTML = '<p style="color:var(--muted);font-size:13px;text-align:center;">No users found</p>';
-    return;
+    var wrap = document.getElementById('friend-search-results');
+    if (!wrap) return;
+    query = (query || '').trim().toLowerCase();
+    if (!query) { wrap.innerHTML = ''; return; }
+    var db = loadDB();
+    var me = db.users[state.user.id] || state.user;
+    var matches = Object.keys(db.users).map(function(k){ return db.users[k]; }).filter(function(u){
+      return u.id !== me.id && (u.username || '').toLowerCase().indexOf(query) !== -1;
+    }).slice(0, 8);
+    if (!matches.length) { wrap.innerHTML = '<div class="muted small" style="padding:8px 2px;">No players found by that username.</div>'; return; }
+    wrap.innerHTML = matches.map(function(u){
+      var isFriend = (me.friends || []).indexOf(u.id) !== -1;
+      var requested = (me.outgoingRequests || []).indexOf(u.id) !== -1;
+      var incoming = (me.incomingRequests || []).indexOf(u.id) !== -1;
+      var btn;
+      if (isFriend) btn = '<div class="pill gold">Friends</div>';
+      else if (incoming) btn = '<button class="btn-send-req" data-uname="' + escapeHTML(u.username) + '" style="background:var(--accent);color:#1a1d24;border:none;border-radius:8px;padding:6px 12px;font-weight:600;cursor:pointer;">Accept</button>';
+      else if (requested) btn = '<div class="pill" style="opacity:.7;">Requested</div>';
+      else btn = '<button class="btn-send-req" data-uname="' + escapeHTML(u.username) + '" style="background:var(--accent);color:#1a1d24;border:none;border-radius:8px;padding:6px 12px;font-weight:600;cursor:pointer;">Send request</button>';
+      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--panel-2);border-radius:10px;margin-bottom:8px;">' +
+        (typeof getAvatarHTML === 'function' ? getAvatarHTML(u, 34) : '') +
+        '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(u.username) + '</div>' +
+        '<div class="muted small">ELO ' + u.elo + '</div></div>' + btn + '</div>';
+    }).join('');
+    $$('#friend-search-results .btn-send-req').forEach(function(b){
+      b.addEventListener('click', function(){ addFriendAndRefresh(b.dataset.uname); });
+    });
   }
-  wrap.innerHTML = results.map(u => {
-    const isFriend = (user.friends || []).includes(u.id);
-    const safeName = escapeHTML(u.username);
-    const btn = isFriend
-      ? '<span style="font-size:12px;color:var(--accent);padding:4px 10px;background:rgba(100,150,255,.1);border-radius:20px;">Friends ✓</span>'
-      : '<button class="ct-add-friend-btn" data-uname="' + safeName + '" style="background:var(--accent);border:none;border-radius:20px;color:#fff;padding:6px 14px;font-size:12px;cursor:pointer;white-space:nowrap;">+ Add</button>';
-    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">'
-      + '<div style="flex-shrink:0;">' + getAvatarHTML(u, 36) + '</div>'
-      + '<div style="flex:1;min-width:0;">'
-      +   '<div style="font-weight:600;font-size:14px;">' + safeName + '</div>'
-      +   '<div style="font-size:12px;color:var(--muted);">ELO ' + (u.elo || 1200) + '</div>'
-      + '</div>'
-      + btn
-      + '</div>';
-  }).join('');
-  // Wire up add buttons via event delegation
-  wrap.querySelectorAll('.ct-add-friend-btn').forEach(btn => {
-    btn.onclick = function() {
-      addFriendAndRefresh(this.dataset.uname);
-    };
-  });
-}
 function addFriendAndRefresh(username) {
-  try {
-    addFriendByUsername(state.user, username);
-    toast('Friend added!', true);
-    renderFriendSearchResults(username);
-    renderFriendsList();
-  } catch(e) {
-    toast(e.message, false);
+    try {
+      var res = addFriendByUsername(state.user, username);
+      if (res && res.accepted) toast('You are now friends with ' + res.username + ' \ud83e\udd1d');
+      else toast('Friend request sent to ' + (res ? res.username : username));
+      var si = $('#friend-search-input');
+      renderFriendSearchResults(si ? si.value : username);
+      renderFriendsList();
+    } catch (e) {
+      toast(e.message, false);
+    }
   }
-}
 window.renderFriendSearchResults = renderFriendSearchResults;
 window.addFriendAndRefresh = addFriendAndRefresh;
+  window.acceptFriendRequest = acceptFriendRequest;
+  window.declineFriendRequest = declineFriendRequest;
 
 
 function signOut() {
