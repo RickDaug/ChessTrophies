@@ -482,26 +482,23 @@
         <h2>2v2 Team Chess</h2>
         <div class="card">
           <div class="row between" style="font-weight:600;letter-spacing:.04em;color:var(--muted)">RANKED 2v2</div>
-          <p class="muted small" style="margin:4px 0 10px">You + an ally vs two opponents. Separate 2v2 rating. Your partner suggests moves on your turn.</p>
+          <p class="muted small" style="margin:4px 0 10px">Queue for ranked 2v2 and play with a teammate against two other players. You can also team up with a friend from your list.</p>
           <button class="btn btn-block" id="btn-duo-ranked">Find ranked 2v2</button>
-          <div class="row between" style="font-weight:600;letter-spacing:.04em;color:var(--muted);margin-top:14px">PRIVATE 2v2</div>
-          <p class="muted small" style="margin:4px 0 8px">Pick a partner and play a casual team match (no rating).</p>
-          <label class="muted small" for="duo-partner">Partner</label>
-          <select id="duo-partner" style="width:100%;margin:4px 0 10px"><option value="Ally">AI Ally</option></select>
-          <button class="btn btn-secondary btn-block" id="btn-duo-private">Start private 2v2</button>
+          <p class="muted small" style="margin:12px 0 0">2v2 matches require four players on separate devices. Local same-device team play is not supported.</p>
         </div>
       </section>
 
       <h2 style="margin-top:18px">Friends</h2>
     <div class="card">
-      <div class="row between" style="margin-bottom:8px">
-        <div class="muted small" id="friends-summary">No friends yet</div>
-        <button class="btn btn-secondary small" id="btn-add-friend" style="padding:8px 14px">+ Add friend</button>
+      <h3 style="margin-bottom:8px">Friend hub</h3>
+      <p class="muted small" style="margin:0 0 12px">Go to the Friends tab to manage requests, add friends, and challenge people you've added.</p>
+      <div class="row between" style="align-items:center;gap:12px;flex-wrap:wrap;">
+        <div id="lobby-friends-summary" class="muted small">No friends yet</div>
+        <button class="btn btn-secondary small" id="btn-open-friends" style="padding:8px 14px">Open Friends</button>
       </div>
-      <div id="friends-list" class="stack"></div>
     </div>
 
-    <h2 style="margin-top:18px">Learn</h2>
+    <h2 style="margin-top:18px">Learn</h2
     <div class="card row between" id="btn-academy" style="cursor:pointer">
       <div class="row" style="gap:12px">
         <div id="rank-icon" style="width:38px;height:38px;background:var(--panel-2);border-radius:8px;padding:4px"></div>
@@ -738,10 +735,11 @@
     <section id="screen-friends" class="screen">
       <div class="top-bar"><h1>Friends</h1></div>
       <div style="padding:12px 16px 0;">
-        <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center;">
           <input id="friend-search-input" type="text" placeholder="Search by username…"
-            style="flex:1;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;"
+            style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;"
             oninput="renderFriendSearchResults(this.value)">
+          <button class="btn btn-secondary small" id="btn-add-friend" style="padding:10px 14px;white-space:nowrap;">+ Add friend</button>
         </div>
         <div id="friend-search-results" style="margin-bottom:16px;"></div>
       </div>
@@ -847,8 +845,8 @@
     <h2 id="fc-title">Challenge a friend</h2>
     <p class="muted small" style="margin:4px 0 14px" id="fc-sub">—</p>
     <div class="stack">
-      <button class="btn btn-block" id="btn-fc-friendly">Friendly match (doesn't count)</button>
-      <button class="btn btn-secondary btn-block" id="btn-fc-ranked">Ranked match (counts for ELO)</button>
+      <button class="btn btn-block" id="btn-fc-friendly">Friendly match (1v1, doesn't count)</button>
+      <button class="btn btn-secondary btn-block" id="btn-fc-ranked">Ranked 2v2 team match</button>
       <button class="btn btn-ghost btn-block" id="btn-fc-remove" style="color:var(--danger)">Remove friend</button>
       <button class="btn btn-ghost btn-block" id="btn-fc-cancel">Cancel</button>
     </div>

@@ -887,7 +887,7 @@
     $('#lobby-trophy-summary').textContent =
       totalTrophies === 0 ? 'No trophies yet — start a match' :
       `${u.streakTrophies.length} streak ${u.streakTrophies.length === 1 ? 'trophy' : 'trophies'} · ${u.achievements.length} achievements`;
-    renderFriendsList();
+    renderFriendsSummary();
     // Inject ad slot (or empty for premium users)
     const adWrap = $('#lobby-ad-slot');
     if (adWrap) adWrap.innerHTML = renderAdSlot('banner');
@@ -906,7 +906,22 @@
   }
 }
 
-function renderFriendsList() {
+function renderFriendsSummary() {
+    var wrap = $('#lobby-friends-summary');
+    if (!wrap) return;
+    var db = loadDB();
+    var me = db.users[state.user.id] || state.user;
+    var incoming = (me.incomingRequests || []).map(function(id){ return db.users[id]; }).filter(Boolean);
+    var friends = (me.friends || []).map(function(id){ return db.users[id]; }).filter(Boolean);
+    if (friends.length || incoming.length) {
+      wrap.textContent = friends.length + ' friend' + (friends.length === 1 ? '' : 's') +
+        (incoming.length ? ' · ' + incoming.length + ' request' + (incoming.length === 1 ? '' : 's') : '');
+    } else {
+      wrap.textContent = 'No friends yet — add one in Friends';
+    }
+  }
+
+  function renderFriendsList() {
     var wrap = $('#friends-list');
     if (!wrap) return;
     var db = loadDB();
@@ -939,6 +954,7 @@ function renderFriendsList() {
       }).join('');
     }
     wrap.innerHTML = html;
+    renderFriendsSummary();
     $$('#friends-list [data-friend-id]').forEach(function(row){
       row.addEventListener('click', function(){ openFriendChallenge(row.dataset.friendId); });
     });
@@ -958,9 +974,9 @@ function renderFriendsList() {
     openModal('opponent');
   });
   $('#btn-find-match').addEventListener('click', () => findMatch());
+  $('#btn-open-friends').addEventListener('click', () => showScreen('friends'));
     // 2v2 lobby buttons
     { const b = $('#btn-duo-ranked'); if (b) b.addEventListener('click', () => { try { window.Duo.startRanked(); } catch(e){ console.error(e); } }); }
-    { const b = $('#btn-duo-private'); if (b) b.addEventListener('click', () => { const sel = $('#duo-partner'); const name = sel ? sel.value : 'Ally'; try { window.Duo.startPrivate(name); } catch(e){ console.error(e); } }); }
     { const b = $('#duo-quit'); if (b) b.addEventListener('click', () => { if (window.Duo.quit()) { window.__duo.game = null; showScreen('lobby'); } }); }
   $$('[data-cpu]').forEach(btn => {
     btn.addEventListener('click', () => startPracticeGame(btn.dataset.cpu));
@@ -1006,7 +1022,7 @@ function renderFriendsList() {
     if (!friend) return;
     state.selectedFriendId = friendId;
     $('#fc-title').textContent = 'Challenge ' + friend.username;
-    $('#fc-sub').textContent = 'ELO ' + friend.elo + ' · ' + (friend.region || 'no region');
+    $('#fc-sub').textContent = 'ELO ' + friend.elo + ' · ' + (friend.region || 'no region') + ' · friend will be your 2v2 teammate';
     openModal('friend-challenge');
   }
   $('#btn-fc-friendly').addEventListener('click', () => {
@@ -1033,6 +1049,10 @@ function renderFriendsList() {
     var friend = db.users[state.selectedFriendId];
     if (!friend) return;
     closeModal('friend-challenge');
+    if (mode === 'ranked') {
+      duoStart({ ranked: true, teammateId: friend.id, teammateName: friend.username, teammateIsAI: false, aiLevel: 'medium' });
+      return;
+    }
     state.opponent = {
       id: friend.id,
       username: friend.username,
@@ -1043,7 +1063,7 @@ function renderFriendsList() {
       isGuest: false
     };
     state.pendingChallenge = null;
-    startGame(mode === 'friendly' ? 'unranked' : 'ranked');
+    startGame('unranked');
   }
 
   // Private rooms
@@ -2981,7 +3001,8 @@ window.signOut = signOut;
     game: null, mode: null, ranked: false,
     selected: null, legalTargets: [], lastMove: null,
     teammate: null,   // { name, isAI }
-    opp1: null, opp2: null, // opponent team members (sim/AI)
+    teammateId: null,
+    opp1: null, opp2: null, // opponent team members (sim/AI/users)
     seat: 0,          // whose turn within current color (0/1)
     suggestion: null, // { from, to } from partner during your turn
     over: false, ended: false,
@@ -3025,7 +3046,8 @@ window.signOut = signOut;
   }
 
   function duoStart(opts) {
-    // opts: { ranked, teammateName, teammateIsAI, aiLevel }
+    // opts: { ranked, teammateId, teammateName, teammateIsAI, aiLevel }
+    const db = loadDB();
     duo.game = new Chess();
     duo.ranked = !!opts.ranked;
     duo.mode = opts.ranked ? 'ranked' : 'private';
@@ -3036,10 +3058,26 @@ window.signOut = signOut;
     duo.selected = null; duo.legalTargets = []; duo.lastMove = null;
     duo.suggestion = null; duo.over = false; duo.ended = false;
     duo.overrides = 0; duo.accepts = 0; duo.sawQueenDown = false;
+    duo.teammateId = opts.teammateId || null;
     duo.teammate = { name: opts.teammateName || 'Ally', isAI: opts.teammateIsAI !== false };
+
     const pool = ['Nova','Rook','Blaze','Sable','Vega','Onyx','Quill','Drift'];
     duo.opp1 = { name: pool[Math.floor(Math.random()*pool.length)] };
     duo.opp2 = { name: pool[Math.floor(Math.random()*pool.length)] };
+
+    if (duo.ranked) {
+      const users = Object.values(db.users || {}).filter(u => u.id !== state.user.id && u.id !== duo.teammateId);
+      if (users.length >= 2) {
+        users.sort((a, b) => Math.abs((a.elo || 1200) - (state.user.elo || 1200)) - Math.abs((b.elo || 1200) - (state.user.elo || 1200)));
+        const oppA = users[Math.floor(Math.random() * Math.min(3, users.length))];
+        const oppB = users.filter(u => u.id !== oppA.id)[Math.floor(Math.random() * Math.min(3, users.length - 1))];
+        if (oppA && oppB) {
+          duo.opp1 = { name: oppA.username, elo: oppA.elo || 1200 };
+          duo.opp2 = { name: oppB.username, elo: oppB.elo || 1200 };
+        }
+      }
+    }
+
     // Award "played a 2v2" trophy
     try {
       const me = state.user;
@@ -3285,7 +3323,7 @@ window.signOut = signOut;
     duoStart({ ranked: true, teammateName: 'Ally', teammateIsAI: true, aiLevel: 'medium' });
   }
   function duoStartPrivate(partnerName) {
-    duoStart({ ranked: false, teammateName: partnerName || 'Ally', teammateIsAI: true, aiLevel: 'easy' });
+    throw new Error('Private 2v2 is disabled. Use ranked 2v2 with four players on separate devices.');
   }
 
   window.Duo = {
