@@ -95,8 +95,15 @@
   .stat .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-top: 2px; }
 
   /* BOARD */
-  .board-wrap { padding: 0; margin: 12px 0; }
-  .board { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); aspect-ratio: 1/1; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,.4); user-select: none; }
+  .board-wrap { padding: 0; margin: 12px 0; position: relative; }
+  .board { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); aspect-ratio: 1/1; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,.4); user-select: none; position: relative; z-index: 1; }
+  .board-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+  .overlay-piece { position: absolute; width: 11.11%; height: 11.11%; will-change: transform, opacity; transition: transform .26s ease, opacity .26s ease; transform: translate3d(0,0,0); }
+  .overlay-piece svg { width: 100%; height: 100%; }
+  .capture-flyaway { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .overlay-piece { transition: none !important; }
+  }
   .sq { display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; transition: background-color .15s; min-width: 0; min-height: 0; aspect-ratio: 1/1; }
   .sq.light { background: var(--light-sq); }
   .sq.dark  { background: var(--dark-sq); }
@@ -460,11 +467,15 @@
     <div class="card">
       <h3 style="margin-bottom:8px">Practice vs computer</h3>
       <p class="muted small" style="margin:0 0 12px">Sharpen your skills — practice games don't affect your ELO.</p>
-      <div class="row" style="gap:8px;margin-bottom:10px">
-        <button class="btn btn-secondary" data-cpu="easy" style="flex:1">Easy</button>
-        <button class="btn btn-secondary" data-cpu="medium" style="flex:1">Medium</button>
-        <button class="btn btn-secondary" data-cpu="hard" style="flex:1">Hard</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px;flex-wrap:wrap;">
+        <div>
+          <div style="font-weight:700;">Computer Strength</div>
+          <div class="muted small">Set the AI's Elo rating from 100 to 2800.</div>
+        </div>
+        <div id="practice-elo-label" class="pill gold" style="min-width:80px;text-align:center;">1200</div>
       </div>
+      <input type="range" id="practice-elo" min="100" max="2800" step="100" value="1200" style="width:100%;margin-bottom:12px;">
+      <button class="btn btn-block" id="btn-start-practice">Start Practice Game</button>
     </div>
 
     <section style="margin-top:18px">
@@ -538,6 +549,7 @@
 
     <div class="board-wrap">
       <div class="board" id="board"></div>
+      <div class="board-overlay" id="board-overlay"></div>
     </div>
 
     <div class="player-card active" id="player-bot">

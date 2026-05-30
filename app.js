@@ -518,6 +518,7 @@
     history: [],
     promotionPending: null,
     aiThinking: false,
+    animatingMove: false,
   };
 
   // ---------------------------------------------------------------------------
@@ -964,6 +965,17 @@ function renderFriendsList() {
   $$('[data-cpu]').forEach(btn => {
     btn.addEventListener('click', () => startPracticeGame(btn.dataset.cpu));
   });
+  const practiceEloInput = $('#practice-elo');
+  const practiceEloLabel = $('#practice-elo-label');
+  const practiceStartButton = $('#btn-start-practice');
+  if (practiceEloInput && practiceEloLabel) {
+    const updateEloLabel = () => { practiceEloLabel.textContent = clampElo(practiceEloInput.value); };
+    updateEloLabel();
+    practiceEloInput.addEventListener('input', updateEloLabel);
+  }
+  if (practiceStartButton && practiceEloInput) {
+    practiceStartButton.addEventListener('click', () => startPracticeGame(practiceEloInput.value));
+  }
 
   // Friends
   $('#btn-add-friend').addEventListener('click', () => {
@@ -1220,12 +1232,38 @@ function renderFriendsList() {
   // ---------------------------------------------------------------------------
   // Practice vs computer
   // ---------------------------------------------------------------------------
+  function clampElo(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 1200;
+    return Math.max(100, Math.min(2800, Math.round(parsed / 100) * 100));
+  }
+
+  function aiNameForElo(elo) {
+    if (elo >= 2500) return 'Grandmaster';
+    if (elo >= 2300) return 'International Master';
+    if (elo >= 2100) return 'Expert';
+    if (elo >= 1800) return 'Strong';
+    if (elo >= 1500) return 'Intermediate';
+    if (elo >= 1200) return 'Club';
+    return 'Beginner';
+  }
+
+  function getAIDifficultyForElo(value) {
+    if (typeof value === 'string') {
+      if (value === 'easy') return { aiElo: 800 };
+      if (value === 'medium') return { aiElo: 1300 };
+      if (value === 'hard') return { aiElo: 1800 };
+    }
+    return { aiElo: clampElo(value) };
+  }
+
   function startPracticeGame(level) {
+    const { aiElo } = getAIDifficultyForElo(level);
     state.opponent = {
-      username: 'Computer (' + level + ')',
-      elo: level === 'easy' ? 800 : level === 'medium' ? 1300 : 1800,
+      username: 'Computer (' + aiNameForElo(aiElo) + ')',
+      elo: aiElo,
       isAI: true,
-      aiLevel: level,
+      aiElo,
     };
     startGame('practice');
   }
@@ -1371,7 +1409,7 @@ function renderFriendsList() {
   }
 
   function handleSquareClick(name) {
-    if (state.game.game_over() || state.aiThinking || state.promotionPending) return;
+    if (state.game.game_over() || state.aiThinking || state.promotionPending || state.animatingMove) return;
     // Only allow current side to move; in PvP both sides are clickable
     const sidePiece = state.game.get(name);
     const turn = state.game.turn();
@@ -1452,9 +1490,71 @@ function renderFriendsList() {
     openModal('promotion');
   }
 
+  function getBoardSquareElement(square) {
+    return $('#board [data-sq="' + square + '"]');
+  }
+
+  function animateCapturedPiece(square, type, color) {
+    const fromSq = getBoardSquareElement(square);
+    const overlay = $('#board-overlay');
+    if (!fromSq || !overlay) return;
+    const boardRect = $('#board').getBoundingClientRect();
+    const fromRect = fromSq.getBoundingClientRect();
+    const cap = document.createElement('div');
+    cap.className = 'overlay-piece capture-flyaway';
+    cap.innerHTML = pieceSVG(type, color);
+    cap.style.width = fromRect.width + 'px';
+    cap.style.height = fromRect.height + 'px';
+    cap.style.left = (fromRect.left - boardRect.left) + 'px';
+    cap.style.top = (fromRect.top - boardRect.top) + 'px';
+    overlay.appendChild(cap);
+    requestAnimationFrame(() => {
+      const dx = (Math.random() - 0.5) * boardRect.width * 0.3;
+      const dy = boardRect.height * 0.35;
+      cap.style.transform = `translate(${dx}px, ${dy}px) scale(0.8)`;
+      cap.style.opacity = '0';
+    });
+    setTimeout(() => cap.remove(), 280);
+  }
+
+  function animateBoardMove(move, callback) {
+    const overlay = $('#board-overlay');
+    const source = getBoardSquareElement(move.from);
+    const target = getBoardSquareElement(move.to);
+    if (!overlay || !source || !target) {
+      callback();
+      return;
+    }
+    const boardRect = $('#board').getBoundingClientRect();
+    const fromRect = source.getBoundingClientRect();
+    const toRect = target.getBoundingClientRect();
+    const moving = document.createElement('div');
+    moving.className = 'overlay-piece';
+    moving.innerHTML = pieceSVG(move.piece, move.color);
+    moving.style.width = fromRect.width + 'px';
+    moving.style.height = fromRect.height + 'px';
+    moving.style.left = (fromRect.left - boardRect.left) + 'px';
+    moving.style.top = (fromRect.top - boardRect.top) + 'px';
+    overlay.appendChild(moving);
+    requestAnimationFrame(() => {
+      const dx = toRect.left - fromRect.left;
+      const dy = toRect.top - fromRect.top;
+      moving.style.transform = `translate(${dx}px, ${dy}px)`;
+    });
+    if (move.captured) {
+      const capturedColor = move.color === 'w' ? 'b' : 'w';
+      animateCapturedPiece(move.to, move.captured, capturedColor);
+    }
+    setTimeout(() => {
+      moving.remove();
+      callback();
+    }, 280);
+  }
+
   function afterMove(move) {
     state.lastMove = move;
     state.history.push(move);
+    state.animatingMove = true;
     // Sound effects
     if (window.ChessSounds && move) {
       const flags = move.flags || '';
@@ -1470,20 +1570,23 @@ function renderFriendsList() {
       state.checkCount = state.checkCount || { w: 0, b: 0 };
       state.checkCount[turnNow]++;
     }
-    renderBoard();
-    updateStatus();
-    if (state.game.game_over()) {
-      handleGameOver();
-      return;
-    }
-    // If AI opponent's turn
-    if (state.opponent.isAI && state.game.turn() !== state.userColor) {
-      state.aiThinking = true;
-      setTimeout(() => {
-        makeAIMove();
-        state.aiThinking = false;
-      }, 350);
-    }
+    animateBoardMove(move, () => {
+      state.animatingMove = false;
+      renderBoard();
+      updateStatus();
+      if (state.game.game_over()) {
+        handleGameOver();
+        return;
+      }
+      // If AI opponent's turn
+      if (state.opponent.isAI && state.game.turn() !== state.userColor) {
+        state.aiThinking = true;
+        setTimeout(() => {
+          makeAIMove();
+          state.aiThinking = false;
+        }, 350);
+      }
+    });
   }
 
   function updateStatus() {
@@ -1653,20 +1756,24 @@ function renderFriendsList() {
   }
   function chooseAIMove() {
     const chess = state.game;
-    const level = state.opponent.aiLevel;
+    const aiElo = state.opponent.aiElo || 1200;
     const moves = chess.moves({ verbose: true });
     if (moves.length === 0) return null;
-    if (level === 'easy') {
-      // Mostly random, sometimes capture if available
+    if (aiElo <= 1200) {
       const captures = moves.filter(m => m.captured);
-      if (captures.length && Math.random() < 0.5) return captures[Math.floor(Math.random() * captures.length)];
+      if (captures.length && Math.random() < 0.45) return captures[Math.floor(Math.random() * captures.length)];
       return moves[Math.floor(Math.random() * moves.length)];
+    }
+    const lowElo = aiElo <= 1600;
+    if (lowElo && Math.random() < 0.25) {
+      const captures = moves.filter(m => m.captured);
+      if (captures.length) return captures[Math.floor(Math.random() * captures.length)];
     }
     // Iterative deepening with a time budget — gives a stable best-so-far if cut off
     const turn = chess.turn();
     const maximizing = turn === 'w';
-    const maxDepth = level === 'medium' ? 3 : 5;
-    const timeBudget = level === 'medium' ? 600 : 2500; // ms
+    const maxDepth = aiElo < 1600 ? 3 : aiElo < 2000 ? 4 : aiElo < 2300 ? 5 : 6;
+    const timeBudget = aiElo < 1600 ? 800 : aiElo < 2000 ? 1600 : aiElo < 2300 ? 2600 : 3800;
     const start = Date.now();
     // Small randomness on first ordering to avoid identical replies in same position
     let ordered = moves.slice().sort(() => Math.random() - 0.5);
