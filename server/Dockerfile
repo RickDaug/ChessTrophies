@@ -1,21 +1,25 @@
-# ChessTrophies backend — build context = server/ (Railway root dir).
-# node:24 on Debian "trixie": GLIBC 2.41 (>=2.38 for better-sqlite3) AND
-# Node 24 ABI (NODE_MODULE_VERSION 137) to match prebuilt binaries.
+# Build context = REPO ROOT (Railway Root Directory = /).
+# Serves the API from server/ and the static client from /app/public.
 FROM node:24-trixie-slim
 
-# Toolchain so better-sqlite3 can compile from source if no prebuilt matches.
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
+# Native build deps for better-sqlite3
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+# Install server deps first (better layer caching)
+COPY server/package.json server/package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY . ./
+# Server source
+COPY server/ ./
+
+# Static client assets (served by express.static from /app/public)
+RUN mkdir -p ./public
+COPY index.html app.js academy.js chess.min.js sounds.js stockfish-ai.js sw.js manifest.json icon.svg icon-192.png icon-512.png icon-1024.png privacy.html terms.html ./public/
 
 ENV NODE_ENV=production
-# Railway injects PORT; server.js reads process.env.PORT || 3000
 EXPOSE 3000
 CMD ["node", "server.js"]

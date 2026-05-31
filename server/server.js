@@ -125,8 +125,9 @@ app.get('/api/games/recent', requireAuth, (req, res) => {
 });
 
 // Serve static client (optional — useful for one-command deploy)
-const staticDir = path.join(__dirname, '..', 'public');
+const staticDir = path.join(__dirname, 'public');
 app.use(express.static(staticDir));
+app.get('/', (req, res) => res.sendFile(path.join(staticDir, 'index.html')));
 
 app.use((err, req, res, next) => {
   console.error('[server]', err);
