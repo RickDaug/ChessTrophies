@@ -390,6 +390,32 @@
     /* ---- Trophy rarity badge (trophy-extras.js) ---- */
     .trophy-rarity { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color: var(--rar,#cd7f32); border:1px solid var(--rar,#cd7f32); border-radius:999px; padding:4px 12px; margin-bottom:10px; }
     .trophy-rarity-dot { width:8px; height:8px; border-radius:50%; background: var(--rar,#cd7f32); box-shadow:0 0 8px var(--rar,#cd7f32); }
+
+/* Learn section tabs + Strategy Library */
+.learn-tabs{display:flex;gap:8px;margin-bottom:14px}
+.learn-tab{flex:1;padding:10px 12px;border-radius:10px;border:1px solid var(--pane,#2a3142);background:var(--pane,#1c2230);color:var(--muted,#9aa6bd);font-weight:700;cursor:pointer;font-size:14px}
+.learn-tab.active{background:linear-gradient(90deg,var(--accent,#ffd97a),#ffb347);color:#1a1f2b;border-color:transparent}
+.lib-intro{margin-bottom:16px}
+.lib-intro-title{font-size:20px;font-weight:800}
+.lib-intro-sub{color:var(--muted,#9aa6bd);font-size:13px;margin-top:4px;line-height:1.45}
+.lib-cat{margin:18px 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted,#9aa6bd);font-weight:700}
+.lib-grid{display:flex;flex-direction:column;gap:10px}
+.lib-card{display:flex;gap:12px;align-items:flex-start;text-align:left;width:100%;padding:14px;border-radius:12px;border:1px solid var(--pane,#2a3142);background:var(--pane,#1c2230);color:inherit;cursor:pointer}
+.lib-card:hover{border-color:var(--accent,#ffd97a)}
+.lib-card-icon{font-size:24px;line-height:1}
+.lib-card-main{flex:1;min-width:0}
+.lib-card-title{font-weight:800;font-size:15px}
+.lib-done{color:#5fd38c}
+.lib-card-blurb{color:var(--muted,#9aa6bd);font-size:13px;margin-top:3px;line-height:1.4}
+.lib-card-meta{color:var(--muted,#9aa6bd);font-size:11px;margin-top:6px;opacity:.8}
+.lib-back{background:none;border:none;color:var(--accent,#ffd97a);font-weight:700;cursor:pointer;padding:4px 0;font-size:14px;margin-bottom:8px}
+.lib-article{max-width:640px}
+.lib-article-icon{font-size:34px}
+.lib-article-title{font-size:24px;font-weight:800;margin:6px 0 2px;line-height:1.2}
+.lib-article-meta{color:var(--muted,#9aa6bd);font-size:12px;margin-bottom:14px}
+.lib-h{font-size:17px;font-weight:800;margin:20px 0 6px}
+.lib-p{font-size:15px;line-height:1.65;margin:0 0 12px;color:var(--text,#e7ecf5)}
+.lib-article-foot{margin-top:22px;padding:14px;border-radius:12px;background:var(--pane,#1c2230);border:1px solid var(--pane,#2a3142);color:var(--muted,#9aa6bd);font-size:13px;line-height:1.5}
 </style>
 </head>
 <body>
@@ -530,6 +556,8 @@
       </div>
       <input type="range" id="practice-elo" min="100" max="2800" step="100" value="1200" style="width:100%;margin-bottom:12px;">
       <button class="btn btn-block" id="btn-start-practice">Start Practice Game</button>
+        <button class="btn btn-block" id="btn-start-960" style="margin-top:8px;background:#2a3142;color:var(--accent,#ffd97a);border:1px solid var(--accent,#ffd97a)">♞ Play Chess960 (Fischer Random)</button>
+        <p class="muted small" style="margin:6px 0 0">Pieces shuffled into one of 960 starting setups — pure skill, no memorized openings.</p>
     </div>
 
     <section style="margin-top:18px">
@@ -999,14 +1027,16 @@
     });
   </script>
 <script src="chess.min.js?v=20260530m"></script>
+<script src="chess960.js?v=20260531b"></script>
 <script src="sounds.js?v=20260530m"></script>
 <script src="stockfish-ai.js?v=20260530m"></script>
-<script src="app.js?v=20260530m"></script>
-<script src="academy.js?v=20260530m"></script>
+<script src="app.js?v=20260531b"></script>
+<script src="academy.js?v=20260531b"></script>
     <script src="puzzles-data.js?v=20260531a"></script>
     <script src="puzzles.js?v=20260531a"></script>
     <script src="review.js?v=20260531a"></script>
     <script src="trophy-extras.js?v=20260531a"></script>
+    <script src="learn-library.js?v=20260531b"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {

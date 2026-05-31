@@ -1043,6 +1043,10 @@ function renderFriendsSummary() {
   }
   if (practiceStartButton && practiceEloInput) {
     practiceStartButton.addEventListener('click', () => startPracticeGame(practiceEloInput.value));
+    const start960Button = $('#btn-start-960');
+    if (start960Button && practiceEloInput) {
+      start960Button.addEventListener('click', () => startPractice960(practiceEloInput.value));
+    }
   }
 
   // Friends
@@ -1361,6 +1365,7 @@ $('#btn-mm-cancel').addEventListener('click', () => { stopMatchmaking(); closeMo
   }
 
   function startPracticeGame(level) {
+    state.is960 = false; state.startFen960 = null;
     const { aiElo } = getAIDifficultyForElo(level);
     state.opponent = {
       username: 'Computer (' + aiNameForElo(aiElo) + ')',
@@ -1371,12 +1376,33 @@ $('#btn-mm-cancel').addEventListener('click', () => { stopMatchmaking(); closeMo
     startGame('practice');
   }
 
+  function startPractice960(level) {
+    state.is960 = true;
+    state.startFen960 = window.CT_random960Fen ? window.CT_random960Fen() : null;
+    if (!state.startFen960) { state.is960 = false; }
+    const { aiElo } = getAIDifficultyForElo(level);
+    state.opponent = {
+      username: 'Computer 960 (' + aiNameForElo(aiElo) + ')',
+      elo: aiElo,
+      isAI: true,
+      aiElo
+    };
+    startGame('practice');
+  }
+  window.CT_startPractice960 = startPractice960;
+
   // ---------------------------------------------------------------------------
   // Game lifecycle
   // ---------------------------------------------------------------------------
   function startGame(mode) {
     state.gameMode = mode;
-    state.game = new Chess();
+    if (state.is960 && window.CT_random960Fen) {
+      state.startFen960 = state.startFen960 || window.CT_random960Fen();
+      try { state.game = new Chess(state.startFen960); }
+      catch (e) { state.game = new Chess(); state.is960 = false; }
+    } else {
+      state.game = new Chess();
+    }
     state.gameEnded = false;
     state.selected = null;
     state.legalTargets = [];

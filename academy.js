@@ -530,7 +530,33 @@
       html += `</div>`;
     }
 
-    wrap.innerHTML = html;
+    wrap.innerHTML = '<div class="learn-tabs">' +
+      '<button class="learn-tab active" data-ltab="lessons">Lessons</button>' +
+      '<button class="learn-tab" data-ltab="library">Read &amp; Learn</button>' +
+      '</div>' +
+      '<div id="academy-lessons">' + html + '</div>' +
+      '<div id="library-content" style="display:none"></div>';
+    (function(){
+      var tabs = wrap.querySelectorAll('.learn-tab');
+      var lessonsEl = wrap.querySelector('#academy-lessons');
+      var libEl = wrap.querySelector('#library-content');
+      var libLoaded = false;
+      tabs.forEach(function(t){
+        t.addEventListener('click', function(){
+          tabs.forEach(function(x){ x.classList.remove('active'); });
+          t.classList.add('active');
+          var which = t.dataset.ltab;
+          if (which === 'library') {
+            if (lessonsEl) lessonsEl.style.display = 'none';
+            if (libEl) { libEl.style.display = 'block';
+              if (window.CT_renderLibrary) window.CT_renderLibrary(libEl); }
+          } else {
+            if (libEl) libEl.style.display = 'none';
+            if (lessonsEl) lessonsEl.style.display = 'block';
+          }
+        });
+      });
+    })();
     wrap.querySelectorAll('.lnode').forEach(el => {
       el.addEventListener('click', () => {
         const id = el.dataset.lid;
