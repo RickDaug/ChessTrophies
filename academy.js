@@ -114,7 +114,7 @@
     { id:'F04', chapter:'Foundations', title:'Rook on the 7th', desc:'White to play. Win the unprotected piece.',
       fen:'4k3/4n3/8/8/8/8/4R3/4K3 w - - 0 1', side:'w',
       solution:[{from:'e2', to:'e7'}], hint:'Rooks love open files.', difficulty:1 },
-    { id:'F05', chapter:'Foundations', title:'Queen Double Attack', desc:'White to play. Threaten mate and win the rook in one move.',
+    { id:'F05', chapter:'Foundations', title:'Queen Forks Rook and Mate', desc:'White to play. Threaten mate and win the rook in one move.',
       fen:'4k2r/8/8/8/8/8/8/3QK3 w - - 0 1', side:'w',
       solution:[{from:'d1', to:'d8'}], hint:'A queen check that also lines up on the rook.', difficulty:3 },
     { id:'F06', chapter:'Foundations', title:'Promote the Pawn', desc:'White to play. Promote to a queen.',
@@ -123,7 +123,7 @@
     { id:'F07', chapter:'Foundations', title:'Castle Kingside', desc:'White to play. Castle to safety.',
       fen:'r3k2r/pppq1ppp/2n5/3pp3/3PP3/2N5/PPPQ1PPP/R3K2R w KQkq - 0 1', side:'w',
       solution:[{from:'e1', to:'g1'}], hint:'King hops two squares toward the rook.', difficulty:2 },
-    { id:'F08', chapter:'Foundations', title:'Stop the Pawn', desc:'Black to play. Capture the queening pawn.',
+    { id:'F08', chapter:'Foundations', title:'Capture the Queening Pawn', desc:'Black to play. Capture the queening pawn.',
       fen:'4k3/8/8/8/8/8/r7/3PK3 b - - 0 1', side:'b',
       solution:[{from:'a2', to:'d2'}], hint:'Use your rook actively.', difficulty:2 },
 

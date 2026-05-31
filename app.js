@@ -765,6 +765,7 @@
     if (id === 'rankings') renderRankings();
     if (id === 'trophies') renderTrophies();
     if (id === 'friends') { renderFriendsList(); }
+    // Academy lives in academy.js; it exposes window.CT_renderAcademy to populate #academy-content on demand.
     if (id === 'academy' && window.CT_renderAcademy) window.CT_renderAcademy();
     if (id === 'settings') { /* settings already rendered statically */ }
   }
