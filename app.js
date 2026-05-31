@@ -159,7 +159,7 @@
   // ---------------------------------------------------------------------------
   const DB_KEY = 'chesstrophies_db_v1';
   const SESSION_KEY = 'chesstrophies_session_v1';
-  const SERVER_URL = (window.CT_SERVER_URL || 'http://localhost:3000').replace(/\/$/, '');
+  const SERVER_URL = (window.CT_SERVER_URL || window.location.origin).replace(/\/$/, '');
 
   function loadDB() {
     try {
@@ -857,6 +857,53 @@
     }
   });
 
+  // Continue as guest -------------------------------------------------
+  // Asks the server for a goofy display name unique among active guests. The
+  // guest session lives ONLY in sessionStorage, so it is gone when the tab
+  // closes. Nothing about a guest is written to the local account DB or the
+  // server DB -- no progress, stats, or trophies persist.
+  function makeGuestUser(username) {
+    return {
+      id: 'guest:' + username,
+      username: username,
+      email: '', region: '',
+      elo: 1200, wins: 0, losses: 0, draws: 0,
+      currentStreak: 0, bestStreak: 0, invitesAccepted: 0,
+      isPremium: false, isGuest: true,
+      friends: [], streakVictims: [], streakTrophies: [],
+      achievements: [], flags: {},
+      themeBoard: 'forest', themePieces: 'classic',
+      createdAt: Date.now()
+    };
+  }
+
+  const guestBtn = $('#btn-continue-guest');
+  if (guestBtn) {
+    guestBtn.addEventListener('click', async () => {
+      guestBtn.disabled = true;
+      try {
+        let username = null;
+        try {
+          const r = await api('/api/guest', { method: 'POST' });
+          username = r && r.username;
+        } catch (e) { username = null; }
+        if (!username) username = 'Guest' + (Math.floor(Math.random() * 9999) + 1);
+        const gu = makeGuestUser(username);
+        state.user = gu;
+        // Session-scoped only: do NOT call setSession() (localStorage) and do
+        // NOT write to the local account DB.
+        try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ userId: gu.id, guest: true })); } catch (e) {}
+        window.addEventListener('pagehide', () => {
+          try { navigator.sendBeacon && navigator.sendBeacon(SERVER_URL + '/api/guest/release', new Blob([JSON.stringify({ username: username })], { type: 'application/json' })); } catch (e) {}
+        });
+        toast('Playing as ' + username + ' (guest)', true);
+        enterApp();
+      } catch (err) {
+        guestBtn.disabled = false;
+      }
+    });
+  }
+
   // Sound toggle
   if ($('#btn-sound')) {
     const updateLabel = () => { $('#btn-sound').textContent = (window.ChessSounds && window.ChessSounds.isMuted()) ? '🔇' : '🔊'; };
@@ -869,6 +916,11 @@
   }
 
   $('#btn-logout').addEventListener('click', () => {
+    if (state.user && state.user.isGuest) {
+      const gname = state.user.username;
+      api('/api/guest/release', { method: 'POST', body: JSON.stringify({ username: gname }) }).catch(function(){});
+      try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
+    }
     setSession(null);
     state.user = null;
     showNav(false);

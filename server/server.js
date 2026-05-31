@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
 import { signup, login, requireAuth, verifyToken } from './auth.js';
+import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
 import { db, getUserById, topByMetric } from './db.js';
 import { attachSocketHandlers } from './game.js';
 
@@ -122,6 +123,20 @@ app.get('/api/games/recent', requireAuth, (req, res) => {
     ORDER BY ended_at DESC LIMIT 50
   `).all(req.userId, req.userId);
   res.json({ games: rows });
+});
+
+// Guest sessions: assign a goofy display name unique among active guests.
+// Nothing is persisted -- the name lives only while the session is active.
+app.post('/api/guest', (req, res) => {
+  const name = assignGuestName();
+  res.json({ username: name, isGuest: true, activeGuests: activeGuestCount() });
+});
+
+// Release a guest name back into the pool when the guest leaves.
+app.post('/api/guest/release', (req, res) => {
+  const name = req.body && req.body.username;
+  releaseGuestName(name);
+  res.json({ ok: true });
 });
 
 // Serve static client (optional — useful for one-command deploy)
