@@ -334,7 +334,8 @@
     .ct-sparkline path { fill: none; stroke: var(--accent, #f5c451); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
     .ct-provisional { display: inline-block; margin-left: 6px; font-size: 0.62em; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px; background: rgba(245,196,81,.16); color: var(--accent, #f5c451); vertical-align: middle; }
     @media (prefers-reduced-motion: reduce) { .ct-confetti-piece, .ct-elo-pop, .ct-trophy-shine { animation: none !important; } }
-  </style>
+  @keyframes mm-pulse{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.18);opacity:1}}
+</style>
 </head>
 <body>
 
@@ -764,6 +765,20 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-matchmaking">
+  <div class="modal">
+    <div class="handle"></div>
+    <div style="text-align:center;padding:8px 0">
+      <div id="mm-spinner" style="font-size:44px;line-height:1;animation:mm-pulse 1.2s ease-in-out infinite">⌛</div>
+      <h2 id="mm-title" style="margin:12px 0 4px">Searching for an opponent…</h2>
+      <p class="muted small" id="mm-status" style="margin:0">Looking for the next available player near your ELO…</p>
+      <div class="pill" id="mm-timer" style="margin:14px auto 0;display:inline-block">0:00</div>
+    </div>
+    <div class="stack" style="margin-top:16px">
+      <button class="btn btn-ghost btn-block" id="btn-mm-cancel">Cancel search</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="modal-result">
   <div class="modal">
     <div class="handle"></div>
@@ -822,8 +837,8 @@
 <div class="modal-overlay" id="modal-create-room">
   <div class="modal">
     <div class="handle"></div>
-    <h2>Room created</h2>
-    <p class="muted small" style="margin:4px 0 14px">Share this code with your opponent. They tap <b>Join room</b> on their device and enter the code.</p>
+    <h2>Waiting room</h2>
+    <p class="muted small" style="margin:4px 0 14px">Waiting for your opponent to join. Share this code (or invite a friend) — they tap <b>Join room</b> and enter it.</p>
     <div class="card center" style="padding:20px 14px">
       <div id="room-code" style="font-family:monospace;font-size:36px;letter-spacing:6px;font-weight:800;color:var(--accent)">------</div>
       <div class="muted small" style="margin-top:6px" id="room-mode-label">Friendly · doesn't count</div>
@@ -918,11 +933,11 @@
       }
     });
   </script>
-<script src="chess.min.js?v=20260530l"></script>
-<script src="sounds.js?v=20260530l"></script>
-<script src="stockfish-ai.js?v=20260530l"></script>
-<script src="app.js?v=20260530l"></script>
-<script src="academy.js?v=20260530l"></script>
+<script src="chess.min.js?v=20260530m"></script>
+<script src="sounds.js?v=20260530m"></script>
+<script src="stockfish-ai.js?v=20260530m"></script>
+<script src="app.js?v=20260530m"></script>
+<script src="academy.js?v=20260530m"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {

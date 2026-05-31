@@ -974,9 +974,9 @@ function renderFriendsSummary() {
   $('#btn-new-match').addEventListener('click', () => {
     // Challenge a player = ranked online matchmaking vs a similar-ELO opponent
     state.pendingChallenge = null;
-    findMatch();
+    startMatchmaking('ranked');
   });
-  $('#btn-find-match').addEventListener('click', () => findMatch());
+  $('#btn-find-match').addEventListener('click', () => startMatchmaking('ranked'));
     // 2v2 lobby buttons
     { const b = $('#btn-duo-ranked'); if (b) b.addEventListener('click', () => { try { window.Duo.startRanked(); } catch(e){ console.error(e); } }); }
     { const b = $('#duo-quit'); if (b) b.addEventListener('click', () => { if (window.Duo.quit()) { window.__duo.game = null; showScreen('lobby'); } }); }
@@ -1190,7 +1190,37 @@ function renderFriendsSummary() {
   // ---------------------------------------------------------------------------
   // Matchmaking
   // ---------------------------------------------------------------------------
-  function findMatch() {
+  let mmTimer = null, mmStart = 0;
+function stopMatchmaking() {
+  if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
+}
+function startMatchmaking(mode) {
+  if (!state.user) return;
+  stopMatchmaking();
+  mmStart = Date.now();
+  const titleEl = $('#mm-title'), statusEl = $('#mm-status'), timerEl = $('#mm-timer');
+  if (titleEl) titleEl.textContent = 'Searching for an opponent…';
+  if (statusEl) statusEl.textContent = 'Looking for the next available player near ' + state.user.elo + ' ELO…';
+  if (timerEl) timerEl.textContent = '0:00';
+  openModal('matchmaking');
+  const bands = [50, 100, 200, 400];
+  mmTimer = setInterval(() => {
+    const secs = Math.floor((Date.now() - mmStart) / 1000);
+    if (timerEl) timerEl.textContent = '0:' + String(secs).padStart(2, '0');
+    const band = bands[Math.min(secs, bands.length - 1)];
+    if (statusEl) statusEl.textContent = 'Searching players within ±' + band + ' ELO of you…';
+  }, 1000);
+  // Resolve after a short, realistic search; the ELO-band pool is then picked in findMatch().
+  const wait = 1600 + Math.floor(Math.random() * 1800);
+  setTimeout(() => {
+    if (mmTimer === null) return; // search was cancelled
+    findMatch();
+  }, wait);
+}
+
+function findMatch() {
+  stopMatchmaking();
+  closeModal('matchmaking');
     const db = loadDB();
     const me = state.user;
     const candidates = Object.values(db.users).filter(u => u.id !== me.id);
@@ -1247,6 +1277,7 @@ function renderFriendsSummary() {
     startGame('unranked');
   });
   $('#btn-opp-cancel').addEventListener('click', () => closeModal('opponent'));
+$('#btn-mm-cancel').addEventListener('click', () => { stopMatchmaking(); closeModal('matchmaking'); });
 
   // ---------------------------------------------------------------------------
   // Practice vs computer
