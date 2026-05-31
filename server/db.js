@@ -2,9 +2,13 @@
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = process.env.DATABASE_PATH || path.join(__dirname, 'data.db');
+
+// Ensure the DB's parent directory exists (e.g. a mounted volume path like /data).
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
 export const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
