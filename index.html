@@ -142,7 +142,7 @@
   .rank-elo { font-weight: 800; color: var(--accent); }
 
   /* TROPHIES */
-  .trophy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .trophy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
   .trophy { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 12px; text-align: center; position: relative; overflow: hidden; }
   .trophy.locked { opacity: .5; filter: grayscale(.6); }
   .trophy .icon { width: 58px; height: 58px; margin: 0 auto 6px; display: flex; align-items: center; justify-content: center; }
