@@ -446,11 +446,6 @@
       <button class="btn btn-block" id="btn-find-match">Find ranked opponent</button>
     </div>
     <div class="card">
-      <h3 style="margin-bottom:8px">Invite a friend</h3>
-      <p class="muted small" style="margin:0 0 12px">Generate a link or code and share it however you like.</p>
-      <button class="btn btn-block" id="btn-invite">📨 Invite & Share</button>
-    </div>
-    <div class="card">
       <h3 style="margin-bottom:8px">Private match</h3>
       <p class="muted small" style="margin:0 0 12px">Create a room code or join an existing one.</p>
       <div class="row" style="gap:8px">
@@ -460,7 +455,7 @@
     </div>
     <div class="card">
       <h3 style="margin-bottom:8px">Challenge a player</h3>
-      <p class="muted small" style="margin:0 0 12px">Pass-and-play on this device. Both players sign in.</p>
+      <p class="muted small" style="margin:0 0 12px">Get matched with an online player near your ELO for a ranked game.</p>
       <button class="btn btn-secondary btn-block" id="btn-new-match">Start a challenge</button>
     </div>
     <div class="card">
@@ -488,14 +483,6 @@
       </section>
 
 
-      <div class="card row between" style="align-items:center;gap:8px;">
-        <span class="muted small">More:</span>
-        <div class="row" style="gap:8px;">
-          <span class="pill" data-go="friends" style="cursor:pointer">Friends</span>
-          <span class="pill" data-go="trophies" style="cursor:pointer">Trophies</span>
-          <span class="pill" data-go="rankings" style="cursor:pointer">Rankings</span>
-        </div>
-      </div>
   </section>
 
   <!-- GAME -->
@@ -713,6 +700,10 @@
           <button class="btn btn-secondary small" id="btn-add-friend" style="padding:10px 14px;white-space:nowrap;">+ Add friend</button>
         </div>
         <div id="friend-search-results" style="margin-bottom:16px;"></div>
+      <div style="padding:0 0 16px;">
+        <button class="btn btn-block" id="btn-invite">🔗 Invite &amp; Share</button>
+        <p class="muted small" style="margin:8px 0 0;text-align:center;">Generate a link or code and share it however you like.</p>
+      </div>
       </div>
       <div style="padding:0 16px;">
         <h3 style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px;">Your Friends</h3>
@@ -927,11 +918,11 @@
       }
     });
   </script>
-<script src="chess.min.js?v=20260530k"></script>
-<script src="sounds.js?v=20260530k"></script>
-<script src="stockfish-ai.js?v=20260530k"></script>
-<script src="app.js?v=20260530k"></script>
-<script src="academy.js?v=20260530k"></script>
+<script src="chess.min.js?v=20260530l"></script>
+<script src="sounds.js?v=20260530l"></script>
+<script src="stockfish-ai.js?v=20260530l"></script>
+<script src="app.js?v=20260530l"></script>
+<script src="academy.js?v=20260530l"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {

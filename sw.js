@@ -1,5 +1,5 @@
 /* ChessTrophies Service Worker — offline-first PWA shell. */
-const CACHE = 'chesstrophies-v13';
+const CACHE = 'chesstrophies-v14';
 const ASSETS = [
   './',
   './index.html',

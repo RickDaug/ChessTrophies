@@ -972,11 +972,9 @@ function renderFriendsSummary() {
   }
 
   $('#btn-new-match').addEventListener('click', () => {
+    // Challenge a player = ranked online matchmaking vs a similar-ELO opponent
     state.pendingChallenge = null;
-    $('#opp-email').value = '';
-    $('#opp-password').value = '';
-    $('#opp-error').textContent = '';
-    openModal('opponent');
+    findMatch();
   });
   $('#btn-find-match').addEventListener('click', () => findMatch());
     // 2v2 lobby buttons
