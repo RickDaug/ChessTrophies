@@ -884,7 +884,7 @@
     $('#stat-wins').textContent = u.wins;
     $('#stat-streak').textContent = u.currentStreak;
     const totalTrophies = u.streakTrophies.length + u.achievements.length;
-    $('#lobby-trophy-summary').textContent =
+    const _lts = $('#lobby-trophy-summary'); if (_lts) _lts.textContent =
       totalTrophies === 0 ? 'No trophies yet — start a match' :
       `${u.streakTrophies.length} streak ${u.streakTrophies.length === 1 ? 'trophy' : 'trophies'} · ${u.achievements.length} achievements`;
     renderFriendsSummary();
@@ -974,13 +974,9 @@ function renderFriendsSummary() {
     openModal('opponent');
   });
   $('#btn-find-match').addEventListener('click', () => findMatch());
-  $('#btn-open-friends').addEventListener('click', () => showScreen('friends'));
     // 2v2 lobby buttons
     { const b = $('#btn-duo-ranked'); if (b) b.addEventListener('click', () => { try { window.Duo.startRanked(); } catch(e){ console.error(e); } }); }
     { const b = $('#duo-quit'); if (b) b.addEventListener('click', () => { if (window.Duo.quit()) { window.__duo.game = null; showScreen('lobby'); } }); }
-  $$('[data-cpu]').forEach(btn => {
-    btn.addEventListener('click', () => startPracticeGame(btn.dataset.cpu));
-  });
   const practiceEloInput = $('#practice-elo');
   const practiceEloLabel = $('#practice-elo-label');
   const practiceStartButton = $('#btn-start-practice');
