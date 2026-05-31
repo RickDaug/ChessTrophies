@@ -360,6 +360,32 @@
     .pz-status.bad { color: #ff8b8b; }
     .pz-actions { display: flex; gap: 8px; }
     .pz-actions button { flex: 1; }
+
+    /* ---- Game Review (review.js) ---- */
+    .rv-modal { max-width: 460px; }
+    .rv-h { margin: 0 0 8px; }
+    .rv-acc { display: flex; gap: 12px; margin-bottom: 10px; }
+    .rv-acc-item { flex: 1; text-align: center; background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
+    .rv-acc-item label { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; }
+    .rv-acc-item span { font-size: 20px; font-weight: 700; color: var(--accent); }
+    .rv-board { display: grid; grid-template-columns: repeat(8, minmax(0,1fr)); grid-template-rows: repeat(8, minmax(0,1fr)); aspect-ratio: 1/1; width: 100%; border-radius: 10px; overflow: hidden; }
+    .rv-sq { display: flex; align-items: center; justify-content: center; }
+    .rv-sq.light { background: var(--board-light, #eedfc6); }
+    .rv-sq.dark { background: var(--board-dark, #6e8c6b); }
+    .rv-piece { width: 88%; height: 88%; }
+    .rv-piece svg { width: 100%; height: 100%; display: block; }
+    .rv-caption { text-align: center; font-size: 13px; color: var(--muted); margin: 8px 0; min-height: 16px; }
+    .rv-nav { display: flex; gap: 6px; margin-bottom: 8px; }
+    .rv-nav button { flex: 1; padding: 6px 4px; }
+    .rv-moves { max-height: 120px; overflow-y: auto; font-size: 13px; line-height: 1.9; margin-bottom: 12px; }
+    .rv-move { cursor: pointer; padding: 1px 4px; border-radius: 6px; }
+    .rv-move.active { background: rgba(255,255,255,.1); }
+    .rv-tag { font-style: normal; font-size: 10px; padding: 1px 5px; border-radius: 6px; margin-right: 6px; }
+    .rv-tag.best { background:#1f6f43; color:#cdebd6; }
+    .rv-tag.good { background:#2a4a6e; color:#cfe2ff; }
+    .rv-tag.inacc { background:#6e5a1f; color:#f3e6b8; }
+    .rv-tag.mistake { background:#7a3d1f; color:#f7d6c2; }
+    .rv-tag.blunder { background:#7a1f1f; color:#f7c2c2; }
 </style>
 </head>
 <body>
@@ -819,7 +845,8 @@
     <h2 id="result-title">Checkmate</h2>
     <p id="result-body" class="muted" style="margin:6px 0 16px">—</p>
     <div id="result-rewards"></div>
-    <button class="btn btn-block" id="btn-result-close" style="margin-top:14px">Done</button>
+    <button class="btn btn-block btn-secondary" id="btn-result-review" style="margin-top:10px">Review game</button>
+        <button class="btn btn-block" id="btn-result-close" style="margin-top:14px">Done</button>
   </div>
 </div>
 
@@ -974,6 +1001,7 @@
 <script src="academy.js?v=20260530m"></script>
     <script src="puzzles-data.js?v=20260531a"></script>
     <script src="puzzles.js?v=20260531a"></script>
+    <script src="review.js?v=20260531a"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {

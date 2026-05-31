@@ -2254,6 +2254,17 @@ $('#btn-mm-cancel').addEventListener('click', () => { stopMatchmaking(); closeMo
     showScreen('lobby');
   _addLobbyChatButton();
   });
+    var _rvBtn = $('#btn-result-review');
+    if (_rvBtn && !_rvBtn._wired) {
+      _rvBtn._wired = true;
+      _rvBtn.addEventListener('click', function () {
+        try {
+          var hist = (state.game && state.game.history) ? state.game.history({ verbose: true }) : [];
+          if (window.CT_reviewGame) window.CT_reviewGame(hist);
+          else if (CT && CT.toast) CT.toast('Review is unavailable.');
+        } catch (e) { if (window.console) console.warn('review failed', e); }
+      });
+    }
 
   // ---------------------------------------------------------------------------
   // Profile screen
