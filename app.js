@@ -765,6 +765,7 @@
     if (id === 'rankings') renderRankings();
     if (id === 'trophies') renderTrophies();
     if (id === 'friends') { renderFriendsList(); }
+    if (id === 'academy' && window.CT_renderAcademy) window.CT_renderAcademy();
     if (id === 'settings') { /* settings already rendered statically */ }
   }
 
