@@ -386,6 +386,10 @@
     .rv-tag.inacc { background:#6e5a1f; color:#f3e6b8; }
     .rv-tag.mistake { background:#7a3d1f; color:#f7d6c2; }
     .rv-tag.blunder { background:#7a1f1f; color:#f7c2c2; }
+
+    /* ---- Trophy rarity badge (trophy-extras.js) ---- */
+    .trophy-rarity { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color: var(--rar,#cd7f32); border:1px solid var(--rar,#cd7f32); border-radius:999px; padding:4px 12px; margin-bottom:10px; }
+    .trophy-rarity-dot { width:8px; height:8px; border-radius:50%; background: var(--rar,#cd7f32); box-shadow:0 0 8px var(--rar,#cd7f32); }
 </style>
 </head>
 <body>
@@ -1002,6 +1006,7 @@
     <script src="puzzles-data.js?v=20260531a"></script>
     <script src="puzzles.js?v=20260531a"></script>
     <script src="review.js?v=20260531a"></script>
+    <script src="trophy-extras.js?v=20260531a"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {

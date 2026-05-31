@@ -18,7 +18,7 @@ COPY server/ ./
 
 # Static client assets (served by express.static from /app/public)
 RUN mkdir -p ./public
-COPY index.html app.js academy.js puzzles.js puzzles-data.js review.js chess.min.js sounds.js stockfish-ai.js sw.js manifest.json icon.svg icon-192.png icon-512.png icon-1024.png privacy.html terms.html ./public/
+COPY index.html app.js academy.js puzzles.js puzzles-data.js review.js trophy-extras.js chess.min.js sounds.js stockfish-ai.js sw.js manifest.json icon.svg icon-192.png icon-512.png icon-1024.png privacy.html terms.html ./public/
 
 ENV NODE_ENV=production
 EXPOSE 3000

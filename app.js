@@ -2579,6 +2579,18 @@ $('#btn-mm-cancel').addEventListener('click', () => { stopMatchmaking(); closeMo
         ${trophy.victims.map((v, i) => `<li><span>${i + 1}. ${escapeHTML(v.username)}</span><span class="muted small">${new Date(v.when).toLocaleDateString()}</span></li>`).join('')}
       </ul>
     `;
+    // Trophy polish (trophy-extras.js): rarity badge + shareable card.
+    try {
+      if (window.CT_trophyRarity) {
+        var _r = window.CT_trophyRarity(trophy.streakNumber);
+        var _badge = '<div class="trophy-rarity" style="--rar:' + _r.color + '">' +
+          '<span class="trophy-rarity-dot"></span>' + _r.label + ' rarity</div>';
+        body.innerHTML = _badge + body.innerHTML +
+          '<button class="btn btn-block" id="btn-share-trophy" style="margin-top:12px">Share trophy card</button>';
+        var _sb = document.getElementById('btn-share-trophy');
+        if (_sb) _sb.addEventListener('click', function () { if (window.CT_shareTrophyCard) window.CT_shareTrophyCard(trophy); });
+      }
+    } catch (e) { if (window.console) console.warn('trophy polish failed', e); }
     openModal('trophy-detail');
   }
   $('#btn-trophy-close').addEventListener('click', () => closeModal('trophy-detail'));
