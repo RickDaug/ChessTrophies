@@ -1,5 +1,5 @@
 /* ChessTrophies Service Worker — offline-first PWA shell. */
-const CACHE = 'chesstrophies-v15';
+const CACHE = 'chesstrophies-v16';
 const ASSETS = [
   './',
   './index.html',
@@ -33,7 +33,9 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const isHtml = req.headers.get('accept')?.includes('text/html');
-  if (isHtml) {
+  const url = new URL(req.url);
+  const isAppCode = url.origin === self.location.origin && /\.(?:js|css)$/.test(url.pathname);
+  if (isHtml || isAppCode) {
     event.respondWith(
       fetch(req)
         .then((res) => {
