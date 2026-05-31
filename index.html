@@ -228,7 +228,6 @@
 
     /* === ENHANCED NAV === */
     #bottom-nav {
-      display: flex;
       justify-content: space-around;
       background: var(--panel);
       border-top: 1px solid var(--border);
@@ -926,21 +925,21 @@
 </div>
 
 <!-- chess.js (move validation, check/mate detection) -->
-<script src="chess.min.js?v=20260529g"></script>
 <script>
-  if (typeof Chess === 'undefined') {
     document.addEventListener('DOMContentLoaded', function () {
-      const warn = document.createElement('div');
+      if (typeof Chess === 'undefined') {
+        const warn = document.createElement('div');
       warn.style.cssText = 'max-width:480px;margin:0 auto;padding:24px 18px;color:#fff;font-family:Inter,Arial,sans-serif;line-height:1.5;';
       warn.textContent = 'Chess.js failed to load. Please refresh the page or check your network connection.';
       document.body.appendChild(warn);
+      }
     });
-  }
-</script>
-<script src="sounds.js?v=20260529g"></script>
-<script src="stockfish-ai.js?v=20260529g"></script>
-<script src="app.js?v=20260529g"></script>
-<script src="academy.js?v=20260529g"></script>
+  </script>
+<script src="chess.min.js?v=20260530e"></script>
+<script src="sounds.js?v=20260530e"></script>
+<script src="stockfish-ai.js?v=20260530e"></script>
+<script src="app.js?v=20260530e"></script>
+<script src="academy.js?v=20260530e"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {

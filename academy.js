@@ -745,6 +745,7 @@
   // -------------------- SETTINGS UI --------------------
   function renderSettings() {
     const u = CT.user;
+    if (!u) return;
     const bWrap = document.getElementById('settings-boards');
     const pWrap = document.getElementById('settings-pieces');
     if (!bWrap || !pWrap) return;

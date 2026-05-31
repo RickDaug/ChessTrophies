@@ -205,7 +205,8 @@
   }
   function getSession() {
     const v = sessionStorage.getItem(SESSION_KEY) || localStorage.getItem(SESSION_KEY);
-    return v ? JSON.parse(v) : null;
+    if (!v) return null;
+    try { return JSON.parse(v); } catch (e) { return null; }
   }
   function setSession(s) {
     if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s));
@@ -876,6 +877,7 @@
   // Lobby
   // ---------------------------------------------------------------------------
   function renderLobby() {
+  if (!state.user) return;
     const u = state.user;
     $('#lobby-avatar').textContent = u.username[0].toUpperCase();
     $('#lobby-name').textContent = u.username;
@@ -922,6 +924,7 @@ function renderFriendsSummary() {
   }
 
   function renderFriendsList() {
+  if (!state.user) return;
     var wrap = $('#friends-list');
     if (!wrap) return;
     var db = loadDB();
@@ -2172,6 +2175,7 @@ function renderFriendsSummary() {
   // Profile screen
   // ---------------------------------------------------------------------------
   function renderProfile() {
+  if (!state.user) return;
     const u = state.user;
     // Avatar: use custom/stock image or fallback to initial
   const profAvEl = $('#prof-avatar');
@@ -2309,6 +2313,7 @@ function renderFriendsSummary() {
   };
 
   function renderRankings() {
+  if (!state.user) return;
     const db = loadDB();
     const me = state.user;
     const info = METRIC_INFO[currentRankMetric] || METRIC_INFO.elo;
@@ -2386,6 +2391,7 @@ function renderFriendsSummary() {
   }
 
   function renderTrophies() {
+  if (!state.user) return;
     const u = state.user;
     const sWrap = $('#streak-trophies');
     if (u.streakTrophies.length === 0) {
