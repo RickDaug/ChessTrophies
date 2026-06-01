@@ -1,6 +1,6 @@
 # ChessTrophies — Project state (snapshot)
 
-**Last updated:** Session paused after legal documents created.
+**Last updated:** 2026-06-01 — online ranked play (1v1 + 2v2) live; 2v2 Practice-vs-AI mode removed.
 
 This file is the canonical "where are we, what's next" document. Read it first when you come back.
 
@@ -16,6 +16,8 @@ This file is the canonical "where are we, what's next" document. Read it first w
 | Player profiles with stats | ✓ Done |
 | Pass-and-play PvP (same device) | ✓ Done |
 | Skill-based matchmaking (±100 ELO) | ✓ Done |
+| Online ranked 1v1 (real opponents) | ✓ Done — wired to Railway server via Socket.IO (Phase 2) |
+| Online ranked 2v2 team chess | ✓ Done — solo queue or friend duo, server pairs four players into two teams, 3-min queue, separate 2v2 ELO, server-authoritative moves |
 | Practice vs Computer (Easy/Med/Hard) | ✓ Done — built-in minimax with PSTs, quiescence, iterative deepening (≈1500-1700 ELO) |
 | 115 verified chess lessons | ✓ Done — every solution verified by python-chess |
 | Lesson teaching + Watch Example demo | ✓ Done |
@@ -37,7 +39,8 @@ This file is the canonical "where are we, what's next" document. Read it first w
 | Premium tier (₪ flips `isPremium`) | ✓ Done (demo toggle, ready for Stripe) |
 | Sound effects via Web Audio | ✓ Done — move, capture, check, castle, promotion, game over, trophy |
 | PWA (installable) | ✓ Done — manifest.json + service worker |
-| Backend server scaffold | ✓ Done — `server/` folder with Express + Socket.IO + SQLite |
+| Backend server (deployed) | ✓ Done — `server/` Express + Socket.IO + SQLite, live on Railway |
+| Native Android app | ✓ Done — Capacitor wrapper (`com.chesstrophies.app`), installs & runs against the Railway backend; full signup loop confirmed on a Samsung A16. See `docs/ANDROID_BUILD.md` |
 | MIT LICENSE | ✓ Done |
 | Privacy Policy template | ✓ Done — `privacy.html` |
 | Terms of Service template | ✓ Done — `terms.html` |
@@ -47,14 +50,13 @@ This file is the canonical "where are we, what's next" document. Read it first w
 
 | Item | Where it goes | Effort |
 |---|---|---|
-| Real online play wired to server | `app.js` signup/login → REST + Socket.IO client | 2-4 hours |
 | Stripe checkout for Premium | `server/billing.js` + replace `setPremium(true)` | 2-4 hours |
 | Real AdSense / AdMob | Replace `renderAdSlot()` HTML inside | 1 hour after approval |
 | Email password reset | New `/api/auth/forgot` route + Resend integration | 4-8 hours |
 | Game analysis (eval bar + blunder detection) | Built-in engine already supports it; needs UI | 1 day |
 | Daily puzzle | Pull from any free puzzle DB (lichess CSV) | 4-8 hours |
 | Tournaments | Schema in server already supports games — needs UI + matchmaking | 2-3 days |
-| Native iOS / Android wrappers | Capacitor — see LAUNCH_GUIDE.md | 1-2 days each |
+| Native iOS wrapper | Capacitor — mirror the Android setup; see docs/ANDROID_BUILD.md | 1-2 days |
 | Email verification on signup | Add to server `/api/auth/signup` | 4 hours |
 | Push notifications | Web Push API + service worker | 1 day |
 | Avatar uploads | S3 + file picker in profile | 1 day |
@@ -63,33 +65,48 @@ This file is the canonical "where are we, what's next" document. Read it first w
 
 ## File inventory
 
-Everything lives at `C:\Users\RickD\Downloads\ChessTrophies\`:
+Active working copy: `C:\Users\RickD\AndroidStudioProjects\ChessTrophies\` (GitHub: `github.com/RickDaug/ChessTrophies`, default branch `main`). The old `Downloads\ChessTrophies` clone was stale and has been deleted.
 
-| File | Purpose | Status |
-|---|---|---|
-| `index.html` | Main app UI, all screens & modals | 42 KB |
-| `app.js` | Auth, game, AI, trophies, rankings, ads, premium | 96 KB |
-| `academy.js` | Lessons, roadmap, themes, settings | 59 KB |
-| `sounds.js` | Synthesized sound effects (Web Audio) | 4 KB |
-| `stockfish-ai.js` | Stub (Stockfish disabled — keeps app MIT-clean) | 1 KB |
-| `sw.js` | Service worker for offline PWA | 2 KB |
-| `manifest.json` | PWA manifest | 1 KB |
-| `icon.svg` | App icon | 1 KB |
-| `LICENSE` | MIT license | 1.5 KB |
-| `LICENSES.md` | Third-party license audit | 7 KB |
-| `LAUNCH_GUIDE.md` | Step-by-step deployment plan | 16 KB |
-| `privacy.html` | Privacy Policy (template — fill placeholders) | 9 KB |
-| `terms.html` | Terms of Service (template — fill placeholders) | 9 KB |
-| `STATE.md` | This file | — |
-| `README.md` | Project README + git push commands | 6 KB |
-| `server/` | Node.js backend (not yet deployed) | folder |
-| `server/server.js` | Express app + WebSocket bootstrap | 4 KB |
-| `server/db.js` | SQLite schema + helpers | 3 KB |
-| `server/auth.js` | JWT + signup/login | 2 KB |
-| `server/game.js` | Matchmaking + real-time games | 7 KB |
-| `server/package.json` | Dependencies | 1 KB |
-| `server/.env.example` | Env var template | 1 KB |
-| `server/README.md` | Server deployment + API docs | 4 KB |
+### Client (repo root)
+
+| File | Purpose |
+|---|---|
+| `index.html` | Main app UI, all screens & modals |
+| `app.js` | Auth, game, computer AI, 2v2 (online-only), trophies, rankings, ads, premium |
+| `academy.js` | Lessons, roadmap, themes, settings |
+| `ct-net.js` | Socket.IO client — online matchmaking, move sync, 2v2 invites |
+| `config.js` | Sets `CT_SERVER_URL` to the Railway backend in the native/Capacitor shell; web stays same-origin |
+| `chess960.js` | Fischer Random Chess mode |
+| `puzzles.js` / `puzzles-data.js` | Daily/practice puzzles + data |
+| `review.js` | Game review / analysis UI |
+| `learn-library.js` | Strategy Library content for the Learn section |
+| `trophy-extras.js` | Additional trophy/achievement definitions |
+| `sounds.js` | Synthesized sound effects (Web Audio) |
+| `stockfish-ai.js` | Stub (Stockfish disabled — keeps app MIT-clean) |
+| `chess.min.js` | Bundled chess.js engine |
+| `sw.js` / `manifest.json` | Service worker + PWA manifest |
+| `privacy.html` / `terms.html` | Legal templates (fill placeholders before launch) |
+| `LICENSES.md`, `LAUNCH_GUIDE.md`, `CROSSPLAY_PLAN.md`, `CHANGELOG.md`, `HANDOFF.md`, `SECURITY.md`, `README.md`, `STATE.md` | Docs |
+
+### Backend — `server/` (Express + Socket.IO + SQLite, deployed to Railway)
+
+| File | Purpose |
+|---|---|
+| `server/server.js` | Express app + WebSocket bootstrap |
+| `server/db.js` | SQLite schema + helpers |
+| `server/auth.js` | JWT + signup/login |
+| `server/game.js` | Matchmaking + real-time games (1v1 + 2v2 teams) |
+| `server/package.json` / `server/.env.example` / `server/README.md` | Deps, env template, API docs |
+
+### Other top-level folders
+
+| Path | Purpose |
+|---|---|
+| `android/` | Capacitor + Gradle native Android project (`com.chesstrophies.app`) |
+| `www/` | Gitignored Capacitor web bundle — regenerate with `bash scripts/refresh-www.sh` |
+| `scripts/` | Build helpers (`refresh-www.sh`) |
+| `docs/` | `ANDROID_BUILD.md` runbook and other docs |
+| `capacitor.config.json` / `railway.json` | Capacitor + Railway deploy config |
 
 ---
 
