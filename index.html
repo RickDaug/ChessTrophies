@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://chesstrophies-production.up.railway.app wss://chesstrophies-production.up.railway.app; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';" />
 <meta name="theme-color" content="#f5c451" />
 <title>ChessTrophies</title>
 <link rel="manifest" href="manifest.json">
@@ -1030,7 +1030,8 @@
 <script src="chess960.js?v=20260531c"></script>
 <script src="sounds.js?v=20260530m"></script>
 <script src="stockfish-ai.js?v=20260530m"></script>
-<script src="app.js?v=20260531c"></script>
+<script src="config.js?v=20260531d"></script>
+  <script src="app.js?v=20260531c"></script>
 <script src="academy.js?v=20260531c"></script>
     <script src="puzzles-data.js?v=20260531a"></script>
     <script src="puzzles.js?v=20260531a"></script>
