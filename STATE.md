@@ -17,7 +17,7 @@ This file is the canonical "where are we, what's next" document. Read it first w
 | Pass-and-play PvP (same device) | ✓ Done |
 | Skill-based matchmaking (±100 ELO) | ✓ Done |
 | Online ranked 1v1 (real opponents) | ✓ Done — wired to Railway server via Socket.IO (Phase 2) |
-| Online ranked 2v2 team chess | ✓ Done — solo queue or friend duo, server pairs four players into two teams, 3-min queue, separate 2v2 ELO, server-authoritative moves |
+| Online ranked 2v2 team chess | ✓ Done — solo queue or friend duo, server pairs four players into two teams, 3-min queue, separate 2v2 ELO, server-authoritative moves. Front-page state browser-verified 2026-06-01 (see Verification note below) |
 | Practice vs Computer (Easy/Med/Hard) | ✓ Done — built-in minimax with PSTs, quiescence, iterative deepening (≈1500-1700 ELO) |
 | 115 verified chess lessons | ✓ Done — every solution verified by python-chess |
 | Lesson teaching + Watch Example demo | ✓ Done |
@@ -45,6 +45,15 @@ This file is the canonical "where are we, what's next" document. Read it first w
 | Privacy Policy template | ✓ Done — `privacy.html` |
 | Terms of Service template | ✓ Done — `terms.html` |
 | End-to-end runtime test | ✓ Done — all flows verified clean |
+
+### Verification — 2v2 changes (2026-06-01)
+
+Removal of the "Practice 2v2 (vs AI)" mode and the corny RANKED 2v2 copy was **verified PASS** by driving the real web client in headless Chromium (Playwright, guest login → lobby):
+
+- Front page shows only the **RANKED 2v2** card — no "Practice 2v2 (vs AI)" card, no corny description paragraph.
+- `window.Duo` API no longer exposes `startPractice`/`startRanked`; `duoPickMove` is gone; no `pageerror`/ReferenceError from the removed AI code.
+- "Find ranked 2v2" button still wired: clicking it fires `startOnlineTeamMatchmaking`, which correctly guards on the server connection.
+- **Gap:** a *successful* online 2v2 match (4 queued players → board → server move sync) was **not** driven end-to-end locally — it needs the live Railway backend with multiple sessions. Worth a manual multi-device pass before relying on it.
 
 ### Not yet built / next steps
 
