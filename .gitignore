@@ -48,3 +48,6 @@ _sync_test*.txt
 server/data.db-shm
 server/data.db-wal
 server/data.db-*
+
+# Staged web assets for Capacitor build (regenerated from repo root)
+www/

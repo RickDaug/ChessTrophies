@@ -1,0 +1,26 @@
+{
+  "name": "chesstrophies",
+  "version": "1.0.0",
+  "description": "A modern, mobile-friendly chess platform with player profiles, skill-based matchmaking, a chess AI for practice, ELO rankings, and a trophy system that records the names of every opponent you defeat during a winning streak.",
+  "main": "academy.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RickDaug/ChessTrophies.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/RickDaug/ChessTrophies/issues"
+  },
+  "homepage": "https://github.com/RickDaug/ChessTrophies#readme",
+  "dependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/cli": "^8.3.4",
+    "@capacitor/core": "^8.3.4"
+  }
+}
