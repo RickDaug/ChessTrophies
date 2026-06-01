@@ -72,10 +72,45 @@ CREATE TABLE IF NOT EXISTS rooms (
   FOREIGN KEY (host_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS team_games (
+  id TEXT PRIMARY KEY,
+  white_p1_id TEXT NOT NULL,
+  white_p2_id TEXT NOT NULL,
+  black_p1_id TEXT NOT NULL,
+  black_p2_id TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  result TEXT,
+  winner_color TEXT, -- 'w' | 'b' | NULL (draw)
+  pgn TEXT,
+  white_avg_elo_before INTEGER,
+  black_avg_elo_before INTEGER,
+  white_elo_delta INTEGER,
+  black_elo_delta INTEGER,
+  created_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  FOREIGN KEY (white_p1_id) REFERENCES users(id),
+  FOREIGN KEY (white_p2_id) REFERENCES users(id),
+  FOREIGN KEY (black_p1_id) REFERENCES users(id),
+  FOREIGN KEY (black_p2_id) REFERENCES users(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_users_elo ON users(elo DESC);
 CREATE INDEX IF NOT EXISTS idx_users_wins ON users(wins DESC);
 CREATE INDEX IF NOT EXISTS idx_games_created ON games(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_team_games_created ON team_games(created_at DESC);
 `);
+
+// Idempotent migrations: add 2v2-specific columns to users if they don't exist.
+// SQLite has no IF NOT EXISTS for ADD COLUMN before 3.35, so we probe the schema.
+function ensureColumn(table, col, type, defaultLiteral) {
+  const info = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (info.some(r => r.name === col)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type} NOT NULL DEFAULT ${defaultLiteral}`);
+}
+ensureColumn('users', 'elo_2v2', 'INTEGER', '1200');
+ensureColumn('users', 'wins_2v2', 'INTEGER', '0');
+ensureColumn('users', 'losses_2v2', 'INTEGER', '0');
+ensureColumn('users', 'draws_2v2', 'INTEGER', '0');
 
 // Helpers
 export function getUserById(id) {

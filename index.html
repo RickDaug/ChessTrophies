@@ -563,9 +563,15 @@
     <section style="margin-top:18px">
         <h2>2v2 Team Chess</h2>
         <div class="card">
+          <div class="row between" style="font-weight:600;letter-spacing:.04em;color:var(--muted)">RANKED 2v2</div>
+          <p class="muted small" style="margin:4px 0 10px">Queue solo or team up with a friend. We pair four players into two teams. Ranked 2v2 ELO is separate from 1v1. Queue waits up to 3 minutes.</p>
+          <button class="btn btn-block" id="btn-duo-online">Find ranked 2v2</button>
+          <p class="muted small" style="margin:10px 0 0">Want to team up with a specific friend? Tap a friend in the Friends tab and choose &ldquo;Team up for ranked 2v2&rdquo;.</p>
+        </div>
+        <div class="card" style="margin-top:10px">
           <div class="row between" style="font-weight:600;letter-spacing:.04em;color:var(--muted)">PRACTICE 2v2</div>
-          <p class="muted small" style="margin:4px 0 10px">Play 2v2 with an AI partner against two AI opponents. Online 2v2 with real teammates is on the roadmap (see CROSSPLAY_PLAN).</p>
-          <button class="btn btn-block" id="btn-duo-ranked">Practice 2v2 (AI partner)</button>
+          <p class="muted small" style="margin:4px 0 10px">Play 2v2 against the computer with an AI partner. No rating change &mdash; pure practice.</p>
+          <button class="btn btn-secondary btn-block" id="btn-duo-practice">Practice 2v2 (vs AI)</button>
         </div>
       </section>
 
@@ -870,6 +876,32 @@
     </div>
   </div>
 </div>
+<div class="modal-overlay" id="modal-team-queue">
+  <div class="modal">
+    <div class="handle"></div>
+    <div style="text-align:center;padding:8px 0">
+      <div style="font-size:44px;line-height:1;animation:mm-pulse 1.2s ease-in-out infinite">⚔️</div>
+      <h2 id="tq-title" style="margin:12px 0 4px">Searching for a 2v2 match…</h2>
+      <p class="muted small" id="tq-status" style="margin:0">Need 4 players for a match. Waiting up to 3 minutes.</p>
+      <div class="pill" id="tq-timer" style="margin:14px auto 0;display:inline-block">3:00</div>
+      <div class="muted small" id="tq-partner" style="margin-top:8px"></div>
+    </div>
+    <div class="stack" style="margin-top:16px">
+      <button class="btn btn-ghost btn-block" id="btn-tq-cancel">Cancel search</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="modal-duo-invite">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2 style="margin:0 0 6px">2v2 Team Invite</h2>
+    <p class="muted small" id="duo-invite-body" style="margin:0 0 14px">Player invited you to team up.</p>
+    <div class="stack">
+      <button class="btn btn-block" id="btn-duo-accept">Accept &amp; queue for ranked 2v2</button>
+      <button class="btn btn-ghost btn-block" id="btn-duo-decline">Decline</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="modal-result">
   <div class="modal">
     <div class="handle"></div>
@@ -1031,8 +1063,8 @@
 <script src="stockfish-ai.js?v=20260530m"></script>
 <script src="config.js?v=20260531d"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script src="ct-net.js?v=20260531e"></script>
-  <script src="app.js?v=20260531e"></script>
+<script src="ct-net.js?v=20260601a"></script>
+  <script src="app.js?v=20260601a"></script>
 <script src="academy.js?v=20260531c"></script>
     <script src="puzzles-data.js?v=20260531a"></script>
     <script src="puzzles.js?v=20260531a"></script>

@@ -1050,7 +1050,12 @@ function renderFriendsSummary() {
     }
   }
     // 2v2 lobby buttons
-    { const b = $('#btn-duo-ranked'); if (b) b.addEventListener('click', () => { try { window.Duo.startRanked(); } catch(e){ console.error(e); } }); }
+    // - btn-duo-online -> real ranked 2v2 via the server (3-min queue, real opponents)
+    // - btn-duo-practice -> legacy AI 2v2 (unranked practice)
+    // - btn-duo-ranked -> kept as alias for older builds (treated as online)
+    { const b = $('#btn-duo-online'); if (b) b.addEventListener('click', () => startOnlineTeamMatchmaking()); }
+    { const b = $('#btn-duo-ranked'); if (b) b.addEventListener('click', () => startOnlineTeamMatchmaking()); }
+    { const b = $('#btn-duo-practice'); if (b) b.addEventListener('click', () => { try { window.Duo.startPractice(); } catch(e){ console.error(e); } }); }
     { const b = $('#duo-quit'); if (b) b.addEventListener('click', () => { if (window.Duo.quit()) { window.__duo.game = null; showScreen('lobby'); } }); }
   const practiceEloInput = $('#practice-elo');
   const practiceEloLabel = $('#practice-elo-label');
@@ -1106,6 +1111,17 @@ function renderFriendsSummary() {
   });
   $('#btn-fc-ranked').addEventListener('click', () => {
     closeModal('friend-challenge');
+    // Real online: send a duo invite via the server. The friend (if online and
+    // authenticated against the same backend) receives a popup; on accept we
+    // both enter the team queue together and the server pairs us with another
+    // duo or 2 solo players.
+    const friendId = state.selectedFriendId;
+    if (friendId && window.CTNet && window.CTNet.isReady()) {
+      try { window.CTNet.inviteDuo(friendId); toast('2v2 invite sent — waiting for them to accept…'); return; }
+      catch (e) { console.error(e); }
+    }
+    // Fall back to the legacy practice (AI) flow if we're not connected to the server.
+    toast('Server unavailable — starting practice 2v2 instead.');
     startFriendChallenge('ranked');
   });
   $('#btn-fc-remove').addEventListener('click', () => {
@@ -1410,8 +1426,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
 
   function handleServerMoveMade(data) {
+    if (!data) return;
+    // 2v2 routing: if Duo is in an online game with this gameId, hand off.
+    if (window.Duo && window.__duo && window.__duo.online && window.__duo.gameId === data.gameId) {
+      window.Duo.applyServerMove(data);
+      return;
+    }
     if (!state.isOnline || !state.game) return;
-    if (!data || data.gameId !== state.gameId) return;
+    if (data.gameId !== state.gameId) return;
     const mv = data.move; if (!mv) return;
     // Only apply opponent's move; our own move was already applied locally.
     if (mv.color === state.userColor) return;
@@ -1431,7 +1453,13 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
 
   function handleServerGameOver(data) {
-    if (!state.isOnline || !data || data.gameId !== state.gameId) return;
+    if (!data) return;
+    // 2v2 routing: if Duo is in an online game with this gameId, hand off.
+    if (data.team === true && window.Duo && window.__duo && window.__duo.online && window.__duo.gameId === data.gameId) {
+      window.Duo.handleServerGameOver(data);
+      return;
+    }
+    if (!state.isOnline || data.gameId !== state.gameId) return;
     state.awaitingServerGameOver = false;
     const me = state.user;
     let winnerColor = null;
@@ -1466,11 +1494,190 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       window.CTNet.on('illegalMove', handleServerIllegalMove);
       window.CTNet.on('gameOver', handleServerGameOver);
       window.CTNet.on('rateLimited', (d) => toast('Slow down (' + (d && d.event) + ')'));
+      // 2v2 events
+      window.CTNet.on('teamMatchFound', handleTeamMatchFound);
+      window.CTNet.on('teamQueued', handleTeamQueued);
+      window.CTNet.on('teamLeft', (d) => { stopTeamQueueTimer(); closeModal('team-queue'); toast('Your teammate left the queue.'); });
+      window.CTNet.on('teamErr', (d) => { stopTeamQueueTimer(); closeModal('team-queue'); toast('Queue error: ' + (d && d.error || 'unknown')); });
+      // Duo invites
+      window.CTNet.on('duoInviteReceived', handleDuoInviteReceived);
+      window.CTNet.on('duoAccepted', handleDuoAccepted);
+      window.CTNet.on('duoReady', handleDuoReady);
+      window.CTNet.on('duoDeclined', (d) => { toast('Your duo invite was declined.'); state._pendingDuoInvite = null; });
+      window.CTNet.on('duoCancelled', (d) => { toast('Duo invite cancelled.'); state._pendingDuoInvite = null; closeModal('duo-invite'); });
+      window.CTNet.on('duoInviteExpired', (d) => { toast('Duo invite expired.'); state._pendingDuoInvite = null; closeModal('duo-invite'); });
+      window.CTNet.on('duoErr', (d) => toast('Duo error: ' + (d && d.error || 'unknown')));
       state._netHandlersRegistered = true;
     }
   }
   // Expose for the login/signup flows.
   window.__connectGameSocket = connectGameSocketIfPossible;
+
+  // ---------------------------------------------------------------------------
+  // 2v2 online matchmaking (3-minute queue with timeout)
+  // ---------------------------------------------------------------------------
+  let tqTimer = null, tqStart = 0;
+  const TEAM_QUEUE_TIMEOUT_MS = 3 * 60 * 1000;
+
+  function stopTeamQueueTimer() {
+    if (tqTimer) { clearInterval(tqTimer); tqTimer = null; }
+  }
+
+  function startOnlineTeamMatchmaking() {
+    if (!state.user) return;
+    if (!window.CTNet || !window.CTNet.isReady()) {
+      toast('Not connected to server. Try again in a moment.');
+      return;
+    }
+    if (state._pendingDuoInvite && state._pendingDuoInvite.role === 'host') {
+      // Solo flow ignored — already mid-duo. Should not happen via this entry.
+      return;
+    }
+    stopTeamQueueTimer();
+    tqStart = Date.now();
+    const titleEl = $('#tq-title'), statusEl = $('#tq-status'), timerEl = $('#tq-timer'), partnerEl = $('#tq-partner');
+    if (titleEl) titleEl.textContent = 'Searching for a 2v2 match…';
+    if (statusEl) statusEl.textContent = 'Need 4 players for a match. Waiting up to 3 minutes.';
+    if (timerEl) timerEl.textContent = '3:00';
+    if (partnerEl) partnerEl.textContent = '';
+    openModal('team-queue');
+    state._inTeamQueue = true;
+    tqTimer = setInterval(() => {
+      const elapsed = Date.now() - tqStart;
+      const remaining = Math.max(0, TEAM_QUEUE_TIMEOUT_MS - elapsed);
+      if (timerEl) {
+        const s = Math.ceil(remaining / 1000);
+        const mm = Math.floor(s / 60), ss = s % 60;
+        timerEl.textContent = mm + ':' + String(ss).padStart(2, '0');
+      }
+      if (remaining <= 0) {
+        stopTeamQueueTimer();
+        if (state._inTeamQueue) {
+          state._inTeamQueue = false;
+          if (window.CTNet && window.CTNet.isReady()) window.CTNet.leaveTeamQueue();
+          closeModal('team-queue');
+          toast('No players available for ranked 2v2 right now. Try again soon.');
+        }
+      }
+    }, 250);
+    window.CTNet.joinTeamQueue();
+  }
+
+  function handleTeamQueued(data) {
+    const partnerEl = $('#tq-partner');
+    if (!partnerEl) return;
+    if (data && data.type === 'duo') {
+      partnerEl.textContent = data.size === 2 ? 'Queued as a duo — finding 2 opponents.' : 'Waiting for your partner to join the queue…';
+    } else {
+      partnerEl.textContent = '';
+    }
+  }
+
+  function handleTeamMatchFound(data) {
+    if (!data || !data.gameId) return;
+    stopTeamQueueTimer();
+    state._inTeamQueue = false;
+    closeModal('team-queue');
+    toast('Matched! 2v2 starting…', true);
+    if (window.Duo && typeof window.Duo.startOnline === 'function') {
+      window.Duo.startOnline(data);
+    } else {
+      console.error('Duo.startOnline missing');
+    }
+  }
+
+  function handleDuoInviteReceived(data) {
+    if (!data || !data.inviteId || !data.from) return;
+    state._pendingDuoInvite = { role: 'guest', inviteId: data.inviteId, from: data.from };
+    const body = $('#duo-invite-body');
+    if (body) body.textContent = `${data.from.username} (ELO ${data.from.elo}) invited you to team up for ranked 2v2.`;
+    openModal('duo-invite');
+  }
+
+  function handleDuoAccepted(data) {
+    // Host side: partner accepted. Host now joins the queue (which creates the duo entry).
+    if (!data || !data.inviteId) return;
+    state._pendingDuoInvite = { role: 'host', inviteId: data.inviteId, partner: data.partner };
+    if (window.CTNet && window.CTNet.isReady()) {
+      // Open queue modal and join with the inviteId.
+      stopTeamQueueTimer();
+      tqStart = Date.now();
+      const partnerEl = $('#tq-partner');
+      if (partnerEl) partnerEl.textContent = `Teamed up with ${data.partner.username}.`;
+      const timerEl = $('#tq-timer'); if (timerEl) timerEl.textContent = '3:00';
+      openModal('team-queue');
+      state._inTeamQueue = true;
+      tqTimer = setInterval(() => {
+        const elapsed = Date.now() - tqStart;
+        const remaining = Math.max(0, TEAM_QUEUE_TIMEOUT_MS - elapsed);
+        const s = Math.ceil(remaining / 1000);
+        const mm = Math.floor(s / 60), ss = s % 60;
+        if (timerEl) timerEl.textContent = mm + ':' + String(ss).padStart(2, '0');
+        if (remaining <= 0) {
+          stopTeamQueueTimer();
+          if (state._inTeamQueue) {
+            state._inTeamQueue = false;
+            window.CTNet.leaveTeamQueue();
+            closeModal('team-queue');
+            toast('No opponents found in 3 minutes. Try again soon.');
+          }
+        }
+      }, 250);
+      window.CTNet.joinTeamQueue(data.inviteId);
+    }
+  }
+
+  function handleDuoReady(data) {
+    // Guest side: my accept reached the host. Now I queue with the inviteId.
+    if (!data || !data.inviteId) return;
+    state._pendingDuoInvite = { role: 'guest', inviteId: data.inviteId, partner: data.partner };
+    if (window.CTNet && window.CTNet.isReady()) {
+      stopTeamQueueTimer();
+      tqStart = Date.now();
+      const partnerEl = $('#tq-partner');
+      if (partnerEl) partnerEl.textContent = `Teamed up with ${data.partner.username}.`;
+      const timerEl = $('#tq-timer'); if (timerEl) timerEl.textContent = '3:00';
+      openModal('team-queue');
+      state._inTeamQueue = true;
+      tqTimer = setInterval(() => {
+        const elapsed = Date.now() - tqStart;
+        const remaining = Math.max(0, TEAM_QUEUE_TIMEOUT_MS - elapsed);
+        const s = Math.ceil(remaining / 1000);
+        const mm = Math.floor(s / 60), ss = s % 60;
+        if (timerEl) timerEl.textContent = mm + ':' + String(ss).padStart(2, '0');
+        if (remaining <= 0) {
+          stopTeamQueueTimer();
+          if (state._inTeamQueue) {
+            state._inTeamQueue = false;
+            window.CTNet.leaveTeamQueue();
+            closeModal('team-queue');
+            toast('No opponents found in 3 minutes. Try again soon.');
+          }
+        }
+      }, 250);
+      window.CTNet.joinTeamQueue(data.inviteId);
+    }
+  }
+
+  // Duo-invite modal wiring (one-time)
+  { const b = $('#btn-duo-accept'); if (b) b.addEventListener('click', () => {
+      const pi = state._pendingDuoInvite;
+      if (!pi || pi.role !== 'guest' || !window.CTNet) { closeModal('duo-invite'); return; }
+      window.CTNet.acceptDuo(pi.inviteId);
+      closeModal('duo-invite');
+    }); }
+  { const b = $('#btn-duo-decline'); if (b) b.addEventListener('click', () => {
+      const pi = state._pendingDuoInvite;
+      if (pi && pi.role === 'guest' && window.CTNet) window.CTNet.declineDuo(pi.inviteId);
+      state._pendingDuoInvite = null;
+      closeModal('duo-invite');
+    }); }
+  { const b = $('#btn-tq-cancel'); if (b) b.addEventListener('click', () => {
+      stopTeamQueueTimer();
+      if (state._inTeamQueue && window.CTNet && window.CTNet.isReady()) window.CTNet.leaveTeamQueue();
+      state._inTeamQueue = false;
+      closeModal('team-queue');
+    }); }
 
   // ---------------------------------------------------------------------------
   // Practice vs computer
@@ -3346,40 +3553,47 @@ window.signOut = signOut;
     if (!duo.game || duo.over) return false;
     const turn = duo.game.turn();
     if (turn !== duo.youColor) return false;
-    return ((duo.turnCount ? duo.turnCount[duo.youColor] : 0) % 2) === 0; // you choose on even team-turns
+    const seatToMove = (duo.turnCount ? duo.turnCount[duo.youColor] : 0) % 2;
+    const mySeat = (typeof duo.youSeat === 'number') ? duo.youSeat : 0; // practice: always seat 0
+    return seatToMove === mySeat;
   }
 
   function duoStart(opts) {
-    // opts: { ranked, teammateId, teammateName, teammateIsAI, aiLevel }
+    // opts: { ranked, online?, gameId?, youColor?, youSeat?, partnerId?,
+    //         teammateName, teammateIsAI, aiLevel,
+    //         whiteRoster?, blackRoster?, whiteAvgElo?, blackAvgElo? }
     const db = loadDB();
     duo.game = new Chess();
     duo.ranked = !!opts.ranked;
-    duo.mode = opts.ranked ? 'ranked' : 'private';
+    duo.online = !!opts.online;
+    duo.gameId = opts.gameId || null;
+    duo.mode = duo.online ? 'team-ranked' : (opts.ranked ? 'ranked' : 'private');
     duo.aiLevel = opts.aiLevel || 'medium';
-    duo.youColor = 'w';
+    duo.youColor = opts.youColor || 'w';
+    duo.youSeat = (typeof opts.youSeat === 'number') ? opts.youSeat : 0;
     duo.seat = 0;
-    duo.turnCount = { w: 0, b: 0 }; // times each TEAM has had a turn; chooser = count%2
+    duo.turnCount = { w: 0, b: 0 };
     duo.selected = null; duo.legalTargets = []; duo.lastMove = null;
     duo.suggestion = null; duo.over = false; duo.ended = false;
     duo.overrides = 0; duo.accepts = 0; duo.sawQueenDown = false;
+    duo._awaitingServerMove = null;
+    duo.partnerId = opts.partnerId || null;
     duo.teammateId = opts.teammateId || null;
     duo.teammate = { name: opts.teammateName || 'Ally', isAI: opts.teammateIsAI !== false };
 
-    const pool = ['Nova','Rook','Blaze','Sable','Vega','Onyx','Quill','Drift'];
-    duo.opp1 = { name: pool[Math.floor(Math.random()*pool.length)] };
-    duo.opp2 = { name: pool[Math.floor(Math.random()*pool.length)] };
-
-    if (duo.ranked) {
-      const users = Object.values(db.users || {}).filter(u => u.id !== state.user.id && u.id !== duo.teammateId);
-      if (users.length >= 2) {
-        users.sort((a, b) => Math.abs((a.elo || 1200) - (state.user.elo || 1200)) - Math.abs((b.elo || 1200) - (state.user.elo || 1200)));
-        const oppA = users[Math.floor(Math.random() * Math.min(3, users.length))];
-        const oppB = users.filter(u => u.id !== oppA.id)[Math.floor(Math.random() * Math.min(3, users.length - 1))];
-        if (oppA && oppB) {
-          duo.opp1 = { name: oppA.username, elo: oppA.elo || 1200 };
-          duo.opp2 = { name: oppB.username, elo: oppB.elo || 1200 };
-        }
-      }
+    if (duo.online && opts.whiteRoster && opts.blackRoster) {
+      // Roster comes from the server. Map to opp1/opp2 (the opposing team's seats 0/1)
+      // and partner display (the teammate's seat).
+      const myRoster = duo.youColor === 'w' ? opts.whiteRoster : opts.blackRoster;
+      const enemyRoster = duo.youColor === 'w' ? opts.blackRoster : opts.whiteRoster;
+      duo.opp1 = { name: enemyRoster.p1.username, elo: enemyRoster.p1.elo, userId: enemyRoster.p1.id };
+      duo.opp2 = { name: enemyRoster.p2.username, elo: enemyRoster.p2.elo, userId: enemyRoster.p2.id };
+      const partnerPub = duo.youSeat === 0 ? myRoster.p2 : myRoster.p1;
+      duo.teammate = { name: partnerPub.username, isAI: false, elo: partnerPub.elo, userId: partnerPub.id };
+    } else {
+      const pool = ['Nova','Rook','Blaze','Sable','Vega','Onyx','Quill','Drift'];
+      duo.opp1 = { name: pool[Math.floor(Math.random()*pool.length)] };
+      duo.opp2 = { name: pool[Math.floor(Math.random()*pool.length)] };
     }
 
     // Award "played a 2v2" trophy
@@ -3390,7 +3604,7 @@ window.signOut = signOut;
     showScreen('duo');
     duoRender();
     duoUpdateStatus();
-    duoComputeSuggestion();
+    if (!duo.online) duoComputeSuggestion();
   }
 
   // Advance one ply has been made; rotate seat and drive AI seats.
@@ -3427,8 +3641,15 @@ window.signOut = signOut;
   }
 
   // Decide who controls the current ply and auto-play AI/sim seats.
+  // Online (server-authoritative): no auto-play; we just wait for the next
+  // server move_made event.
   function duoDriveTurn() {
     if (duo.over || !duo.game || duo.game.game_over()) return;
+    if (duo.online) {
+      // Re-render to refresh status and selection state for the new seat.
+      duoUpdateStatus();
+      return;
+    }
     const turn = duo.game.turn();
     // Your seat: turn === youColor && seat 0 -> wait for human input
     if (turn === duo.youColor && duo.seat === 0) {
@@ -3450,6 +3671,7 @@ window.signOut = signOut;
   function duoComputeSuggestion() {
     duo.suggestion = null;
     if (!duoIsYourTurn()) { duoRenderSuggestion(); return; }
+    if (duo.online) { duoRenderSuggestion(); return; } // no AI suggestion when playing real humans
     const clone = new Chess(duo.game.fen());
     const m = duoPickMove(clone, duo.aiLevel);
     if (m) duo.suggestion = { from: m.from, to: m.to, promotion: m.promotion || 'q', san: m.san };
@@ -3470,6 +3692,7 @@ window.signOut = signOut;
   // Human clicks a board square during their seat.
   function duoClick(name) {
     if (!duoIsYourTurn()) return;
+    if (duo._awaitingServerMove) return; // already sent a move, waiting for echo
     const g = duo.game;
     const piece = g.get(name);
     if (duo.selected) {
@@ -3477,9 +3700,20 @@ window.signOut = signOut;
       // try move
       const legal = g.moves({ square: duo.selected, verbose: true }).find(m => m.to === name);
       if (legal) {
-        // count as override if it differs from partner suggestion
+        // count as override if it differs from partner suggestion (practice only — no suggestion online)
         if (duo.suggestion && !(duo.suggestion.from === duo.selected && duo.suggestion.to === name)) {
           duo.overrides++;
+        }
+        if (duo.online) {
+          // Server-authoritative: send and wait for move_made to apply.
+          duo._awaitingServerMove = { from: duo.selected, to: name };
+          duo.selected = null; duo.legalTargets = [];
+          duoUpdateStatus();
+          try {
+            window.CTNet.sendMove({ gameId: duo.gameId, from: duo._awaitingServerMove.from, to: duo._awaitingServerMove.to });
+          } catch (e) { console.error('[Duo] sendMove failed', e); duo._awaitingServerMove = null; }
+          duoRender();
+          return;
         }
         const applied = g.move({ from: duo.selected, to: name, promotion: 'q' });
         duoAfterPly(applied);
@@ -3489,6 +3723,45 @@ window.signOut = signOut;
       duo.selected = null; duo.legalTargets = []; duoRender(); return;
     }
     if (piece && piece.color === duo.youColor) duoSelect(name);
+  }
+
+  // Apply a move received from the server (online team game).
+  function duoApplyServerMove(data) {
+    if (!duo.online || !duo.game || duo.gameId !== data.gameId) return;
+    const mv = data.move;
+    if (!mv) return;
+    duo._awaitingServerMove = null;
+    const applied = duo.game.move({ from: mv.from, to: mv.to, promotion: mv.promotion || 'q' });
+    if (!applied) {
+      console.warn('[Duo] server move did not apply locally; reloading from fen');
+      try { duo.game.load(data.fen); } catch (e) { console.error(e); }
+    }
+    // Use afterPly to handle animations/sound/turn-count update.
+    duoAfterPly(applied || { from: mv.from, to: mv.to, captured: mv.captured, color: mv.color, flags: mv.flags, piece: mv.piece });
+  }
+
+  function duoHandleServerGameOver(data) {
+    if (!duo.online || duo.gameId !== data.gameId) return;
+    duo.ended = true; duo.over = true;
+    const winnerColor = data.winnerColor || null;
+    const isDraw = !winnerColor;
+    const youWon = winnerColor === duo.youColor;
+    const me = state.user;
+    let delta = 0;
+    if (me && data.perPlayerDelta) {
+      delta = data.perPlayerDelta[me.id] || 0;
+      me.elo2v2 = Math.max(100, Math.min(2800, (me.elo2v2 || 1200) + delta));
+      try { const _db = loadDB(); if (me && me.id) _db.users[me.id] = me; saveDB(_db); } catch (e) {}
+    }
+    try { if (window.ChessSounds) { if (isDraw) window.ChessSounds.note && window.ChessSounds.note(523,0.4,'sine',0.18); else window.ChessSounds.gameOver(youWon); } } catch (e) {}
+    if (youWon && typeof ctCelebrate === 'function') { try { ctCelebrate('big'); } catch (e) {} }
+    duoShowResult(youWon, isDraw, data.reason || 'unknown', delta);
+    // Re-sync server-side stats (wins_2v2, etc) so the lobby reflects them.
+    if (window.fetch && typeof fetchMe === 'function' && typeof syncRemoteProfile === 'function') {
+      fetchMe().then(syncRemoteProfile).catch(() => {});
+    }
+    duo.online = false;
+    duo.gameId = null;
   }
 
   function duoSelect(name) {
@@ -3552,6 +3825,8 @@ window.signOut = signOut;
 
   function duoFinish() {
     if (duo.ended) return;
+    // Online: defer to the server's game_over event for authoritative result/ELO.
+    if (duo.online) { duo.ended = true; duo.over = true; return; }
     duo.ended = true; duo.over = true;
     const g = duo.game;
     let winnerColor = null, reason = 'draw';
@@ -3615,6 +3890,13 @@ window.signOut = signOut;
   function duoQuit() {
     if (duo.game && !duo.ended && !duo.over) {
       if (!confirm('Are you sure you want to quit this 2v2 match?\n\nLeaving now counts as a forfeit for your team.')) return false;
+      if (duo.online && duo.gameId && window.CTNet && window.CTNet.isReady()) {
+        // Server-authoritative resign; the server will emit game_over to all 4 with
+        // the real ELO deltas, which routes back through duoHandleServerGameOver.
+        try { window.CTNet.resign(duo.gameId); } catch (e) { console.error(e); }
+        duo.ended = true; duo.over = true;
+        return true;
+      }
       const me = state.user;
       if (me) { me.losses2v2 = (me.losses2v2||0)+1; me.currentStreak2v2 = 0; try { { const _db = loadDB(); if (state.user) _db.users[state.user.id] = state.user; saveDB(_db); } } catch(e){} }
       duo.ended = true; duo.over = true;
@@ -3624,17 +3906,47 @@ window.signOut = signOut;
 
   // Lobby entry points
   function duoStartRanked() {
-    duoStart({ ranked: true, teammateName: 'Ally', teammateIsAI: true, aiLevel: 'medium' });
+    // Legacy alias kept for older builds; treat as practice now since real online
+    // ranked 2v2 enters via duoStartOnline(matchData) after server matchmaking.
+    duoStartPractice();
+  }
+  function duoStartPractice() {
+    duoStart({ ranked: false, teammateName: 'Ally', teammateIsAI: true, aiLevel: 'medium', online: false });
   }
   function duoStartPrivate(partnerName) {
     throw new Error('Private 2v2 is disabled. Use ranked 2v2 with four players on separate devices.');
   }
 
+  // Online entry: caller passes the team_match_found payload.
+  // Required fields: gameId, yourSide ('w'|'b'), yourSeat (0|1), partner (publicUser),
+  // partnerId, white {p1,p2}, black {p1,p2}, whiteAvgElo, blackAvgElo.
+  function duoStartOnline(m) {
+    if (!m || !m.gameId) return;
+    duoStart({
+      ranked: true,
+      online: true,
+      gameId: m.gameId,
+      youColor: m.yourSide,
+      youSeat: m.yourSeat,
+      partnerId: m.partnerId,
+      teammateName: m.partner && m.partner.username || 'Partner',
+      teammateIsAI: false,
+      whiteRoster: m.white,
+      blackRoster: m.black,
+      whiteAvgElo: m.whiteAvgElo,
+      blackAvgElo: m.blackAvgElo,
+    });
+  }
+
   window.Duo = {
     startRanked: duoStartRanked,
+    startPractice: duoStartPractice,
+    startOnline: duoStartOnline,
     startPrivate: duoStartPrivate,
     quit: duoQuit,
     accept: duoAcceptSuggestion,
+    applyServerMove: duoApplyServerMove,
+    handleServerGameOver: duoHandleServerGameOver,
     state: duo,
   };
 

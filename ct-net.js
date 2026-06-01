@@ -85,6 +85,20 @@
     socket.on('illegal_move', function (data) { emit('illegalMove', data); });
     socket.on('game_over', function (data) { emit('gameOver', data); });
     socket.on('rate_limited', function (data) { emit('rateLimited', data); });
+    // 2v2 team events
+    socket.on('team_match_found', function (data) { emit('teamMatchFound', data); });
+    socket.on('team_mm_queued', function (data) { emit('teamQueued', data); });
+    socket.on('team_mm_left', function (data) { emit('teamLeft', data); });
+    socket.on('team_mm_err', function (data) { emit('teamErr', data); });
+    // Duo invite lifecycle
+    socket.on('duo_invite_received', function (data) { emit('duoInviteReceived', data); });
+    socket.on('duo_invite_sent', function (data) { emit('duoInviteSent', data); });
+    socket.on('duo_accepted', function (data) { emit('duoAccepted', data); });
+    socket.on('duo_ready', function (data) { emit('duoReady', data); });
+    socket.on('duo_declined', function (data) { emit('duoDeclined', data); });
+    socket.on('duo_cancelled', function (data) { emit('duoCancelled', data); });
+    socket.on('duo_invite_expired', function (data) { emit('duoInviteExpired', data); });
+    socket.on('duo_err', function (data) { emit('duoErr', data); });
   }
 
   function disconnect() {
@@ -126,6 +140,38 @@
     return true;
   }
 
+  // --- 2v2 team play ---
+  function joinTeamQueue(inviteId) {
+    if (!ready) return false;
+    socket.emit('team_mm_join', inviteId ? { inviteId: inviteId } : {});
+    return true;
+  }
+  function leaveTeamQueue() {
+    if (!ready) return false;
+    socket.emit('team_mm_leave', {});
+    return true;
+  }
+  function inviteDuo(friendId) {
+    if (!ready) return false;
+    socket.emit('duo_invite', { friendId: friendId });
+    return true;
+  }
+  function acceptDuo(inviteId) {
+    if (!ready) return false;
+    socket.emit('duo_accept', { inviteId: inviteId });
+    return true;
+  }
+  function declineDuo(inviteId) {
+    if (!ready) return false;
+    socket.emit('duo_decline', { inviteId: inviteId });
+    return true;
+  }
+  function cancelDuo(inviteId) {
+    if (!ready) return false;
+    socket.emit('duo_cancel', { inviteId: inviteId });
+    return true;
+  }
+
   window.CTNet = {
     connect: connect,
     disconnect: disconnect,
@@ -134,6 +180,12 @@
     leaveQueue: leaveQueue,
     sendMove: sendMove,
     resign: resign,
+    joinTeamQueue: joinTeamQueue,
+    leaveTeamQueue: leaveTeamQueue,
+    inviteDuo: inviteDuo,
+    acceptDuo: acceptDuo,
+    declineDuo: declineDuo,
+    cancelDuo: cancelDuo,
     on: on,
     off: off,
   };

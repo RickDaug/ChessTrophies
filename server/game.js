@@ -10,7 +10,16 @@ const socketUser = new Map();      // socketId -> userId
 const chatBuckets = new Map();     // userId -> { tokens, lastRefill }
 const mmBuckets = new Map();       // userId -> { tokens, lastRefill }
 
+// --- 2v2 (team) state ---
+const teamQueue = new Map();       // entryId -> { id, type:'solo'|'duo', members:[{uid,socketId,elo}], joinedAt }
+const duoInvites = new Map();      // inviteId -> { hostId, hostSocketId, guestId, createdAt, expiresAt }
+const activeTeamGames = new Map(); // gameId -> team game object (see startTeamGame)
+const userActiveTeamGame = new Map(); // uid -> gameId (so we can find which game on resign/move)
+const teamMmBuckets = new Map();   // uid -> token bucket
+
 function newGameId() { return 'g_' + crypto.randomBytes(6).toString('hex'); }
+function newDuoInviteId() { return 'di_' + crypto.randomBytes(5).toString('hex'); }
+function newTeamEntryId() { return 'tq_' + crypto.randomBytes(5).toString('hex'); }
 
 function consumeBucket(map, key, burst, refillPerSecond) {
   const now = Date.now();
@@ -62,10 +71,151 @@ export function attachSocketHandlers(io, verifyToken) {
       if (uid) matchmakingQueue.delete(uid);
     });
 
-    // Game moves
+    // --- 2v2 team matchmaking ---
+    socket.on('team_mm_join', ({ inviteId }) => {
+      const uid = socket.data.userId; if (!uid) return;
+      if (!consumeBucket(teamMmBuckets, uid, 3, 0.2)) {
+        socket.emit('rate_limited', { event: 'team_mm_join', retryInMs: 5000 });
+        return;
+      }
+      // If user is already queued (solo or as part of a duo), ignore.
+      if (findTeamQueueEntryByUid(uid)) return;
+      const user = getUserById(uid);
+      if (!user) return;
+      if (inviteId) {
+        // Joining as part of a friend-duo. inviteId must reference an accepted duo
+        // (host has called team_mm_join first with that inviteId, queueing the duo entry).
+        const invite = duoInvites.get(inviteId);
+        if (!invite || !invite.accepted) {
+          socket.emit('team_mm_err', { error: 'invite not ready' });
+          return;
+        }
+        if (invite.hostId === uid) {
+          // Host joining: create duo entry, wait for guest.
+          const entry = {
+            id: newTeamEntryId(),
+            type: 'duo',
+            inviteId,
+            members: [{ uid: invite.hostId, socketId: socket.id, elo: ratingFor2v2(user) }],
+            joinedAt: Date.now(),
+          };
+          teamQueue.set(entry.id, entry);
+          invite.entryId = entry.id;
+          socket.emit('team_mm_queued', { type: 'duo', size: 1, role: 'host' });
+        } else if (invite.guestId === uid && invite.entryId) {
+          // Guest joining the existing duo entry.
+          const entry = teamQueue.get(invite.entryId);
+          if (!entry) {
+            socket.emit('team_mm_err', { error: 'duo entry gone' });
+            return;
+          }
+          entry.members.push({ uid, socketId: socket.id, elo: ratingFor2v2(user) });
+          // Notify both that the duo is fully queued.
+          for (const m of entry.members) {
+            const s = io.sockets.sockets.get(m.socketId);
+            if (s) s.emit('team_mm_queued', { type: 'duo', size: 2, role: m.uid === invite.hostId ? 'host' : 'guest' });
+          }
+          tryTeamMatchmake(io);
+        } else {
+          socket.emit('team_mm_err', { error: 'not part of this invite' });
+        }
+      } else {
+        // Solo queue.
+        const entry = {
+          id: newTeamEntryId(),
+          type: 'solo',
+          members: [{ uid, socketId: socket.id, elo: ratingFor2v2(user) }],
+          joinedAt: Date.now(),
+        };
+        teamQueue.set(entry.id, entry);
+        socket.emit('team_mm_queued', { type: 'solo', size: 1 });
+        tryTeamMatchmake(io);
+      }
+    });
+
+    socket.on('team_mm_leave', () => {
+      const uid = socket.data.userId; if (!uid) return;
+      removeUidFromTeamQueue(io, uid);
+    });
+
+    // Friend-duo invite lifecycle.
+    socket.on('duo_invite', ({ friendId }) => {
+      const uid = socket.data.userId; if (!uid) return;
+      if (typeof friendId !== 'string' || friendId === uid) return;
+      const friend = getUserById(friendId);
+      if (!friend) { socket.emit('duo_err', { error: 'friend not found' }); return; }
+      const friendSocketId = userSocket.get(friendId);
+      if (!friendSocketId) { socket.emit('duo_err', { error: 'friend offline' }); return; }
+      const inviteId = newDuoInviteId();
+      const invite = {
+        id: inviteId,
+        hostId: uid,
+        hostSocketId: socket.id,
+        guestId: friendId,
+        accepted: false,
+        entryId: null,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+      };
+      duoInvites.set(inviteId, invite);
+      const me = getUserById(uid);
+      io.sockets.sockets.get(friendSocketId)?.emit('duo_invite_received', {
+        inviteId,
+        from: publicUser(me),
+      });
+      socket.emit('duo_invite_sent', { inviteId, to: publicUser(friend) });
+      // Auto-expire.
+      setTimeout(() => {
+        const inv = duoInvites.get(inviteId);
+        if (inv && !inv.accepted) {
+          duoInvites.delete(inviteId);
+          io.sockets.sockets.get(inv.hostSocketId)?.emit('duo_invite_expired', { inviteId });
+          const guestSock = userSocket.get(inv.guestId);
+          if (guestSock) io.sockets.sockets.get(guestSock)?.emit('duo_invite_expired', { inviteId });
+        }
+      }, 60_000);
+    });
+
+    socket.on('duo_accept', ({ inviteId }) => {
+      const uid = socket.data.userId; if (!uid) return;
+      const invite = duoInvites.get(inviteId);
+      if (!invite || invite.guestId !== uid) return;
+      invite.accepted = true;
+      // Tell host they can queue; both will then send team_mm_join with inviteId.
+      io.sockets.sockets.get(invite.hostSocketId)?.emit('duo_accepted', {
+        inviteId,
+        partner: publicUser(getUserById(uid)),
+      });
+      socket.emit('duo_ready', { inviteId, partner: publicUser(getUserById(invite.hostId)) });
+    });
+
+    socket.on('duo_decline', ({ inviteId }) => {
+      const uid = socket.data.userId; if (!uid) return;
+      const invite = duoInvites.get(inviteId);
+      if (!invite || invite.guestId !== uid) return;
+      duoInvites.delete(inviteId);
+      io.sockets.sockets.get(invite.hostSocketId)?.emit('duo_declined', { inviteId });
+    });
+
+    socket.on('duo_cancel', ({ inviteId }) => {
+      const uid = socket.data.userId; if (!uid) return;
+      const invite = duoInvites.get(inviteId);
+      if (!invite || invite.hostId !== uid) return;
+      duoInvites.delete(inviteId);
+      // Also pull any partial queue entry for this duo.
+      if (invite.entryId && teamQueue.has(invite.entryId)) teamQueue.delete(invite.entryId);
+      const guestSock = userSocket.get(invite.guestId);
+      if (guestSock) io.sockets.sockets.get(guestSock)?.emit('duo_cancelled', { inviteId });
+    });
+
+    // Game moves -- now dispatches to either 1v1 or 2v2 session.
     socket.on('move', ({ gameId, from, to, promotion }) => {
-      const game = activeGames.get(gameId); if (!game) return;
       const uid = socket.data.userId;
+      if (!uid) return;
+      // 2v2 first (more specific check)
+      const tg = activeTeamGames.get(gameId);
+      if (tg) { applyTeamMove(io, socket, tg, uid, { from, to, promotion }); return; }
+      const game = activeGames.get(gameId); if (!game) return;
       const playerColor = game.white === uid ? 'w' : game.black === uid ? 'b' : null;
       if (!playerColor) return;
       if (game.chess.turn() !== playerColor) return;
@@ -76,8 +226,16 @@ export function attachSocketHandlers(io, verifyToken) {
     });
 
     socket.on('resign', ({ gameId }) => {
-      const game = activeGames.get(gameId); if (!game) return;
       const uid = socket.data.userId;
+      if (!uid) return;
+      const tg = activeTeamGames.get(gameId);
+      if (tg) {
+        const myTeam = teamOfUid(tg, uid);
+        if (!myTeam) return;
+        finishTeamGame(io, tg, { reason: 'resignation', winnerColor: myTeam === 'w' ? 'b' : 'w' });
+        return;
+      }
+      const game = activeGames.get(gameId); if (!game) return;
       const winner = game.white === uid ? game.black : game.white;
       finishGame(io, game, { reason: 'resignation', winnerId: winner });
     });
@@ -104,6 +262,25 @@ export function attachSocketHandlers(io, verifyToken) {
         matchmakingQueue.delete(uid);
         userSocket.delete(uid);
         socketUser.delete(socket.id);
+        removeUidFromTeamQueue(io, uid);
+        // Cancel any pending duo invites this user hosts or is invited to.
+        for (const [iid, inv] of duoInvites) {
+          if (inv.hostId === uid || inv.guestId === uid) {
+            duoInvites.delete(iid);
+            const other = inv.hostId === uid ? inv.guestId : inv.hostId;
+            const otherSock = userSocket.get(other);
+            if (otherSock) io.sockets.sockets.get(otherSock)?.emit('duo_cancelled', { inviteId: iid });
+          }
+        }
+        // Abort an active team game the user is in (other side wins by forfeit).
+        const gid = userActiveTeamGame.get(uid);
+        if (gid) {
+          const tg = activeTeamGames.get(gid);
+          if (tg) {
+            const myTeam = teamOfUid(tg, uid);
+            if (myTeam) finishTeamGame(io, tg, { reason: 'disconnect', winnerColor: myTeam === 'w' ? 'b' : 'w' });
+          }
+        }
       }
     });
   });
@@ -214,4 +391,239 @@ function finishGame(io, game, override = {}) {
     pgn: chess.pgn(),
   });
   activeGames.delete(game.id);
+}
+
+// ===========================================================================
+// 2v2 TEAM PLAY
+// ===========================================================================
+// Wire model:
+//   - teamQueue holds entries. An entry is either a solo (1 member) or a duo
+//     (2 members from an accepted friend invite). Entries are matched FIFO.
+//   - Pairing tries to gather enough entries totalling exactly 4 members. Duos
+//     are never split across teams.
+//   - Team White's seats alternate move chooser: seat 0 plays white's 1st move,
+//     seat 1 plays white's 2nd, etc. Same for Black. The server validates that
+//     each incoming move comes from the player whose seat is currently up.
+//   - team_match_found is emitted per-socket so each client receives their own
+//     yourSide/yourSeat/partnerId without leaking other players' socket IDs.
+
+function ratingFor2v2(user) {
+  // Falls back to 1200 for newly migrated rows before the first 2v2 game.
+  const v = user && user.elo_2v2;
+  return Number.isFinite(v) ? v : 1200;
+}
+
+function findTeamQueueEntryByUid(uid) {
+  for (const e of teamQueue.values()) {
+    if (e.members.some(m => m.uid === uid)) return e;
+  }
+  return null;
+}
+
+function removeUidFromTeamQueue(io, uid) {
+  const entry = findTeamQueueEntryByUid(uid);
+  if (!entry) return;
+  // If solo, just delete. If duo, dissolve and inform the partner.
+  teamQueue.delete(entry.id);
+  if (entry.type === 'duo') {
+    for (const m of entry.members) {
+      if (m.uid === uid) continue;
+      const s = io.sockets.sockets.get(m.socketId);
+      if (s) s.emit('team_mm_left', { reason: 'partner_left' });
+    }
+  }
+}
+
+function teamOfUid(tg, uid) {
+  if (tg.whiteByUid[uid] !== undefined) return 'w';
+  if (tg.blackByUid[uid] !== undefined) return 'b';
+  return null;
+}
+
+function tryTeamMatchmake(io) {
+  // FIFO walk: greedily pick entries that fit; if total reaches exactly 4, pair.
+  const entries = [...teamQueue.values()]
+    .filter(e => e.type !== 'duo' || e.members.length === 2)  // skip duos waiting for guest
+    .sort((a, b) => a.joinedAt - b.joinedAt);
+  const picked = [];
+  let total = 0;
+  for (const e of entries) {
+    if (total + e.members.length <= 4) {
+      picked.push(e);
+      total += e.members.length;
+      if (total === 4) break;
+    }
+  }
+  if (total !== 4) return;
+  // Remove from queue
+  for (const e of picked) teamQueue.delete(e.id);
+
+  // Form teams: respect duos. Snake-draft 4 solos so team avg ELOs balance.
+  const duos = picked.filter(e => e.type === 'duo');
+  const solos = picked.filter(e => e.type === 'solo').flatMap(e => e.members);
+  let teamA, teamB; // each an array of 2 member-objects
+  if (duos.length === 2) {
+    teamA = duos[0].members.slice(); teamB = duos[1].members.slice();
+  } else if (duos.length === 1) {
+    teamA = duos[0].members.slice();
+    teamB = solos.slice(0, 2);
+  } else {
+    const sorted = solos.slice().sort((a, b) => b.elo - a.elo);
+    teamA = [sorted[0], sorted[3]]; // highest + lowest
+    teamB = [sorted[1], sorted[2]];
+  }
+  // Random which team is white and randomise seats within each team.
+  const aIsWhite = Math.random() < 0.5;
+  const whiteMembers = aIsWhite ? teamA : teamB;
+  const blackMembers = aIsWhite ? teamB : teamA;
+  if (Math.random() < 0.5) whiteMembers.reverse();
+  if (Math.random() < 0.5) blackMembers.reverse();
+
+  startTeamGame(io, whiteMembers, blackMembers);
+}
+
+function startTeamGame(io, whiteMembers, blackMembers) {
+  const gameId = newGameId();
+  const chess = new Chess();
+  const whiteByUid = {};
+  const blackByUid = {};
+  whiteMembers.forEach((m, i) => { whiteByUid[m.uid] = i; });
+  blackMembers.forEach((m, i) => { blackByUid[m.uid] = i; });
+  const whiteUsers = whiteMembers.map(m => getUserById(m.uid));
+  const blackUsers = blackMembers.map(m => getUserById(m.uid));
+  const tg = {
+    id: gameId,
+    chess,
+    mode: 'team-ranked',
+    started: Date.now(),
+    whiteMembers, blackMembers,
+    whiteByUid, blackByUid,
+    turnCount: { w: 0, b: 0 }, // number of moves each team has played
+    whiteAvgEloBefore: Math.round((whiteUsers[0].elo_2v2 + whiteUsers[1].elo_2v2) / 2),
+    blackAvgEloBefore: Math.round((blackUsers[0].elo_2v2 + blackUsers[1].elo_2v2) / 2),
+    eloBefore: {
+      [whiteMembers[0].uid]: whiteUsers[0].elo_2v2,
+      [whiteMembers[1].uid]: whiteUsers[1].elo_2v2,
+      [blackMembers[0].uid]: blackUsers[0].elo_2v2,
+      [blackMembers[1].uid]: blackUsers[1].elo_2v2,
+    },
+  };
+  activeTeamGames.set(gameId, tg);
+  for (const m of [...whiteMembers, ...blackMembers]) {
+    userActiveTeamGame.set(m.uid, gameId);
+    const s = io.sockets.sockets.get(m.socketId);
+    if (s) s.join(gameId);
+  }
+
+  // Per-socket match_found so each client gets their own seat/side/partner info.
+  const sideUsers = { w: whiteUsers, b: blackUsers };
+  const sideMembers = { w: whiteMembers, b: blackMembers };
+  for (const side of ['w', 'b']) {
+    for (let seat = 0; seat < 2; seat++) {
+      const me = sideMembers[side][seat];
+      const partner = sideMembers[side][1 - seat];
+      const s = io.sockets.sockets.get(me.socketId);
+      if (!s) continue;
+      s.emit('team_match_found', {
+        gameId,
+        mode: 'team-ranked',
+        yourSide: side,
+        yourSeat: seat,
+        partner: publicUser(sideUsers[side][1 - seat]),
+        partnerId: partner.uid,
+        white: { p1: publicUser(whiteUsers[0]), p2: publicUser(whiteUsers[1]) },
+        black: { p1: publicUser(blackUsers[0]), p2: publicUser(blackUsers[1]) },
+        whiteAvgElo: tg.whiteAvgEloBefore,
+        blackAvgElo: tg.blackAvgEloBefore,
+      });
+    }
+  }
+}
+
+function applyTeamMove(io, socket, tg, uid, { from, to, promotion }) {
+  const myTeam = teamOfUid(tg, uid);
+  if (!myTeam) return;
+  const turn = tg.chess.turn();
+  if (turn !== myTeam) { socket.emit('illegal_move', { gameId: tg.id, reason: 'not your team turn' }); return; }
+  const mySeat = (myTeam === 'w' ? tg.whiteByUid : tg.blackByUid)[uid];
+  const expectedSeat = tg.turnCount[myTeam] % 2;
+  if (mySeat !== expectedSeat) { socket.emit('illegal_move', { gameId: tg.id, reason: 'not your seat' }); return; }
+  const move = tg.chess.move({ from, to, promotion: promotion || 'q' });
+  if (!move) { socket.emit('illegal_move', { gameId: tg.id, from, to, reason: 'illegal' }); return; }
+  tg.turnCount[myTeam] += 1;
+  io.to(tg.id).emit('move_made', {
+    gameId: tg.id,
+    move,
+    fen: tg.chess.fen(),
+    turnCount: { w: tg.turnCount.w, b: tg.turnCount.b },
+    nextSeat: tg.turnCount[tg.chess.turn()] % 2,
+  });
+  if (tg.chess.isGameOver()) finishTeamGame(io, tg);
+}
+
+function finishTeamGame(io, tg, override = {}) {
+  if (tg._ended) return;
+  tg._ended = true;
+  const chess = tg.chess;
+  let winnerColor = override.winnerColor || null;
+  let reason = override.reason || (chess.isCheckmate() ? 'checkmate'
+    : (chess.isDraw() ? 'draw' : (chess.isStalemate() ? 'stalemate' : 'unknown')));
+  if (!winnerColor && chess.isCheckmate()) {
+    winnerColor = chess.turn() === 'w' ? 'b' : 'w';
+  }
+  const isDraw = !winnerColor;
+  // Team-average ELO update, K=24. Same delta applied to both members of a team.
+  const K = 24;
+  const wAvg = tg.whiteAvgEloBefore, bAvg = tg.blackAvgEloBefore;
+  const expectedW = 1 / (1 + Math.pow(10, (bAvg - wAvg) / 400));
+  const whiteScore = isDraw ? 0.5 : (winnerColor === 'w' ? 1 : 0);
+  const wDelta = Math.round(K * (whiteScore - expectedW));
+  const bDelta = -wDelta; // zero-sum since same K and average rule
+
+  const whiteUids = [tg.whiteMembers[0].uid, tg.whiteMembers[1].uid];
+  const blackUids = [tg.blackMembers[0].uid, tg.blackMembers[1].uid];
+  const update2v2 = db.prepare(`UPDATE users SET elo_2v2 = elo_2v2 + ?,
+      wins_2v2 = wins_2v2 + ?, losses_2v2 = losses_2v2 + ?, draws_2v2 = draws_2v2 + ?
+    WHERE id = ?`);
+  const wWin = isDraw ? 0 : (winnerColor === 'w' ? 1 : 0);
+  const wLoss = isDraw ? 0 : (winnerColor === 'w' ? 0 : 1);
+  const wDraw = isDraw ? 1 : 0;
+  for (const u of whiteUids) update2v2.run(wDelta, wWin, wLoss, wDraw, u);
+  for (const u of blackUids) update2v2.run(bDelta, 1 - wWin - wDraw, 1 - wLoss - wDraw, wDraw, u);
+
+  // Persist game record.
+  try {
+    db.prepare(`INSERT INTO team_games (id, white_p1_id, white_p2_id, black_p1_id, black_p2_id,
+                                        mode, result, winner_color, pgn,
+                                        white_avg_elo_before, black_avg_elo_before,
+                                        white_elo_delta, black_elo_delta,
+                                        created_at, ended_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      tg.id, whiteUids[0], whiteUids[1], blackUids[0], blackUids[1],
+      tg.mode, reason, winnerColor || null, chess.pgn(),
+      wAvg, bAvg, wDelta, bDelta,
+      tg.started, Date.now());
+  } catch (e) {
+    console.error('[team-game] persist failed', e);
+  }
+
+  // Per-side delta map so each client can show its own ELO change.
+  const perPlayerDelta = {};
+  for (const u of whiteUids) perPlayerDelta[u] = wDelta;
+  for (const u of blackUids) perPlayerDelta[u] = bDelta;
+
+  io.to(tg.id).emit('game_over', {
+    gameId: tg.id,
+    winnerColor,
+    reason,
+    whiteDelta: wDelta,
+    blackDelta: bDelta,
+    perPlayerDelta,
+    pgn: chess.pgn(),
+    team: true,
+  });
+
+  // Clean up routing tables.
+  for (const u of [...whiteUids, ...blackUids]) userActiveTeamGame.delete(u);
+  activeTeamGames.delete(tg.id);
 }
