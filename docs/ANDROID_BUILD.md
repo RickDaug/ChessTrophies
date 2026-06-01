@@ -54,8 +54,16 @@ Then re-apply the two patches to `www/index.html` (NOT the repo root):
    ```
 
 Both patches must be re-applied on every refresh because www/ is
-gitignored. If this becomes annoying, write a scripts/refresh-www.sh that
-performs the copy + sed substitutions automatically.
+gitignored. To do all of the above automatically (copy + both patches +
+sync) in one step, run the helper script:
+
+```bash
+bash scripts/refresh-www.sh
+```
+
+The script verifies every source file exists, applies both patches
+idempotently, and runs `npx cap sync`. Use it whenever a repo-root client
+file changes.
 
 Sync to Android after refresh:
 
