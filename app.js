@@ -520,6 +520,11 @@
     promotionPending: null,
     aiThinking: false,
     animatingMove: false,
+    // Online (server-authoritative) play
+    isOnline: false,
+    gameId: null,         // server-issued game id when in an online match
+    applyingRemoteMove: false, // guard so afterMove doesn't echo opponent moves back to server
+    awaitingServerGameOver: false, // when online, defer local handleGameOver until server sends game_over
   };
 
   // ---------------------------------------------------------------------------
@@ -832,6 +837,7 @@
       const u = await login($('#login-email').value, $('#login-password').value);
       setSession({ userId: u.id });
       state.user = u;
+      if (window.__connectGameSocket) window.__connectGameSocket();
       enterApp();
     } catch (err) {
       $('#login-error').textContent = err.message;
@@ -852,6 +858,7 @@
       setSession({ userId: u.id });
       state.user = u;
       toast('Welcome, ' + u.username + ' 👑', true);
+      if (window.__connectGameSocket) window.__connectGameSocket();
       enterApp();
     } catch (err) {
       $('#signup-error').textContent = err.message;
@@ -924,6 +931,8 @@
     }
     setSession(null);
     state.user = null;
+    if (window.CTNet) window.CTNet.disconnect();
+    state._netHandlersRegistered = false;
     showNav(false);
     showScreen('auth');
   });
@@ -1027,9 +1036,19 @@ function renderFriendsSummary() {
   $('#btn-new-match').addEventListener('click', () => {
     // Challenge a player = ranked online matchmaking vs a similar-ELO opponent
     state.pendingChallenge = null;
-    startMatchmaking('ranked');
+    startOnlineOrFakeMatchmaking('ranked');
   });
-  $('#btn-find-match').addEventListener('click', () => startMatchmaking('ranked'));
+  $('#btn-find-match').addEventListener('click', () => startOnlineOrFakeMatchmaking('ranked'));
+
+  // Prefer real server matchmaking when the socket is authenticated; fall back to
+  // legacy localStorage-based pairing only if there is no live server session.
+  function startOnlineOrFakeMatchmaking(mode) {
+    if (window.CTNet && window.CTNet.isReady()) {
+      startOnlineMatchmaking(mode);
+    } else {
+      startMatchmaking(mode);
+    }
+  }
     // 2v2 lobby buttons
     { const b = $('#btn-duo-ranked'); if (b) b.addEventListener('click', () => { try { window.Duo.startRanked(); } catch(e){ console.error(e); } }); }
     { const b = $('#duo-quit'); if (b) b.addEventListener('click', () => { if (window.Duo.quit()) { window.__duo.game = null; showScreen('lobby'); } }); }
@@ -1334,7 +1353,124 @@ function findMatch() {
     startGame('unranked');
   });
   $('#btn-opp-cancel').addEventListener('click', () => closeModal('opponent'));
-$('#btn-mm-cancel').addEventListener('click', () => { stopMatchmaking(); closeModal('matchmaking'); });
+$('#btn-mm-cancel').addEventListener('click', () => {
+  stopMatchmaking();
+  if (window.CTNet && window.CTNet.isReady()) window.CTNet.leaveQueue();
+  state._waitingForServerMatch = false;
+  closeModal('matchmaking');
+});
+
+  // ---------------------------------------------------------------------------
+  // Online matchmaking + live game session (server-authoritative)
+  // ---------------------------------------------------------------------------
+  function startOnlineMatchmaking(mode) {
+    if (!window.CTNet || !window.CTNet.isReady()) {
+      toast('Not connected to server. Falling back to local matchmaking.');
+      startMatchmaking(mode);
+      return;
+    }
+    if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
+    mmStart = Date.now();
+    const titleEl = $('#mm-title'), statusEl = $('#mm-status'), timerEl = $('#mm-timer');
+    if (titleEl) titleEl.textContent = 'Searching for an opponent…';
+    if (statusEl) statusEl.textContent = 'Looking on the server for a player near ' + state.user.elo + ' ELO…';
+    if (timerEl) timerEl.textContent = '0:00';
+    openModal('matchmaking');
+    state._waitingForServerMatch = true;
+    mmTimer = setInterval(() => {
+      const secs = Math.floor((Date.now() - mmStart) / 1000);
+      const mm = Math.floor(secs / 60), ss = secs % 60;
+      if (timerEl) timerEl.textContent = mm + ':' + String(ss).padStart(2, '0');
+    }, 1000);
+    window.CTNet.joinQueue(mode);
+  }
+
+  function handleServerMatchFound(data) {
+    if (!state._waitingForServerMatch) return;
+    state._waitingForServerMatch = false;
+    if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
+    closeModal('matchmaking');
+    const me = state.user;
+    if (!me || !data || !data.gameId) return;
+    const iAmWhite = data.white && data.white.id === me.id;
+    const oppData = iAmWhite ? data.black : data.white;
+    state.opponent = {
+      username: (oppData && oppData.username) || 'Opponent',
+      elo: (oppData && oppData.elo) || 1200,
+      isAI: false,
+      userId: (oppData && oppData.id) || null,
+    };
+    state.isOnline = true;
+    state.gameId = data.gameId;
+    state.awaitingServerGameOver = true;
+    state._forceColor = iAmWhite ? 'w' : 'b';
+    toast('Matched with ' + state.opponent.username + ' (ELO ' + state.opponent.elo + ')', true);
+    startGame(data.mode === 'ranked' ? 'ranked' : 'unranked');
+    state._forceColor = null;
+  }
+
+  function handleServerMoveMade(data) {
+    if (!state.isOnline || !state.game) return;
+    if (!data || data.gameId !== state.gameId) return;
+    const mv = data.move; if (!mv) return;
+    // Only apply opponent's move; our own move was already applied locally.
+    if (mv.color === state.userColor) return;
+    state.applyingRemoteMove = true;
+    const applied = state.game.move({ from: mv.from, to: mv.to, promotion: mv.promotion || 'q' });
+    if (applied) {
+      afterMove(applied);
+    }
+    state.applyingRemoteMove = false;
+  }
+
+  function handleServerIllegalMove(data) {
+    // Server rejected one of our moves -- rare unless local/server desync. Reload to recover.
+    toast('Move rejected by server. Reloading game state…');
+    // For v1, surface the issue rather than try to silently roll back.
+    console.warn('[CTNet] illegal_move', data);
+  }
+
+  function handleServerGameOver(data) {
+    if (!state.isOnline || !data || data.gameId !== state.gameId) return;
+    state.awaitingServerGameOver = false;
+    const me = state.user;
+    let winnerColor = null;
+    if (data.winnerId) {
+      winnerColor = (data.winnerId === me.id) ? state.userColor : (state.userColor === 'w' ? 'b' : 'w');
+    }
+    const reason = data.reason || 'unknown';
+    // Server-initiated end (e.g. opponent resigned) might mean local board isn't naturally
+    // game-over; still treat it as ended so the result screen shows.
+    if (!state.game.game_over() && winnerColor !== null) state.gameEnded = true;
+    finishGame(winnerColor, reason);
+    // Refresh local profile from the server so ELO/stats match what was just persisted.
+    if (window.fetch && window.fetch) {
+      fetchMe().then((profile) => syncRemoteProfile(profile)).catch(() => {});
+    }
+    state.isOnline = false;
+    state.gameId = null;
+  }
+
+  function connectGameSocketIfPossible() {
+    const sess = getSession();
+    if (!sess || !sess.token || !window.CTNet) return;
+    window.CTNet.connect(SERVER_URL, sess.token, {
+      onAuthOk: () => { /* ready to matchmake */ },
+      onAuthErr: (e) => { console.warn('[CTNet] auth_err', e); },
+      onDisconnect: () => { /* server will reconnect automatically */ },
+    });
+    // Register once; CTNet keeps an internal list, but we want at most one of each.
+    if (!state._netHandlersRegistered) {
+      window.CTNet.on('matchFound', handleServerMatchFound);
+      window.CTNet.on('moveMade', handleServerMoveMade);
+      window.CTNet.on('illegalMove', handleServerIllegalMove);
+      window.CTNet.on('gameOver', handleServerGameOver);
+      window.CTNet.on('rateLimited', (d) => toast('Slow down (' + (d && d.event) + ')'));
+      state._netHandlersRegistered = true;
+    }
+  }
+  // Expose for the login/signup flows.
+  window.__connectGameSocket = connectGameSocketIfPossible;
 
   // ---------------------------------------------------------------------------
   // Practice vs computer
@@ -1408,15 +1544,15 @@ $('#btn-mm-cancel').addEventListener('click', () => { stopMatchmaking(); closeMo
     state.legalTargets = [];
     state.lastMove = null;
     state.history = [];
-    state.userColor = Math.random() < 0.5 ? 'w' : 'b';
+    state.userColor = state._forceColor || (Math.random() < 0.5 ? 'w' : 'b');
     state.orientation = state.userColor;
     state.checkCount = { w: 0, b: 0 };
     setupGameScreen();
     showScreen('game');
     renderBoard();
     updateStatus();
-    // If AI plays first, kick it off
-    if (state.opponent.isAI && state.game.turn() !== state.userColor) {
+    // If AI plays first, kick it off (offline only)
+    if (!state.isOnline && state.opponent.isAI && state.game.turn() !== state.userColor) {
       setTimeout(makeAIMove, 500);
     }
   }
@@ -1445,6 +1581,11 @@ $('#btn-mm-cancel').addEventListener('click', () => { stopMatchmaking(); closeMo
   $('#btn-resign').addEventListener('click', () => {
     if (!state.game || state.game.game_over()) return;
     if (!confirm('Resign this game?')) return;
+    if (state.isOnline && state.gameId && window.CTNet && window.CTNet.isReady()) {
+      // Server will emit game_over to both sides with the authoritative result.
+      window.CTNet.resign(state.gameId);
+      return;
+    }
     finishGame(state.userColor === 'w' ? 'b' : 'w', 'resignation');
   });
 
@@ -1544,6 +1685,8 @@ $('#btn-mm-cancel').addEventListener('click', () => { stopMatchmaking(); closeMo
     const turn = state.game.turn();
     // In practice vs AI, the user only controls their color
     if (state.opponent.isAI && turn !== state.userColor) return;
+    // In online play, only the side matching the user's assigned color may move
+    if (state.isOnline && turn !== state.userColor) return;
 
     if (state.selected) {
       // Trying to move
@@ -1699,16 +1842,28 @@ $('#btn-mm-cancel').addEventListener('click', () => { stopMatchmaking(); closeMo
       state.checkCount = state.checkCount || { w: 0, b: 0 };
       state.checkCount[turnNow]++;
     }
+    // Online: if this is OUR move (not a remote-applied opponent move), tell the server.
+    if (state.isOnline && !state.applyingRemoteMove && move && move.color === state.userColor && state.gameId) {
+      try {
+        window.CTNet.sendMove({
+          gameId: state.gameId,
+          from: move.from,
+          to: move.to,
+          promotion: move.promotion || undefined,
+        });
+      } catch (e) { console.error('[CTNet] sendMove failed', e); }
+    }
     animateBoardMove(move, () => {
       state.animatingMove = false;
       renderBoard();
       updateStatus();
       if (state.game.game_over()) {
-        handleGameOver();
+        // Online: wait for server's game_over for authoritative ELO; offline: resolve locally.
+        if (!state.isOnline) handleGameOver();
         return;
       }
-      // If AI opponent's turn
-      if (state.opponent.isAI && state.game.turn() !== state.userColor) {
+      // If AI opponent's turn (offline only)
+      if (!state.isOnline && state.opponent.isAI && state.game.turn() !== state.userColor) {
         state.aiThinking = true;
         setTimeout(() => {
           makeAIMove();
@@ -2666,7 +2821,12 @@ $('#btn-mm-cancel').addEventListener('click', () => { stopMatchmaking(); closeMo
           // Fall back to local DB when the server is unavailable.
         }
       }
-      if (u) { state.user = u; enterApp(); return; }
+      if (u) {
+        state.user = u;
+        if (window.__connectGameSocket) window.__connectGameSocket();
+        enterApp();
+        return;
+      }
     }
     showScreen('auth');
   }

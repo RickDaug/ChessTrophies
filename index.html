@@ -563,10 +563,9 @@
     <section style="margin-top:18px">
         <h2>2v2 Team Chess</h2>
         <div class="card">
-          <div class="row between" style="font-weight:600;letter-spacing:.04em;color:var(--muted)">RANKED 2v2</div>
-          <p class="muted small" style="margin:4px 0 10px">Queue for ranked 2v2 and play with a teammate against two other players. You can also team up with a friend from your list.</p>
-          <button class="btn btn-block" id="btn-duo-ranked">Find ranked 2v2</button>
-          <p class="muted small" style="margin:12px 0 0">2v2 matches require four players on separate devices. Local same-device team play is not supported.</p>
+          <div class="row between" style="font-weight:600;letter-spacing:.04em;color:var(--muted)">PRACTICE 2v2</div>
+          <p class="muted small" style="margin:4px 0 10px">Play 2v2 with an AI partner against two AI opponents. Online 2v2 with real teammates is on the roadmap (see CROSSPLAY_PLAN).</p>
+          <button class="btn btn-block" id="btn-duo-ranked">Practice 2v2 (AI partner)</button>
         </div>
       </section>
 
@@ -1031,7 +1030,9 @@
 <script src="sounds.js?v=20260530m"></script>
 <script src="stockfish-ai.js?v=20260530m"></script>
 <script src="config.js?v=20260531d"></script>
-  <script src="app.js?v=20260531c"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="ct-net.js?v=20260531e"></script>
+  <script src="app.js?v=20260531e"></script>
 <script src="academy.js?v=20260531c"></script>
     <script src="puzzles-data.js?v=20260531a"></script>
     <script src="puzzles.js?v=20260531a"></script>
