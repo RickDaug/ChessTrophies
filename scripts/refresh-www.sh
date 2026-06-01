@@ -55,7 +55,17 @@ else
 fi
 
 # --- Patch 2: guard service-worker registration against Capacitor (idempotent) ---
-python3 - <<'PYEOF'
+# Use whichever Python is on PATH (python3 on most systems, python on Windows).
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON=python3
+elif command -v python >/dev/null 2>&1; then
+  PYTHON=python
+else
+  echo "ERROR: neither python3 nor python found on PATH; cannot apply SW guard patch." >&2
+  exit 1
+fi
+
+"$PYTHON" - <<'PYEOF'
 import sys
 p = 'www/index.html'
 s = open(p, encoding='utf-8').read()
