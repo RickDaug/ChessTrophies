@@ -835,7 +835,7 @@
     $('#login-error').textContent = '';
     try {
       const u = await login($('#login-email').value, $('#login-password').value);
-      setSession({ userId: u.id });
+      setSession(Object.assign({}, getSession(), { userId: u.id }));
       state.user = u;
       if (window.__connectGameSocket) window.__connectGameSocket();
       enterApp();
@@ -855,7 +855,7 @@
         $('#signup-region').value,
           $('#signup-skill') ? parseInt($('#signup-skill').value, 10) : 1200
       );
-      setSession({ userId: u.id });
+      setSession(Object.assign({}, getSession(), { userId: u.id }));
       state.user = u;
       toast('Welcome, ' + u.username + ' 👑', true);
       if (window.__connectGameSocket) window.__connectGameSocket();
