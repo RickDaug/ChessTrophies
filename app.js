@@ -1382,7 +1382,7 @@ $('#btn-mm-cancel').addEventListener('click', () => { stopMatchmaking(); closeMo
     if (!state.startFen960) { state.is960 = false; }
     const { aiElo } = getAIDifficultyForElo(level);
     state.opponent = {
-      username: 'Computer 960 (' + aiNameForElo(aiElo) + ')',
+      username: 'Computer Random (' + aiNameForElo(aiElo) + ')',
       elo: aiElo,
       isAI: true,
       aiElo
