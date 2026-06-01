@@ -1,6 +1,6 @@
 # ChessTrophies — Project state (snapshot)
 
-**Last updated:** 2026-06-01 — online ranked play (1v1 + 2v2) live; 2v2 Practice-vs-AI mode removed.
+**Last updated:** 2026-06-01 — online ranked play (1v1 + 2v2) live & multi-device verified; fixed a JWT-drop bug that was silently breaking all online play; 2v2 Practice-vs-AI mode removed.
 
 This file is the canonical "where are we, what's next" document. Read it first when you come back.
 
@@ -16,8 +16,8 @@ This file is the canonical "where are we, what's next" document. Read it first w
 | Player profiles with stats | ✓ Done |
 | Pass-and-play PvP (same device) | ✓ Done |
 | Skill-based matchmaking (±100 ELO) | ✓ Done |
-| Online ranked 1v1 (real opponents) | ✓ Done — wired to Railway server via Socket.IO (Phase 2) |
-| Online ranked 2v2 team chess | ✓ Done — solo queue or friend duo, server pairs four players into two teams, 3-min queue, separate 2v2 ELO, server-authoritative moves. Front-page state browser-verified 2026-06-01 (see Verification note below) |
+| Online ranked 1v1 (real opponents) | ✓ Done — wired to Railway server via Socket.IO (Phase 2). Required the 2026-06-01 JWT-drop fix to actually connect (see Verification note) |
+| Online ranked 2v2 team chess | ✓ Done — solo queue or friend duo, server pairs four players into two teams, 3-min queue, separate 2v2 ELO, server-authoritative moves. **Multi-device (4-client) end-to-end verified 2026-06-01** (see Verification note below) |
 | Practice vs Computer (Easy/Med/Hard) | ✓ Done — built-in minimax with PSTs, quiescence, iterative deepening (≈1500-1700 ELO) |
 | 115 verified chess lessons | ✓ Done — every solution verified by python-chess |
 | Lesson teaching + Watch Example demo | ✓ Done |
@@ -53,7 +53,16 @@ Removal of the "Practice 2v2 (vs AI)" mode and the corny RANKED 2v2 copy was **v
 - Front page shows only the **RANKED 2v2** card — no "Practice 2v2 (vs AI)" card, no corny description paragraph.
 - `window.Duo` API no longer exposes `startPractice`/`startRanked`; `duoPickMove` is gone; no `pageerror`/ReferenceError from the removed AI code.
 - "Find ranked 2v2" button still wired: clicking it fires `startOnlineTeamMatchmaking`, which correctly guards on the server connection.
-- **Gap:** a *successful* online 2v2 match (4 queued players → board → server move sync) was **not** driven end-to-end locally — it needs the live Railway backend with multiple sessions. Worth a manual multi-device pass before relying on it.
+
+### Verification — online play multi-device + JWT-drop bug fix (2026-06-01)
+
+The earlier "successful online 2v2 match" gap was closed by running the **real backend locally** (throwaway SQLite DB) and driving **4 isolated browser sessions** (Playwright) through signup → queue → match → moves.
+
+**Bug found (was breaking ALL online play):** the login and signup form handlers (`app.js`) called `setSession({ userId: u.id })` *after* `login()`/`signup()` had already stored `{ userId, token }`, overwriting the session and dropping the JWT. With no token, `connectGameSocketIfPossible()` bailed and the game socket never connected — so freshly authenticated users could never reach online 1v1 **or** 2v2. It went unnoticed because the REST signup loop (and the earlier single-player verify) don't exercise the socket. Marking online play "verified" before this was premature.
+
+**Fix (commit `e590af9`):** merge into the existing session instead of replacing it — `setSession(Object.assign({}, getSession(), { userId: u.id }))` — so the server-auth token survives. Local/offline fallback paths stay intentionally tokenless. Propagated to `www/` via `scripts/refresh-www.sh`.
+
+**Re-test against the fixed code (no patches) — PASS:** all 4 clients signup → socket-auth → server pairs them into one game with correct seats (w0/w1/b0/b1, identical start FEN) → 4 moves played by w/seat0 → b/seat0 → w/seat1 → b/seat1, each synced server-authoritatively across all four clients, zero page errors. Seat rotation and move sync confirmed working.
 
 ### Not yet built / next steps
 
