@@ -1,0 +1,38 @@
+name: Online 2v2 smoke test
+
+# Regression guard for real-time online play (the 2026-06-01 JWT-drop bug that
+# silently broke all online matchmaking). Boots the real backend + drives 4
+# browser clients through a full 2v2 game. See test/README.md.
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+
+      - name: Install client/test deps
+        run: npm ci
+
+      - name: Install server deps
+        working-directory: server
+        run: npm ci
+
+      - name: Install Playwright Chromium (+ OS deps)
+        run: npx playwright install --with-deps chromium
+
+      - name: Run 4-client 2v2 smoke test
+        run: npm run smoke:2v2
