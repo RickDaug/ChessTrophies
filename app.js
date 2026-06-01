@@ -1051,11 +1051,9 @@ function renderFriendsSummary() {
   }
     // 2v2 lobby buttons
     // - btn-duo-online -> real ranked 2v2 via the server (3-min queue, real opponents)
-    // - btn-duo-practice -> legacy AI 2v2 (unranked practice)
     // - btn-duo-ranked -> kept as alias for older builds (treated as online)
     { const b = $('#btn-duo-online'); if (b) b.addEventListener('click', () => startOnlineTeamMatchmaking()); }
     { const b = $('#btn-duo-ranked'); if (b) b.addEventListener('click', () => startOnlineTeamMatchmaking()); }
-    { const b = $('#btn-duo-practice'); if (b) b.addEventListener('click', () => { try { window.Duo.startPractice(); } catch(e){ console.error(e); } }); }
     { const b = $('#duo-quit'); if (b) b.addEventListener('click', () => { if (window.Duo.quit()) { window.__duo.game = null; showScreen('lobby'); } }); }
   const practiceEloInput = $('#practice-elo');
   const practiceEloLabel = $('#practice-elo-label');
@@ -1120,9 +1118,8 @@ function renderFriendsSummary() {
       try { window.CTNet.inviteDuo(friendId); toast('2v2 invite sent — waiting for them to accept…'); return; }
       catch (e) { console.error(e); }
     }
-    // Fall back to the legacy practice (AI) flow if we're not connected to the server.
-    toast('Server unavailable — starting practice 2v2 instead.');
-    startFriendChallenge('ranked');
+    // Ranked 2v2 requires a live server connection (real four-player match).
+    toast('Server unavailable — ranked 2v2 needs a connection. Try again shortly.');
   });
   $('#btn-fc-remove').addEventListener('click', () => {
     if (!confirm('Remove this friend?')) return;
@@ -1140,10 +1137,6 @@ function renderFriendsSummary() {
     var friend = db.users[state.selectedFriendId];
     if (!friend) return;
     closeModal('friend-challenge');
-    if (mode === 'ranked') {
-      duoStart({ ranked: true, teammateId: friend.id, teammateName: friend.username, teammateIsAI: false, aiLevel: 'medium' });
-      return;
-    }
     state.opponent = {
       id: friend.id,
       username: friend.username,
@@ -3524,30 +3517,6 @@ window.signOut = signOut;
   };
   window.__duo = duo;
 
-  // Lightweight move chooser for a given chess instance + difficulty.
-  function duoPickMove(chess, level) {
-    const moves = chess.moves({ verbose: true });
-    if (moves.length === 0) return null;
-    const maximizing = chess.turn() === 'w';
-    if (level === 'easy') {
-      const caps = moves.filter(m => m.captured);
-      if (caps.length && Math.random() < 0.6) return caps[Math.floor(Math.random()*caps.length)];
-      return moves[Math.floor(Math.random()*moves.length)];
-    }
-    // greedy 1-ply on evaluateBoard with light randomness
-    let best = null, bestVal = maximizing ? -Infinity : Infinity;
-    const shuffled = moves.slice().sort(() => Math.random() - 0.5);
-    for (const m of shuffled) {
-      chess.move(m);
-      let v = evaluateBoard(chess);
-      if (chess.in_checkmate()) v = maximizing ? 99999 : -99999;
-      chess.undo();
-      if (level === 'medium') v += (Math.random()-0.5) * 40;
-      if (maximizing ? v > bestVal : v < bestVal) { bestVal = v; best = m; }
-    }
-    return best || shuffled[0];
-  }
-
   // Is it the human player's seat to move right now?
   function duoIsYourTurn() {
     if (!duo.game || duo.over) return false;
@@ -3645,36 +3614,14 @@ window.signOut = signOut;
   // server move_made event.
   function duoDriveTurn() {
     if (duo.over || !duo.game || duo.game.game_over()) return;
-    if (duo.online) {
-      // Re-render to refresh status and selection state for the new seat.
-      duoUpdateStatus();
-      return;
-    }
-    const turn = duo.game.turn();
-    // Your seat: turn === youColor && seat 0 -> wait for human input
-    if (turn === duo.youColor && duo.seat === 0) {
-      duoComputeSuggestion();
-      return;
-    }
-    // Otherwise an AI/sim seat plays after a short delay
-    const level = (turn === duo.youColor) ? duo.aiLevel /* teammate */ : duo.aiLevel /* opponents */;
-    setTimeout(() => {
-      if (duo.over || duo.game.game_over()) return;
-      const m = duoPickMove(duo.game, level);
-      if (!m) { duoFinish(); return; }
-      const applied = duo.game.move({ from: m.from, to: m.to, promotion: m.promotion || 'q' });
-      duoAfterPly(applied);
-    }, 420);
+    // Server-authoritative: just refresh status and wait for the next
+    // server move_made event. (2v2 is online-only — no AI seats.)
+    duoUpdateStatus();
   }
 
-  // Partner computes a suggested move for YOUR turn.
+  // Online 2v2 has no AI partner, so there is never a suggestion to show.
   function duoComputeSuggestion() {
     duo.suggestion = null;
-    if (!duoIsYourTurn()) { duoRenderSuggestion(); return; }
-    if (duo.online) { duoRenderSuggestion(); return; } // no AI suggestion when playing real humans
-    const clone = new Chess(duo.game.fen());
-    const m = duoPickMove(clone, duo.aiLevel);
-    if (m) duo.suggestion = { from: m.from, to: m.to, promotion: m.promotion || 'q', san: m.san };
     duoRenderSuggestion();
   }
 
@@ -3905,14 +3852,6 @@ window.signOut = signOut;
   }
 
   // Lobby entry points
-  function duoStartRanked() {
-    // Legacy alias kept for older builds; treat as practice now since real online
-    // ranked 2v2 enters via duoStartOnline(matchData) after server matchmaking.
-    duoStartPractice();
-  }
-  function duoStartPractice() {
-    duoStart({ ranked: false, teammateName: 'Ally', teammateIsAI: true, aiLevel: 'medium', online: false });
-  }
   function duoStartPrivate(partnerName) {
     throw new Error('Private 2v2 is disabled. Use ranked 2v2 with four players on separate devices.');
   }
@@ -3939,8 +3878,6 @@ window.signOut = signOut;
   }
 
   window.Duo = {
-    startRanked: duoStartRanked,
-    startPractice: duoStartPractice,
     startOnline: duoStartOnline,
     startPrivate: duoStartPrivate,
     quit: duoQuit,
