@@ -4,7 +4,8 @@
   "description": "A modern, mobile-friendly chess platform with player profiles, skill-based matchmaking, a chess AI for practice, ELO rankings, and a trophy system that records the names of every opponent you defeat during a winning streak.",
   "main": "academy.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "smoke:2v2": "node test/smoke-2v2.mjs"
   },
   "repository": {
     "type": "git",
@@ -22,5 +23,8 @@
     "@capacitor/android": "^8.3.4",
     "@capacitor/cli": "^8.3.4",
     "@capacitor/core": "^8.3.4"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
   }
 }
