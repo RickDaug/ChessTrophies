@@ -11,15 +11,16 @@ AAB for Play Store upload.
 - minSdkVersion 22 / targetSdkVersion 36 / compileSdkVersion 36
 - versionCode 1 / versionName "1.0.0"
 
-These live in `android/variables.gradle` (SDK levels) and
-`android/app/build.gradle` (appId, versionCode, versionName).
+SDK levels live in `android/variables.gradle`; appId, versionCode, and
+versionName live in `android/app/build.gradle` (inside defaultConfig).
 
 ## 1. Refresh the Capacitor bundle from the repo root
 
-`www/` is a staged copy of the client files and is gitignored. Whenever
-you change any client file at the repo root, re-stage. NOTE: the staging
-list below includes every script index.html actually loads (the original
-scaffold prompt under-listed these; this is the corrected list).
+`www/` is a staged copy of the client files and is gitignored, so it must
+be regenerated and re-patched on every refresh. NOTE: this staging list
+includes every script index.html actually loads. There is no `vendor/`
+directory; the vendored chess engine is `chess.min.js` + `chess960.js`
+at the repo root and is included below.
 
 ```bash
 rm -rf www
@@ -31,66 +32,95 @@ cp index.html app.js academy.js sounds.js stockfish-ai.js \
    icon.svg icon-192.png icon-512.png icon-1024.png www/
 ```
 
-There is no `vendor/` directory; the vendored chess engine is
-`chess.min.js` + `chess960.js` at the repo root and is included above.
-
 Then re-apply the two patches to `www/index.html` (NOT the repo root):
 
-1. CSP: the connect-src directive must include Railway HTTPS+WSS and
+1. CSP fix — the connect-src directive must allow Railway HTTPS+WSS and
    Vercel HTTPS:
 
    ```
    connect-src 'self' https://chesstrophies-production.up.railway.app https://playchesstrophies.com wss://chesstrophies-production.up.railway.app;
    ```
 
-2. Service worker guard: the registration must be wrapped so it does not
-   run inside Capacitor:
+2. Service worker guard — wrap the SW registration:
 
    ```js
    if (!window.Capacitor && 'serviceWorker' in navigator) {
      window.addEventListener('load', function () {
        navigator.serviceWorker.register('sw.js').catch(function (err) {
-         console.warn('Service worker registration skipped:', err);
+         console.warn('Service worker registration failed:', err);
        });
      });
    }
    ```
 
-## 2. Sync into the Android project
+Both patches must be re-applied on every refresh because www/ is
+gitignored. If this becomes annoying, write a scripts/refresh-www.sh that
+performs the copy + sed substitutions automatically.
+
+Sync to Android after refresh:
 
 ```bash
-npx cap sync android
+npx cap sync
 ```
 
-Verify the patches landed in the bundled copy:
+## 2. Smoke test on emulator (requires Android Studio)
+
+Cannot be done in Codespaces — needs a local machine with Android Studio
+installed.
 
 ```bash
-grep -o 'playchesstrophies.com' android/app/src/main/assets/public/index.html
-grep -c 'window.Capacitor' android/app/src/main/assets/public/index.html
+npx cap open android
 ```
 
-## 3. Smoke-test on an emulator
+In Android Studio:
 
-```bash
-npx cap open android   # opens Android Studio
-```
+1. Wait for Gradle sync to complete (status bar at the bottom).
+2. Tools -> Device Manager -> Create Device -> Pixel 6 -> API 34
+   (must be a "Google Play" image, not just "Google APIs").
+3. Click the green Run button.
+4. Emulator boots; ChessTrophies should appear.
+5. Test signup. If the request reaches Railway and returns a user,
+   the wrapped app works end-to-end.
 
-In Android Studio: start an emulator (API 22+), Run 'app'. Confirm the
-app loads, talks to the Railway backend (login / matchmaking), and that
-there is no white screen (which would indicate the SW guard failed).
+If the page is blank: open Chrome DevTools by enabling remote debugging
+(chrome://inspect in desktop Chrome while the emulator is running) and
+check the console for errors.
 
-## 4. Produce a signed AAB
+If signup fails with a network error: the CSP fix above didn't apply.
+Verify www/index.html includes the Railway URL in connect-src and re-run
+npx cap sync.
 
-1. In Android Studio: Build > Generate Signed Bundle / APK > Android App
-   Bundle.
-2. Create or select an upload keystore. KEEP THIS KEYSTORE SAFE AND
-   BACKED UP — losing it means you cannot ship updates under the same
-   app. Do not commit the keystore to git.
-3. Build the release AAB. Output lands in
-   `android/app/release/app-release.aab`.
-4. Upload the AAB in Google Play Console under your app's release track.
+## 3. Build the signed AAB
 
-## 5. Bumping versions for later releases
+In Android Studio:
 
-For each new Play release, increment `versionCode` (integer) and update
-`versionName` in `android/app/build.gradle`, then repeat steps 1-4.
+1. Build -> Generate Signed Bundle / APK -> Android App Bundle -> Next.
+2. Use the project keystore. DO NOT lose this file. Back it up to three
+   places:
+   - Encrypted external drive
+   - Password manager (1Password / Bitwarden)
+   - Encrypted cloud backup
+   Losing it = you can never update the app on the same Play Store
+   listing again. The keystore is the single most critical artifact.
+3. Build variant: release. Output: android/app/release/app-release.aab.
+
+Upload that .aab to Play Console -> Testing -> Closed testing -> Create
+new release.
+
+## 4. Version bumping for updates
+
+For every Play Store upload:
+
+- Bump versionCode by 1 (integer, must increment monotonically)
+- Bump versionName per semver (e.g. 1.0.0 -> 1.0.1)
+
+Both in android/app/build.gradle, inside defaultConfig.
+
+## 5. CSP for Vercel-hosted client (future work)
+
+The repo-root index.html has a connect-src CSP that allows Railway but
+not the Vercel origin. When SERVER_URL is wired into app.js so the
+Vercel-hosted client talks to Railway directly, the same connect-src
+edit in this runbook (adding the Vercel origin / confirming Railway +
+WSS) needs to be applied to the repo-root file too. For now, only the
+Capacitor bundle (www/index.html) has the fully loosened CSP.
