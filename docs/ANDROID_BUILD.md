@@ -8,7 +8,7 @@ AAB for Play Store upload.
 
 - Application ID: `com.chesstrophies.app` (PERMANENT after first Play upload)
 - App name: ChessTrophies
-- minSdkVersion 22 / targetSdkVersion 34 / compileSdkVersion 34
+- minSdkVersion 22 / targetSdkVersion 36 / compileSdkVersion 36
 - versionCode 1 / versionName "1.0.0"
 
 These live in `android/variables.gradle` (SDK levels) and
