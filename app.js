@@ -1444,7 +1444,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     if (!state.game.game_over() && winnerColor !== null) state.gameEnded = true;
     finishGame(winnerColor, reason);
     // Refresh local profile from the server so ELO/stats match what was just persisted.
-    if (window.fetch && window.fetch) {
+    if (window.fetch) {
       fetchMe().then((profile) => syncRemoteProfile(profile)).catch(() => {});
     }
     state.isOnline = false;
@@ -1531,6 +1531,15 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   // Game lifecycle
   // ---------------------------------------------------------------------------
   function startGame(mode) {
+    // When entering an offline game (practice, friendly, legacy ranked) after an
+    // online match, clear any leftover online flags so the move gate doesn't
+    // refuse input. state._forceColor is only set by the online matchmaking flow.
+    if (!state._forceColor) {
+      state.isOnline = false;
+      state.gameId = null;
+      state.applyingRemoteMove = false;
+      state.awaitingServerGameOver = false;
+    }
     state.gameMode = mode;
     if (state.is960 && window.CT_random960Fen) {
       state.startFen960 = state.startFen960 || window.CT_random960Fen();

@@ -93,6 +93,11 @@
       try { socket.disconnect(); } catch (e) {}
       socket = null;
     }
+    // Clear all CTNet-level subscriptions so a subsequent connect+register
+    // doesn't accidentally fire stale handlers (the per-socket listeners
+    // get cleared automatically when the socket dies, but our listeners[]
+    // map is separate and would otherwise leak across login sessions).
+    listeners = Object.create(null);
   }
 
   function isReady() { return ready; }
