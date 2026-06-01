@@ -60,7 +60,7 @@ app.post('/api/auth/signup', authLimiter, async (req, res, next) => {
     const invitedBy = typeof body.invitedBy === 'string' && body.invitedBy.trim() ? body.invitedBy.trim().slice(0, 64) : null;
     const token = await signup({ email, username, password, region, invitedBy });
     res.json({ token });
-  } catch (e) { next(e); }
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
 app.post('/api/auth/login', authLimiter, async (req, res, next) => {
@@ -70,7 +70,7 @@ app.post('/api/auth/login', authLimiter, async (req, res, next) => {
     const password = requireStringField(body, 'password', { min: 1, max: 128 });
     const token = await login({ email, password });
     res.json({ token });
-  } catch (e) { next(e); }
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
 // Profile
@@ -110,7 +110,7 @@ app.post('/api/friends/add', requireAuth, (req, res, next) => {
     ins.run(req.userId, friend.id, Date.now());
     ins.run(friend.id, req.userId, Date.now());
     res.json({ ok: true, friend });
-  } catch (e) { next(e); }
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
 // Recent game history
@@ -146,7 +146,11 @@ app.get('/', (req, res) => res.sendFile(path.join(staticDir, 'index.html')));
 
 app.use((err, req, res, next) => {
   console.error('[server]', err);
-  res.status(err.status || 500).json({ error: 'Internal server error' });
+  const status = err.status || 500;
+  // Surface friendly validation/auth messages for client errors (4xx);
+  // hide unexpected server errors behind a generic message.
+  const message = (status >= 400 && status < 500 && err.message) ? err.message : 'Internal server error';
+  res.status(status).json({ error: message });
 });
 
 // WebSocket
