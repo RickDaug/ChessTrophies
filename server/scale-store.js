@@ -21,7 +21,12 @@ const K = {
   queue: 'ct:mmq',                    // hash uid -> JSON entry
   lockGame: (id) => `ct:lk:g:${id}`,
   lockMm: 'ct:lk:mm',
+  recent: (id) => `ct:rg:${id}`,      // finished-game snapshot for rematch (TTL)
+  offers: (id) => `ct:ro:${id}`,      // set of uids who offered a rematch (TTL)
 };
+const DISCONNECT_GRACE_MS = 30000;
+const RECENT_TTL_MS = 120000;
+const REMATCH_TTL_MS = 30000;
 const userRoom = (uid) => `u:${uid}`;
 // Emit a game event to BOTH players via their per-user rooms (joined at auth).
 // This is reliable across instances via the Redis adapter and avoids any
@@ -213,17 +218,26 @@ export async function handleResign(io, R, uid, gameId) {
 }
 
 // ---------------------------------------------------------------------------
-// Disconnect (immediate forfeit in redis mode for this increment) + sweep
+// Disconnect grace + sweep
 // ---------------------------------------------------------------------------
+// On disconnect we do NOT forfeit immediately. We stamp a grace deadline on the
+// game and notify the opponent; the sweep (which runs on every instance) forfeits
+// the game once the deadline passes IF the player hasn't reconnected. Reconnect
+// from any instance clears the deadline (see onAuth). The clock keeps running,
+// so a flag-fall during the grace ends the game first.
 export async function onDisconnect(io, R, uid) {
   await R.hdel(K.queue, uid);
+  await leaveRematch(io, R, uid); // retract any pending rematch offer
   const gameId = await R.get(K.userGame(uid));
   if (!gameId) return;
   await withLock(R, K.lockGame(gameId), async () => {
     const g = await loadGame(R, gameId);
     if (!g || g.ended) return;
+    g.disconnectedUid = uid;
+    g.graceUntil = Date.now() + DISCONNECT_GRACE_MS;
+    await saveGame(R, g);
     const opp = g.white === uid ? g.black : g.white;
-    await finishGame(io, R, g, { reason: 'disconnect', winnerId: opp }, chessOf(g));
+    io.to(userRoom(opp)).emit('opponent_disconnected', { gameId, graceMs: DISCONNECT_GRACE_MS });
   });
 }
 
@@ -239,7 +253,15 @@ export function startSweep(io, R) {
         await withLock(R, K.lockGame(id), async () => {
           const g = await loadGame(R, id);
           if (!g) { await R.srem(K.active, id); return; }
-          if (g.ended || !g.clock) return;
+          if (g.ended) return;
+          // Disconnect-grace expiry (applies to clocked AND unlimited games).
+          if (g.disconnectedUid && g.graceUntil && g.graceUntil <= now) {
+            const winner = g.disconnectedUid === g.white ? g.black : g.white;
+            await finishGame(io, R, g, { reason: 'disconnect', winnerId: winner }, chessOf(g));
+            return;
+          }
+          // Clock flag-fall.
+          if (!g.clock) return;
           const remaining = g.clock[g.clock.running] - (now - g.clock.turnStartedAt);
           if (remaining <= 0) { g.clock[g.clock.running] = 0; await finishTimeout(io, R, g, chessOf(g), g.clock.running); }
         }, { tries: 3 });
@@ -298,4 +320,82 @@ async function finishGame(io, R, g, override, chess) {
   await R.srem(K.active, g.id);
   await R.del(K.userGame(g.white));
   await R.del(K.userGame(g.black));
+  // Short-lived snapshot so a rematch can be set up after the game object is gone.
+  await R.set(K.recent(g.id), JSON.stringify({ whiteUid: g.white, blackUid: g.black, mode: g.mode, tc: g.tc }), 'PX', RECENT_TTL_MS);
+}
+
+// ---------------------------------------------------------------------------
+// Rematch (1v1) — shared across instances
+// ---------------------------------------------------------------------------
+const uoffKey = (uid) => `ct:uoff:${uid}`; // reverse pointer: uid -> gameId it offered on
+
+async function recentOf(R, gameId) {
+  const raw = await R.get(K.recent(gameId));
+  return raw ? JSON.parse(raw) : null;
+}
+
+export async function handleRematchOffer(io, R, uid, gameId) {
+  const rg = await recentOf(R, gameId);
+  if (!rg || (rg.whiteUid !== uid && rg.blackUid !== uid)) return;
+  const opp = rg.whiteUid === uid ? rg.blackUid : rg.whiteUid;
+  if (await R.sismember(K.offers(gameId), opp)) { await startRematch(io, R, gameId, rg); return; }
+  await R.sadd(K.offers(gameId), uid);
+  await R.pexpire(K.offers(gameId), REMATCH_TTL_MS);
+  await R.set(uoffKey(uid), gameId, 'PX', REMATCH_TTL_MS);
+  io.to(userRoom(opp)).emit('rematch_offered', { gameId, from: publicUser(getUserById(uid)) });
+  // Best-effort expiry notice (Redis TTL also auto-cleans the offer set).
+  const t = setTimeout(async () => {
+    try {
+      if (await R.sismember(K.offers(gameId), uid)) {
+        await R.del(K.offers(gameId)); await R.del(uoffKey(uid));
+        io.to(userRoom(uid)).to(userRoom(opp)).emit('rematch_expired', { gameId });
+      }
+    } catch { /* ignore */ }
+  }, REMATCH_TTL_MS);
+  if (typeof t.unref === 'function') t.unref();
+}
+
+export async function handleRematchAccept(io, R, uid, gameId) {
+  const rg = await recentOf(R, gameId);
+  if (!rg || (rg.whiteUid !== uid && rg.blackUid !== uid)) return;
+  const opp = rg.whiteUid === uid ? rg.blackUid : rg.whiteUid;
+  if (await R.sismember(K.offers(gameId), opp)) { await startRematch(io, R, gameId, rg); return; }
+  // No standing offer yet -> treat accept as an offer so the flow still completes.
+  await R.sadd(K.offers(gameId), uid);
+  await R.pexpire(K.offers(gameId), REMATCH_TTL_MS);
+  await R.set(uoffKey(uid), gameId, 'PX', REMATCH_TTL_MS);
+}
+
+export async function handleRematchDecline(io, R, uid, gameId) {
+  const rg = await recentOf(R, gameId);
+  if (!rg || (rg.whiteUid !== uid && rg.blackUid !== uid)) return;
+  const offerer = rg.whiteUid === uid ? rg.blackUid : rg.whiteUid;
+  await R.del(K.offers(gameId)); await R.del(uoffKey(uid)); await R.del(uoffKey(offerer));
+  io.to(userRoom(offerer)).emit('rematch_declined', { gameId });
+}
+
+// Retract a user's pending offer on disconnect; tell the opponent it expired.
+async function leaveRematch(io, R, uid) {
+  const gameId = await R.get(uoffKey(uid));
+  if (!gameId) return;
+  await R.del(uoffKey(uid));
+  if (await R.sismember(K.offers(gameId), uid)) {
+    await R.del(K.offers(gameId));
+    const rg = await recentOf(R, gameId);
+    if (rg) {
+      const opp = rg.whiteUid === uid ? rg.blackUid : rg.whiteUid;
+      io.to(userRoom(opp)).emit('rematch_expired', { gameId });
+    }
+  }
+}
+
+// Start a rematch: same players, same mode/tc, COLORS SWAPPED (prev Black -> White).
+async function startRematch(io, R, gameId, rg) {
+  await R.del(K.offers(gameId)); await R.del(K.recent(gameId));
+  await R.del(uoffKey(rg.whiteUid)); await R.del(uoffKey(rg.blackUid));
+  const newWhite = getUserById(rg.blackUid), newBlack = getUserById(rg.whiteUid);
+  if (!newWhite || !newBlack) return;
+  await startGame(io, R,
+    { uid: rg.blackUid, elo: newWhite.elo, mode: rg.mode, tc: rg.tc },
+    { uid: rg.whiteUid, elo: newBlack.elo, mode: rg.mode, tc: rg.tc });
 }

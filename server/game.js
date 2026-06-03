@@ -469,8 +469,9 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
     });
 
     // --- Rematch (1v1 only) ---
-    socket.on('rematch_offer', ({ gameId }) => {
+    socket.on('rematch_offer', async ({ gameId }) => {
       const uid = socket.data.userId; if (!uid) return;
+      if (scaleR) { try { await scale.handleRematchOffer(io, scaleR, uid, gameId); } catch (e) { console.error('[scale] rematch_offer', e && e.message); } return; }
       const rg = recentGames.get(gameId);
       if (!rg) return;
       if (rg.whiteUid !== uid && rg.blackUid !== uid) return; // not a player
@@ -504,8 +505,9 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       if (oppSock) io.sockets.sockets.get(oppSock)?.emit('rematch_offered', { gameId, from: publicUser(getUserById(uid)) });
     });
 
-    socket.on('rematch_accept', ({ gameId }) => {
+    socket.on('rematch_accept', async ({ gameId }) => {
       const uid = socket.data.userId; if (!uid) return;
+      if (scaleR) { try { await scale.handleRematchAccept(io, scaleR, uid, gameId); } catch (e) { console.error('[scale] rematch_accept', e && e.message); } return; }
       const rg = recentGames.get(gameId);
       if (!rg) return;
       if (rg.whiteUid !== uid && rg.blackUid !== uid) return;
@@ -522,8 +524,9 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       startRematch(io, gameId);
     });
 
-    socket.on('rematch_decline', ({ gameId }) => {
+    socket.on('rematch_decline', async ({ gameId }) => {
       const uid = socket.data.userId; if (!uid) return;
+      if (scaleR) { try { await scale.handleRematchDecline(io, scaleR, uid, gameId); } catch (e) { console.error('[scale] rematch_decline', e && e.message); } return; }
       const rg = recentGames.get(gameId);
       if (!rg) return;
       if (rg.whiteUid !== uid && rg.blackUid !== uid) return;
