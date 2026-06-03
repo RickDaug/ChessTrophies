@@ -2,6 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
+<script>
+  // Global error visibility — surface field failures that would otherwise be silent.
+  window.addEventListener('error', function (e) {
+    try { console.error('[CT error]', (e && e.message) || e, e && e.filename, e && e.lineno); } catch (_) {}
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    try { console.error('[CT error] unhandled rejection:', e && e.reason); } catch (_) {}
+  });
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://chesstrophies-production.up.railway.app wss://chesstrophies-production.up.railway.app; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';" />
 <meta name="theme-color" content="#f5c451" />
@@ -311,6 +320,31 @@
       border-color: var(--accent) !important;
       box-shadow: 0 0 0 2px rgba(var(--accent-rgb, 100,150,255),.15);
     }
+    /* Add-friend autocomplete dropdown */
+    .friend-suggestions {
+      position: absolute;
+      left: 0; right: 0; top: calc(100% + 4px);
+      z-index: 50;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      max-height: 240px;
+      overflow-y: auto;
+      box-shadow: 0 8px 24px #0007;
+    }
+    .friend-suggestion {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+    }
+    .friend-suggestion:last-child { border-bottom: none; }
+    .friend-suggestion:hover { background: var(--panel); }
+    .friend-suggestion .fs-elo { color: var(--muted); font-size: 12px; }
 
     /* === STAT GRID CLEANUP === */
     .stat-grid { gap: 8px; margin: 0 0 12px; }
@@ -935,7 +969,10 @@
     <h2>Add a friend</h2>
     <p class="muted small" style="margin:4px 0 12px">Enter their ChessTrophies username. You'll be added to each other's friends list.</p>
     <label>Username</label>
-    <input type="text" id="friend-username" autocomplete="off" placeholder="e.g. KnightRider42">
+    <div style="position:relative;">
+      <input type="text" id="friend-username" autocomplete="off" placeholder="e.g. KnightRider42">
+      <div id="friend-suggestions" class="friend-suggestions" style="display:none;"></div>
+    </div>
     <div class="error" id="friend-error"></div>
     <div class="stack" style="margin-top:14px">
       <button class="btn btn-block" id="btn-friend-add">Add friend</button>

@@ -213,21 +213,35 @@
     else localStorage.removeItem(SESSION_KEY);
   }
 
+  const API_TIMEOUT_MS = 10000; // abort hung requests so offline fallback can kick in
   async function api(path, options = {}) {
     const session = getSession();
     const headers = Object.assign({}, options.headers || {});
     if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
     if (session && session.token) headers.Authorization = 'Bearer ' + session.token;
-    const res = await fetch(SERVER_URL + path, Object.assign({ method: 'GET' }, options, { headers }));
-    const text = await res.text();
-    let data = null;
-    try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
-    if (!res.ok) {
-      const err = new Error((data && (data.error || data.message)) || 'Request failed');
-      err.status = res.status; // lets callers tell a 4xx rejection from a 5xx/transient failure
-      throw err;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+    try {
+      const res = await fetch(SERVER_URL + path, Object.assign({ method: 'GET', signal: controller.signal }, options, { headers }));
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+      if (!res.ok) {
+        const err = new Error((data && (data.error || data.message)) || 'Request failed');
+        err.status = res.status; // lets callers tell a 4xx rejection from a 5xx/transient failure
+        throw err;
+      }
+      return data;
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        const err = new Error('Request timed out');
+        err.transient = true; // matches serverAuth's offline-fallback contract
+        throw err;
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
     }
-    return data;
   }
 
   // Attempt a server auth call, retrying once if the failure looks transient (a
@@ -356,6 +370,32 @@
   function getFriendUsers(user) {
     const db = loadDB();
     return (user.friends || []).map(id => db.users[id]).filter(Boolean);
+  }
+  // True when we have a real server session (token); guests fall back to local DB.
+  function isServerLoggedIn() {
+    var s = getSession();
+    return !!(s && s.token && !s.offline);
+  }
+  // Cache of the server's authoritative friends list, used by the renderers so they
+  // can display synchronously after an async refresh.
+  var serverFriendsCache = null;
+  async function refreshServerFriends() {
+    if (!isServerLoggedIn()) return null;
+    var res = await api('/api/friends');
+    serverFriendsCache = (res && Array.isArray(res.friends)) ? res.friends : [];
+    return serverFriendsCache;
+  }
+  // Add a friend by username on the server. Throws an Error with a clear message
+  // (e.g. the 404 "no user with that username") that callers surface to the user.
+  async function serverAddFriend(username) {
+    var res = await api('/api/friends/add', { method: 'POST', body: JSON.stringify({ username: username }) });
+    return (res && res.friend) || null;
+  }
+  async function serverSearchUsers(prefix) {
+    var q = (prefix || '').trim();
+    if (!q) return [];
+    var res = await api('/api/users/search?q=' + encodeURIComponent(q) + '&limit=8');
+    return (res && Array.isArray(res.users)) ? res.users : [];
   }
   function addFriendByUsername(me, username) {
     if (!username) throw new Error('Enter a username.');
@@ -1141,6 +1181,17 @@
 function renderFriendsSummary() {
     var wrap = $('#lobby-friends-summary');
     if (!wrap) return;
+    // Logged-in users: use the server's authoritative friends list (cached).
+    if (isServerLoggedIn()) {
+      var sf = serverFriendsCache || [];
+      wrap.textContent = sf.length
+        ? (sf.length + ' friend' + (sf.length === 1 ? '' : 's'))
+        : 'No friends yet — add one in Friends';
+      if (serverFriendsCache === null) {
+        refreshServerFriends().then(function(){ renderFriendsSummary(); }).catch(function(){});
+      }
+      return;
+    }
     var db = loadDB();
     var me = db.users[state.user.id] || state.user;
     var incoming = (me.incomingRequests || []).map(function(id){ return db.users[id]; }).filter(Boolean);
@@ -1157,6 +1208,11 @@ function renderFriendsSummary() {
   if (!state.user) return;
     var wrap = $('#friends-list');
     if (!wrap) return;
+    // Logged-in users: render from the server's authoritative friends list.
+    if (isServerLoggedIn()) {
+      renderServerFriendsList(wrap);
+      return;
+    }
     var db = loadDB();
     var me = db.users[state.user.id] || state.user;
     var incoming = (me.incomingRequests || []).map(function(id){ return db.users[id]; }).filter(Boolean);
@@ -1197,6 +1253,38 @@ function renderFriendsSummary() {
     $$('#friends-list .btn-decline-req').forEach(function(b){
       b.addEventListener('click', function(e){ e.stopPropagation(); declineFriendRequest(state.user, b.dataset.id); renderFriendsList(); });
     });
+  }
+
+  // Render the friends list from the server's authoritative data. The server's
+  // /api/friends/add is immediate (no pending-request state), so there is no
+  // incoming-requests section here.
+  function renderServerFriendsList(wrap) {
+    var friends = serverFriendsCache || [];
+    var html = '<div class="muted small" style="text-transform:uppercase;letter-spacing:.6px;margin:10px 0 6px;">Your friends</div>';
+    if (serverFriendsCache === null) {
+      html += '<div class="muted small" style="padding:8px 2px;">Loading friends…</div>';
+    } else if (!friends.length) {
+      html += '<div class="muted small" style="padding:8px 2px;">No friends yet. Search by username above to add one.</div>';
+    } else {
+      html += friends.map(function(f){
+        return '<div class="friend-row" data-friend-id="' + escapeHTML(String(f.id)) + '" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--panel-2);border-radius:10px;margin-bottom:8px;cursor:pointer;">' +
+          (typeof getAvatarHTML === 'function' ? getAvatarHTML(f, 34) : '') +
+          '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(f.username) + '</div>' +
+          '<div class="muted small">ELO ' + (f.elo || 1200) + ' · ' + (f.wins||0) + 'W ' + (f.losses||0) + 'L</div></div>' +
+          '<div class="pill gold">Challenge</div></div>';
+      }).join('');
+    }
+    wrap.innerHTML = html;
+    renderFriendsSummary();
+    $$('#friends-list [data-friend-id]').forEach(function(row){
+      row.addEventListener('click', function(){ openFriendChallenge(row.dataset.friendId); });
+    });
+    if (serverFriendsCache === null) {
+      refreshServerFriends().then(function(){ renderServerFriendsList(wrap); }).catch(function(){
+        serverFriendsCache = serverFriendsCache || [];
+        renderServerFriendsList(wrap);
+      });
+    }
   }
 
   $('#btn-new-match').addEventListener('click', () => {
@@ -1289,14 +1377,79 @@ function renderFriendsSummary() {
   $('#btn-add-friend').addEventListener('click', () => {
     $('#friend-username').value = '';
     $('#friend-error').textContent = '';
+    hideFriendSuggestions();
     openModal('add-friend');
     setTimeout(() => $('#friend-username').focus(), 100);
   });
-  $('#btn-friend-cancel').addEventListener('click', () => closeModal('add-friend'));
+  $('#btn-friend-cancel').addEventListener('click', () => { hideFriendSuggestions(); closeModal('add-friend'); });
+
+  // --- Add-friend autocomplete (server search, logged-in only) ---
+  function hideFriendSuggestions() {
+    var box = $('#friend-suggestions');
+    if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+  }
+  function renderFriendSuggestions(users) {
+    var box = $('#friend-suggestions');
+    if (!box) return;
+    if (!users || !users.length) { hideFriendSuggestions(); return; }
+    box.innerHTML = users.map(function(u){
+      return '<div class="friend-suggestion" data-uname="' + escapeHTML(u.username) + '">' +
+        '<span style="font-weight:600;">' + escapeHTML(u.username) + '</span>' +
+        '<span class="fs-elo">ELO ' + (u.elo || 1200) + '</span></div>';
+    }).join('');
+    box.style.display = '';
+    $$('#friend-suggestions .friend-suggestion').forEach(function(row){
+      row.addEventListener('click', function(){
+        var input = $('#friend-username');
+        if (input) input.value = row.dataset.uname;
+        hideFriendSuggestions();
+        if (input) input.focus();
+      });
+    });
+  }
+  var _friendSearchTimer = null;
+  var _friendInputEl = $('#friend-username');
+  if (_friendInputEl) {
+    _friendInputEl.addEventListener('input', function(){
+      var q = (_friendInputEl.value || '').trim();
+      if (_friendSearchTimer) { clearTimeout(_friendSearchTimer); _friendSearchTimer = null; }
+      // Guests have no token -> no server search, degrade quietly (no dropdown).
+      if (!isServerLoggedIn() || q.length < 2) { hideFriendSuggestions(); return; }
+      _friendSearchTimer = setTimeout(function(){
+        serverSearchUsers(q).then(function(users){
+          // Ignore stale results if the input changed while we waited.
+          if ((_friendInputEl.value || '').trim() !== q) return;
+          renderFriendSuggestions(users);
+        }).catch(function(){ hideFriendSuggestions(); });
+      }, 250);
+    });
+    _friendInputEl.addEventListener('blur', function(){ setTimeout(hideFriendSuggestions, 150); });
+  }
   $('#btn-friend-add').addEventListener('click', () => {
     $('#friend-error').textContent = '';
+    const uname = $('#friend-username').value;
+    if (!uname || !uname.trim()) { $('#friend-error').textContent = 'Enter a username.'; return; }
+    // Logged-in users go through the server so they can friend players who signed
+    // up on any device. Guests fall back to the local-DB matcher.
+    if (isServerLoggedIn()) {
+      const btn = $('#btn-friend-add');
+      btn.disabled = true;
+      serverAddFriend(uname).then(function(friend){
+        hideFriendSuggestions();
+        closeModal('add-friend');
+        toast('Added ' + ((friend && friend.username) || uname.trim()) + ' 🤝');
+        serverFriendsCache = null; // force a fresh pull
+        renderFriendsList();
+      }).catch(function(err){
+        // 404 from the server => "no user with that username".
+        $('#friend-error').textContent = (err && err.status === 404)
+          ? 'No user with that username.'
+          : ((err && err.message) || 'Could not add friend. Try again.');
+      }).then(function(){ btn.disabled = false; });
+      return;
+    }
     try {
-      const friend = addFriendByUsername(state.user, $('#friend-username').value);
+      const friend = addFriendByUsername(state.user, uname);
       // Refresh state.user from DB
       const db = loadDB();
       state.user = db.users[state.user.id];
@@ -1310,7 +1463,11 @@ function renderFriendsSummary() {
 
   function openFriendChallenge(friendId) {
     const db = loadDB();
-    const friend = db.users[friendId];
+    let friend = db.users[friendId];
+    // Server friends may not exist in the local DB; fall back to the cached list.
+    if (!friend && serverFriendsCache) {
+      friend = serverFriendsCache.find(function(f){ return String(f.id) === String(friendId); }) || null;
+    }
     if (!friend) return;
     state.selectedFriendId = friendId;
     $('#fc-title').textContent = 'Challenge ' + friend.username;
@@ -1578,6 +1735,7 @@ function findMatch() {
   $('#btn-opp-cancel').addEventListener('click', () => closeModal('opponent'));
 $('#btn-mm-cancel').addEventListener('click', () => {
   stopMatchmaking();
+  if (mmGiveUpTimer) { clearTimeout(mmGiveUpTimer); mmGiveUpTimer = null; }
   if (window.CTNet && window.CTNet.isReady()) window.CTNet.leaveQueue();
   state._waitingForServerMatch = false;
   closeModal('matchmaking');
@@ -1586,6 +1744,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   // ---------------------------------------------------------------------------
   // Online matchmaking + live game session (server-authoritative)
   // ---------------------------------------------------------------------------
+  // Bounded, generous online search window shared by 1v1 and 2v2 (tune here).
+  const MATCH_SEARCH_MS = 120000; // 120s — within the requested 90-120s range
+  let mmGiveUpTimer = null;
   function startOnlineMatchmaking(mode) {
     if (!window.CTNet || !window.CTNet.isReady()) {
       toast('Not connected to server. Falling back to local matchmaking.');
@@ -1593,6 +1754,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       return;
     }
     if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
+    if (mmGiveUpTimer) { clearTimeout(mmGiveUpTimer); mmGiveUpTimer = null; }
     mmStart = Date.now();
     const titleEl = $('#mm-title'), statusEl = $('#mm-status'), timerEl = $('#mm-timer');
     if (titleEl) titleEl.textContent = 'Searching for an opponent…';
@@ -1605,6 +1767,16 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       const mm = Math.floor(secs / 60), ss = secs % 60;
       if (timerEl) timerEl.textContent = mm + ':' + String(ss).padStart(2, '0');
     }, 1000);
+    // Bounded search: give up after MATCH_SEARCH_MS rather than counting up forever.
+    mmGiveUpTimer = setTimeout(() => {
+      mmGiveUpTimer = null;
+      if (!state._waitingForServerMatch) return;
+      state._waitingForServerMatch = false;
+      if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
+      if (window.CTNet && window.CTNet.isReady()) window.CTNet.leaveQueue();
+      closeModal('matchmaking');
+      toast('No opponent found right now — try again.');
+    }, MATCH_SEARCH_MS);
     window.CTNet.joinQueue(mode);
   }
 
@@ -1612,6 +1784,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     if (!state._waitingForServerMatch) return;
     state._waitingForServerMatch = false;
     if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
+    if (mmGiveUpTimer) { clearTimeout(mmGiveUpTimer); mmGiveUpTimer = null; }
     closeModal('matchmaking');
     const me = state.user;
     if (!me || !data || !data.gameId) return;
@@ -1787,10 +1960,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   };
 
   // ---------------------------------------------------------------------------
-  // 2v2 online matchmaking (3-minute queue with timeout)
+  // 2v2 online matchmaking (bounded queue with graceful timeout)
   // ---------------------------------------------------------------------------
   let tqTimer = null, tqStart = 0;
-  const TEAM_QUEUE_TIMEOUT_MS = 3 * 60 * 1000;
+  const TEAM_QUEUE_TIMEOUT_MS = MATCH_SEARCH_MS; // 120s search window (was 3 minutes)
 
   function stopTeamQueueTimer() {
     if (tqTimer) { clearInterval(tqTimer); tqTimer = null; }
@@ -1810,8 +1983,12 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     tqStart = Date.now();
     const titleEl = $('#tq-title'), statusEl = $('#tq-status'), timerEl = $('#tq-timer'), partnerEl = $('#tq-partner');
     if (titleEl) titleEl.textContent = 'Searching for a 2v2 match…';
-    if (statusEl) statusEl.textContent = 'Need 4 players for a match. Waiting up to 3 minutes.';
-    if (timerEl) timerEl.textContent = '3:00';
+    {
+      const totalS = Math.round(TEAM_QUEUE_TIMEOUT_MS / 1000);
+      const tm = Math.floor(totalS / 60), ts = totalS % 60;
+      if (statusEl) statusEl.textContent = 'Need 4 players for a match. Waiting up to ' + tm + ' min ' + ts + ' sec.';
+      if (timerEl) timerEl.textContent = tm + ':' + String(ts).padStart(2, '0');
+    }
     if (partnerEl) partnerEl.textContent = '';
     openModal('team-queue');
     state._inTeamQueue = true;
@@ -3417,7 +3594,9 @@ function sendChatMessage(roomId, text) {
   if (!roomId || !text || !text.trim()) return;
   const user = state.user;
   if (!user) return toast('Sign in to chat.', false);
-  const clean = escapeHTML(text.trim()).substring(0, 500);
+  // Store the raw message; we escape at render time (see renderChat) so we never
+  // trust escape-at-write and never risk double-escaping.
+  const clean = text.trim().substring(0, 500);
   if (!clean) return;
   const msgs = getChatMessages(roomId);
   msgs.push({ sender: user.username, senderId: user.id, text: clean, ts: Date.now() });
@@ -3438,7 +3617,7 @@ function renderChat(roomId) {
       <div style="flex-shrink:0">${avatarHTML}</div>
       <div style="max-width:70%;">
         <div style="font-size:10px;color:#888;margin-bottom:2px;${isMe?'text-align:right':''}">${escapeHTML(m.sender)}</div>
-        <div style="background:${isMe?'#3b425a':'#222b3a'};color:#f0f0f0;border-radius:10px;padding:6px 10px;font-size:13px;word-break:break-word;">${m.text}</div>
+        <div style="background:${isMe?'#3b425a':'#222b3a'};color:#f0f0f0;border-radius:10px;padding:6px 10px;font-size:13px;word-break:break-word;">${escapeHTML(m.text)}</div>
         <div style="font-size:9px;color:#555;margin-top:2px;${isMe?'text-align:right':''}">${timeAgo(m.ts)}</div>
       </div>
     </div>`;
@@ -3720,6 +3899,23 @@ function renderFriendSearchResults(query) {
     if (!wrap) return;
     query = (query || '').trim().toLowerCase();
     if (!query) { wrap.innerHTML = ''; return; }
+    // Logged-in users search the server (server already excludes self + existing friends).
+    if (isServerLoggedIn()) {
+      serverSearchUsers(query).then(function(users){
+        if (!users.length) { wrap.innerHTML = '<div class="muted small" style="padding:8px 2px;">No players found by that username.</div>'; return; }
+        wrap.innerHTML = users.map(function(u){
+          return '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--panel-2);border-radius:10px;margin-bottom:8px;">' +
+            (typeof getAvatarHTML === 'function' ? getAvatarHTML(u, 34) : '') +
+            '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(u.username) + '</div>' +
+            '<div class="muted small">ELO ' + (u.elo || 1200) + '</div></div>' +
+            '<button class="btn-send-req" data-uname="' + escapeHTML(u.username) + '" style="background:var(--accent);color:#1a1d24;border:none;border-radius:8px;padding:6px 12px;font-weight:600;cursor:pointer;">Add</button></div>';
+        }).join('');
+        $$('#friend-search-results .btn-send-req').forEach(function(b){
+          b.addEventListener('click', function(){ addFriendAndRefresh(b.dataset.uname); });
+        });
+      }).catch(function(){ wrap.innerHTML = ''; });
+      return;
+    }
     var db = loadDB();
     var me = db.users[state.user.id] || state.user;
     var matches = Object.keys(db.users).map(function(k){ return db.users[k]; }).filter(function(u){
@@ -3745,6 +3941,19 @@ function renderFriendSearchResults(query) {
     });
   }
 function addFriendAndRefresh(username) {
+    // Logged-in users add via the server (works across devices); guests use local DB.
+    if (isServerLoggedIn()) {
+      serverAddFriend(username).then(function(friend){
+        toast('Added ' + ((friend && friend.username) || username) + ' \ud83e\udd1d');
+        serverFriendsCache = null; // force a fresh pull
+        var si = $('#friend-search-input');
+        renderFriendSearchResults(si ? si.value : username);
+        renderFriendsList();
+      }).catch(function(err){
+        toast((err && err.status === 404) ? 'No user with that username.' : ((err && err.message) || 'Could not add friend.'), false);
+      });
+      return;
+    }
     try {
       var res = addFriendByUsername(state.user, username);
       if (res && res.accepted) toast('You are now friends with ' + res.username + ' \ud83e\udd1d');
@@ -4042,7 +4251,7 @@ window.signOut = signOut;
     if (duo.suggestion && duoIsYourTurn()) {
       const sanTxt = duo.suggestion.san || (duo.suggestion.from + '\u2192' + duo.suggestion.to);
       p.style.display = '';
-      p.innerHTML = '<div class="duo-suggest-row"><span>\ud83e\udd1d ' + duo.teammate.name + ' suggests: <b>' + sanTxt + '</b></span>' +
+      p.innerHTML = '<div class="duo-suggest-row"><span>\ud83e\udd1d ' + escapeHTML(duo.teammate.name) + ' suggests: <b>' + escapeHTML(sanTxt) + '</b></span>' +
         '<span><button id="duo-accept" class="btn btn-secondary" style="padding:6px 12px">Play it</button> ' +
         '<button id="duo-ignore" class="btn" style="padding:6px 12px">I\u2019ll decide</button></span></div>';
       const a = $('#duo-accept'); if (a) a.addEventListener('click', duoAcceptSuggestion);

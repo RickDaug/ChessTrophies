@@ -1,5 +1,5 @@
 /* ChessTrophies Service Worker — offline-first PWA shell. */
-const CACHE = 'chesstrophies-v16';
+const CACHE = 'chesstrophies-v17';
 const ASSETS = [
   './',
   './index.html',
@@ -29,25 +29,52 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Network-first for HTML so updates land quickly; cache-first for everything else.
   const req = event.request;
   if (req.method !== 'GET') return;
-  const isHtml = req.headers.get('accept')?.includes('text/html');
+
   const url = new URL(req.url);
+  const isHtml = req.headers.get('accept')?.includes('text/html');
   const isAppCode = url.origin === self.location.origin && /\.(?:js|css)$/.test(url.pathname);
+
+  // Strategy: NETWORK-FIRST for HTML/navigations and app code (so fresh code is
+  // preferred while online), falling back to cache when offline.
+  //
+  // Cache lookups use { ignoreSearch: true } so a versioned request such as
+  // `app.js?v=20260601a` resolves to the precached base entry `./app.js`. The
+  // index.html `?v=` query strings exist only as cache-busting hints for the
+  // network; freshness is guaranteed by network-first, and offline matching
+  // ignores the query so precached base files still resolve.
+  //
+  // We deliberately re-fetch/put under the *base* (search-stripped) URL so the
+  // runtime cache never accumulates per-version duplicates and stays aligned
+  // with the precache list.
   if (isHtml || isAppCode) {
+    const baseUrl = url.origin + url.pathname; // versionless key
     event.respondWith(
       fetch(req)
         .then((res) => {
           const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy));
+          caches.open(CACHE).then((c) => c.put(baseUrl, copy));
           return res;
         })
-        .catch(() => caches.match(req).then((m) => m || caches.match('./index.html')))
+        .catch(() => {
+          if (isHtml) {
+            // Navigation offline fallback: serve the cached app shell.
+            return caches.match(req, { ignoreSearch: true })
+              .then((m) => m || caches.match('./index.html'));
+          }
+          // Asset (js/css) offline: resolve the versioned request to the
+          // precached base file via ignoreSearch. NEVER fall back to
+          // index.html here — returning HTML for a .js request white-screens
+          // the app. If nothing is cached, return a proper error response.
+          return caches.match(req, { ignoreSearch: true })
+            .then((m) => m || new Response('', { status: 504, statusText: 'Offline and not cached' }));
+        })
     );
   } else {
+    // Cache-first for cross-origin/static assets (fonts, CDN libs).
     event.respondWith(
-      caches.match(req).then((cached) => {
+      caches.match(req, { ignoreSearch: true }).then((cached) => {
         return (
           cached ||
           fetch(req).then((res) => {
