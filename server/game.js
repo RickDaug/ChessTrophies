@@ -1,7 +1,11 @@
 // In-memory game state + matchmaking + Socket.IO handlers.
+// When REDIS_URL is set (multi-instance mode) the 1v1 lifecycle is delegated to
+// scale-store.js (shared Redis state); the in-memory path below is used as-is for
+// single-instance mode and for 2v2 (which stays single-instance for now).
 import { Chess } from 'chess.js';
 import crypto from 'crypto';
 import { db, getUserById } from './db.js';
+import * as scale from './scale-store.js';
 
 const activeGames = new Map();     // gameId -> { white, black, chess, mode, started }
 const userActiveGame = new Map();  // uid -> gameId (1v1, mirrors userActiveTeamGame)
@@ -181,10 +185,15 @@ function startTimeoutSweep(io) {
   if (typeof timeoutSweepTimer.unref === 'function') timeoutSweepTimer.unref();
 }
 
-export function attachSocketHandlers(io, verifyToken) {
-  startTimeoutSweep(io);
+// Redis client for multi-instance mode (null in single-instance mode).
+let scaleR = null;
+
+export function attachSocketHandlers(io, verifyToken, redisClient = null) {
+  scaleR = redisClient || null;
+  startTimeoutSweep(io);            // covers in-memory games (1v1 single-instance + 2v2)
+  if (scaleR) scale.startSweep(io, scaleR); // covers redis-backed 1v1 across instances
   io.on('connection', (socket) => {
-    socket.on('auth', ({ token }) => {
+    socket.on('auth', async ({ token }) => {
       // Flood/brute-force protection: cap failed auth attempts per socket.
       if (socket.data.authFails === undefined) socket.data.authFails = 0;
       if (socket.data.authFails >= 5) {
@@ -211,6 +220,9 @@ export function attachSocketHandlers(io, verifyToken) {
       userSocket.set(user.id, socket.id);
       socketUser.set(socket.id, user.id);
       socket.emit('auth_ok', { user: publicUser(user) });
+
+      // Multi-instance mode: delegate 1v1 presence + resume to the shared store.
+      if (scaleR) { try { await scale.onAuth(io, scaleR, socket, user.id); } catch (e) { console.error('[scale] onAuth', e && e.message); } return; }
 
       // Resume an in-progress 1v1 game on (re)auth so a reconnecting client can
       // rejoin the room and resync board + clocks.
@@ -247,19 +259,21 @@ export function attachSocketHandlers(io, verifyToken) {
     });
 
     // Skill-based matchmaking
-    socket.on('mm_join', ({ mode, tc }) => {
+    socket.on('mm_join', async ({ mode, tc }) => {
       const uid = socket.data.userId; if (!uid) return;
       if (!consumeBucket(mmBuckets, uid, 3, 0.2)) {
         socket.emit('rate_limited', { event: 'mm_join', retryInMs: 5000 });
         return;
       }
+      if (scaleR) { try { await scale.joinQueue(io, scaleR, uid, { mode, tc }); } catch (e) { console.error('[scale] joinQueue', e && e.message); } return; }
       const user = getUserById(uid);
       matchmakingQueue.set(uid, { socketId: socket.id, elo: user.elo, joinedAt: Date.now(), mode: typeof mode === 'string' ? mode : 'ranked', tc: normalizeTc(tc) });
       tryMatchmake(io);
     });
-    socket.on('mm_leave', () => {
-      const uid = socket.data.userId;
-      if (uid) matchmakingQueue.delete(uid);
+    socket.on('mm_leave', async () => {
+      const uid = socket.data.userId; if (!uid) return;
+      if (scaleR) { try { await scale.leaveQueue(scaleR, uid); } catch (e) {} return; }
+      matchmakingQueue.delete(uid);
     });
 
     // --- 2v2 team matchmaking ---
@@ -403,12 +417,14 @@ export function attachSocketHandlers(io, verifyToken) {
     });
 
     // Game moves -- now dispatches to either 1v1 or 2v2 session.
-    socket.on('move', ({ gameId, from, to, promotion }) => {
+    socket.on('move', async ({ gameId, from, to, promotion }) => {
       const uid = socket.data.userId;
       if (!uid) return;
-      // 2v2 first (more specific check)
+      // 2v2 first (more specific check; 2v2 stays in-memory / single-instance)
       const tg = activeTeamGames.get(gameId);
       if (tg) { applyTeamMove(io, socket, tg, uid, { from, to, promotion }); return; }
+      // 1v1 in multi-instance mode -> shared Redis store.
+      if (scaleR) { try { await scale.handleMove(io, scaleR, socket, uid, { gameId, from, to, promotion }); } catch (e) { console.error('[scale] move', e && e.message); } return; }
       const game = activeGames.get(gameId); if (!game) return;
       const playerColor = game.white === uid ? 'w' : game.black === uid ? 'b' : null;
       if (!playerColor) return;
@@ -436,7 +452,7 @@ export function attachSocketHandlers(io, verifyToken) {
       if (game.chess.isGameOver()) finishGame(io, game);
     });
 
-    socket.on('resign', ({ gameId }) => {
+    socket.on('resign', async ({ gameId }) => {
       const uid = socket.data.userId;
       if (!uid) return;
       const tg = activeTeamGames.get(gameId);
@@ -446,6 +462,7 @@ export function attachSocketHandlers(io, verifyToken) {
         finishTeamGame(io, tg, { reason: 'resignation', winnerColor: myTeam === 'w' ? 'b' : 'w' });
         return;
       }
+      if (scaleR) { try { await scale.handleResign(io, scaleR, uid, gameId); } catch (e) { console.error('[scale] resign', e && e.message); } return; }
       const game = activeGames.get(gameId); if (!game) return;
       const winner = game.white === uid ? game.black : game.white;
       finishGame(io, game, { reason: 'resignation', winnerId: winner });
@@ -532,7 +549,7 @@ export function attachSocketHandlers(io, verifyToken) {
       });
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       const uid = socketUser.get(socket.id);
       if (uid) {
         matchmakingQueue.delete(uid);
@@ -566,12 +583,17 @@ export function attachSocketHandlers(io, verifyToken) {
             io.sockets.sockets.get(otherSock)?.emit(hadOwnOffer ? 'rematch_declined' : 'rematch_expired', { gameId: gid });
           }
         }
-        // 1v1 disconnect: start a 30s grace window instead of an immediate forfeit.
-        // The clock KEEPS running; the timeout sweep may still flag the player.
-        const oneVOneId = userActiveGame.get(uid);
-        if (oneVOneId) {
-          const game = activeGames.get(oneVOneId);
-          if (game && !game._ended) {
+        // 1v1 disconnect (multi-instance mode -> shared store; immediate forfeit
+        // for now, grace/reconnect across instances lands in the next increment).
+        if (scaleR) {
+          try { await scale.onDisconnect(io, scaleR, uid); } catch (e) { console.error('[scale] disconnect', e && e.message); }
+        } else {
+          // Single-instance: 30s grace window instead of an immediate forfeit.
+          // The clock KEEPS running; the timeout sweep may still flag the player.
+          const oneVOneId = userActiveGame.get(uid);
+          if (oneVOneId) {
+            const game = activeGames.get(oneVOneId);
+            if (game && !game._ended) {
             const opponent = game.white === uid ? game.black : game.white;
             game.disconnectedUid = uid;
             if (game.disconnectTimer) clearTimeout(game.disconnectTimer);
@@ -586,6 +608,7 @@ export function attachSocketHandlers(io, verifyToken) {
             if (typeof game.disconnectTimer.unref === 'function') game.disconnectTimer.unref();
             const oppSock = userSocket.get(opponent);
             if (oppSock) io.sockets.sockets.get(oppSock)?.emit('opponent_disconnected', { gameId: oneVOneId, graceMs: DISCONNECT_GRACE_MS });
+            }
           }
         }
         // Abort an active team game the user is in (other side wins by forfeit).
