@@ -106,6 +106,8 @@ CREATE TABLE IF NOT EXISTS password_resets (
 CREATE INDEX IF NOT EXISTS idx_users_elo ON users(elo DESC);
 CREATE INDEX IF NOT EXISTS idx_users_wins ON users(wins DESC);
 CREATE INDEX IF NOT EXISTS idx_games_created ON games(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_games_white ON games(white_id, ended_at DESC);
+CREATE INDEX IF NOT EXISTS idx_games_black ON games(black_id, ended_at DESC);
 CREATE INDEX IF NOT EXISTS idx_team_games_created ON team_games(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
 `);
@@ -167,6 +169,27 @@ export function setProgress(userId, progress) {
   };
   db.prepare('UPDATE users SET flags = ? WHERE id = ?').run(JSON.stringify(flags), userId);
   return flags.progress;
+}
+
+// Search users by a username prefix for friend autocomplete. Case-insensitive
+// prefix match (LIKE prefix || '%'), excluding the requester (excludeId) and any
+// user who is already a friend of the requester. LIKE wildcards in `prefix` are
+// escaped so user input cannot inject wildcards. All SQL is parameterized.
+export function searchUsersByUsername(prefix, excludeId, limit = 8) {
+  const trimmed = String(prefix == null ? '' : prefix).trim();
+  if (trimmed.length < 1) return [];
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 8, 1), 20);
+  // Escape LIKE special characters (% _ \) and match a prefix with an explicit ESCAPE.
+  const escaped = trimmed.replace(/[\\%_]/g, c => '\\' + c);
+  const pattern = escaped + '%';
+  return db.prepare(`
+    SELECT id, username, elo FROM users
+    WHERE username LIKE ? ESCAPE '\\' COLLATE NOCASE
+      AND id <> ?
+      AND id NOT IN (SELECT friend_id FROM friendships WHERE user_id = ?)
+    ORDER BY username COLLATE NOCASE
+    LIMIT ?
+  `).all(pattern, excludeId, excludeId, lim);
 }
 
 export function topByMetric(metric, limit = 100) {

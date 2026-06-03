@@ -11,7 +11,7 @@ import 'dotenv/config';
 
 import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
-import { db, getUserById, topByMetric, getProgress, setProgress } from './db.js';
+import { db, getUserById, topByMetric, getProgress, setProgress, searchUsersByUsername } from './db.js';
 import { sendResetEmail } from './email.js';
 import { attachSocketHandlers } from './game.js';
 
@@ -53,7 +53,7 @@ const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: t
 
 app.disable('x-powered-by');
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({ origin: corsOrigins, credentials: true }));
+app.use(cors({ origin: corsOrigins }));
 app.use(express.json({ limit: '256kb' }));
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/')) return apiLimiter(req, res, next);
@@ -102,13 +102,15 @@ app.post('/api/auth/forgot', authLimiter, async (req, res, next) => {
     const email = requireStringField(req.body || {}, 'email', { min: 3, max: 254 });
     const { token } = requestPasswordReset(email);
     if (token) {
-      console.log('[password-reset] token for', email, '=', token);
+      console.log('[password-reset] requested for', email);
       // Email the reset link via Resend when RESEND_API_KEY is configured.
       // sendResetEmail is best-effort and never throws. When email is NOT
-      // configured (no API key) the devToken below remains the fallback so the
-      // reset flow can still be exercised end-to-end.
+      // configured (no API key) the devToken below can act as the fallback so
+      // the reset flow can still be exercised end-to-end -- but ONLY when
+      // EXPOSE_RESET_TOKEN=1 is explicitly set. We never key this off NODE_ENV
+      // so a misconfigured production deploy can never leak a usable token.
       await sendResetEmail(email, token);
-      const exposeToken = process.env.EXPOSE_RESET_TOKEN === '1' || process.env.NODE_ENV !== 'production';
+      const exposeToken = process.env.EXPOSE_RESET_TOKEN === '1';
       if (exposeToken) return res.json({ ok: true, devToken: token });
     }
     res.json({ ok: true });
@@ -153,6 +155,19 @@ app.get('/api/rankings', (req, res) => {
   const metric = req.query.metric || 'elo';
   const limit = Math.min(parseInt(req.query.limit, 10) || 100, 5000);
   res.json({ metric, players: topByMetric(metric, limit) });
+});
+
+// Username search for friend autocomplete. Returns up to `limit` (default 8,
+// max 20) non-friend users whose username starts with `q` (case-insensitive),
+// excluding the requester. Empty/blank `q` returns an empty list.
+app.get('/api/users/search', requireAuth, (req, res, next) => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    if (q.length < 1) return res.json({ users: [] });
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 8, 1), 20);
+    const users = searchUsersByUsername(q, req.userId, limit);
+    res.json({ users });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
 // Friends

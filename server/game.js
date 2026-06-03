@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { db, getUserById } from './db.js';
 
 const activeGames = new Map();     // gameId -> { white, black, chess, mode, started }
+const userActiveGame = new Map();  // uid -> gameId (1v1, mirrors userActiveTeamGame)
 const matchmakingQueue = new Map(); // userId -> { socketId, elo, joinedAt, mode }
 const userSocket = new Map();      // userId -> socketId
 const socketUser = new Map();      // socketId -> userId
@@ -45,10 +46,28 @@ function eloDelta(a, b, score) {
 export function attachSocketHandlers(io, verifyToken) {
   io.on('connection', (socket) => {
     socket.on('auth', ({ token }) => {
+      // Flood/brute-force protection: cap failed auth attempts per socket.
+      if (socket.data.authFails === undefined) socket.data.authFails = 0;
+      if (socket.data.authFails >= 5) {
+        socket.emit('auth_err', { error: 'Too many attempts' });
+        socket.disconnect(true);
+        return;
+      }
       const payload = token ? verifyToken(token) : null;
-      if (!payload) { socket.emit('auth_err', { error: 'Invalid token' }); return; }
+      if (!payload) {
+        socket.data.authFails += 1;
+        socket.emit('auth_err', { error: 'Invalid token' });
+        if (socket.data.authFails >= 5) { socket.emit('auth_err', { error: 'Too many attempts' }); socket.disconnect(true); }
+        return;
+      }
       const user = getUserById(payload.uid);
-      if (!user) { socket.emit('auth_err', { error: 'User missing' }); return; }
+      if (!user) {
+        socket.data.authFails += 1;
+        socket.emit('auth_err', { error: 'User missing' });
+        if (socket.data.authFails >= 5) { socket.emit('auth_err', { error: 'Too many attempts' }); socket.disconnect(true); }
+        return;
+      }
+      socket.data.authFails = 0;
       socket.data.userId = user.id;
       userSocket.set(user.id, socket.id);
       socketUser.set(socket.id, user.id);
@@ -263,6 +282,10 @@ export function attachSocketHandlers(io, verifyToken) {
         userSocket.delete(uid);
         socketUser.delete(socket.id);
         removeUidFromTeamQueue(io, uid);
+        // Plug slow leaks: drop this user's token-bucket entries.
+        mmBuckets.delete(uid);
+        chatBuckets.delete(uid);
+        teamMmBuckets.delete(uid);
         // Cancel any pending duo invites this user hosts or is invited to.
         for (const [iid, inv] of duoInvites) {
           if (inv.hostId === uid || inv.guestId === uid) {
@@ -270,6 +293,16 @@ export function attachSocketHandlers(io, verifyToken) {
             const other = inv.hostId === uid ? inv.guestId : inv.hostId;
             const otherSock = userSocket.get(other);
             if (otherSock) io.sockets.sockets.get(otherSock)?.emit('duo_cancelled', { inviteId: iid });
+          }
+        }
+        // Forfeit an active 1v1 game the user is in (opponent wins). Resolves the
+        // game (records ELO) and frees the activeGames/userActiveGame entries.
+        const oneVOneId = userActiveGame.get(uid);
+        if (oneVOneId) {
+          const game = activeGames.get(oneVOneId);
+          if (game && !game._ended) {
+            const winner = game.white === uid ? game.black : game.white;
+            finishGame(io, game, { reason: 'disconnect', winnerId: winner });
           }
         }
         // Abort an active team game the user is in (other side wins by forfeit).
@@ -325,6 +358,8 @@ function startGame(io, a, b) {
     blackEloBefore: getUserById(black.uid).elo,
   };
   activeGames.set(gameId, game);
+  userActiveGame.set(white.uid, gameId);
+  userActiveGame.set(black.uid, gameId);
   const wSock = io.sockets.sockets.get(white.socketId);
   const bSock = io.sockets.sockets.get(black.socketId);
   if (wSock) wSock.join(gameId);
@@ -340,6 +375,8 @@ function startGame(io, a, b) {
 }
 
 function finishGame(io, game, override = {}) {
+  if (game._ended) return;
+  game._ended = true;
   const chess = game.chess;
   let winnerId = override.winnerId || null;
   let reason = override.reason || (chess.isCheckmate() ? 'checkmate' : (chess.isDraw() ? 'draw' : 'unknown'));
@@ -354,34 +391,39 @@ function finishGame(io, game, override = {}) {
     const whiteScore = isDraw ? 0.5 : (winnerId === game.white ? 1 : 0);
     wd = eloDelta(whiteUser.elo, blackUser.elo, whiteScore);
     bd = eloDelta(blackUser.elo, whiteUser.elo, 1 - whiteScore);
-    const up = db.prepare(`UPDATE users SET elo = elo + ?,
-        wins = wins + ?, losses = losses + ?, draws = draws + ?,
-        current_streak = CASE WHEN ? THEN current_streak + 1 ELSE 0 END,
-        best_streak = MAX(best_streak, CASE WHEN ? THEN current_streak + 1 ELSE 0 END)
-      WHERE id = ?`);
-    up.run(wd,
-      isDraw ? 0 : (winnerId === game.white ? 1 : 0),
-      isDraw ? 0 : (winnerId === game.white ? 0 : 1),
-      isDraw ? 1 : 0,
-      isDraw ? 0 : (winnerId === game.white ? 1 : 0),
-      isDraw ? 0 : (winnerId === game.white ? 1 : 0),
-      game.white);
-    up.run(bd,
-      isDraw ? 0 : (winnerId === game.black ? 1 : 0),
-      isDraw ? 0 : (winnerId === game.black ? 0 : 1),
-      isDraw ? 1 : 0,
-      isDraw ? 0 : (winnerId === game.black ? 1 : 0),
-      isDraw ? 0 : (winnerId === game.black ? 1 : 0),
-      game.black);
   }
-  // Persist game record
-  db.prepare(`INSERT INTO games (id, white_id, black_id, mode, result, winner_id, pgn,
-                                 white_elo_before, black_elo_before, white_elo_delta, black_elo_delta,
-                                 created_at, ended_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(game.id, game.white, game.black, game.mode, reason, winnerId, chess.pgn(),
-         game.whiteEloBefore, game.blackEloBefore, wd, bd,
-         game.started, Date.now());
+  // Apply ELO updates + persist game record atomically so a crash can't leave
+  // half-applied results.
+  db.transaction(() => {
+    if (game.mode === 'ranked') {
+      const up = db.prepare(`UPDATE users SET elo = elo + ?,
+          wins = wins + ?, losses = losses + ?, draws = draws + ?,
+          current_streak = CASE WHEN ? THEN current_streak + 1 ELSE 0 END,
+          best_streak = MAX(best_streak, CASE WHEN ? THEN current_streak + 1 ELSE 0 END)
+        WHERE id = ?`);
+      up.run(wd,
+        isDraw ? 0 : (winnerId === game.white ? 1 : 0),
+        isDraw ? 0 : (winnerId === game.white ? 0 : 1),
+        isDraw ? 1 : 0,
+        isDraw ? 0 : (winnerId === game.white ? 1 : 0),
+        isDraw ? 0 : (winnerId === game.white ? 1 : 0),
+        game.white);
+      up.run(bd,
+        isDraw ? 0 : (winnerId === game.black ? 1 : 0),
+        isDraw ? 0 : (winnerId === game.black ? 0 : 1),
+        isDraw ? 1 : 0,
+        isDraw ? 0 : (winnerId === game.black ? 1 : 0),
+        isDraw ? 0 : (winnerId === game.black ? 1 : 0),
+        game.black);
+    }
+    db.prepare(`INSERT INTO games (id, white_id, black_id, mode, result, winner_id, pgn,
+                                   white_elo_before, black_elo_before, white_elo_delta, black_elo_delta,
+                                   created_at, ended_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(game.id, game.white, game.black, game.mode, reason, winnerId, chess.pgn(),
+           game.whiteEloBefore, game.blackEloBefore, wd, bd,
+           game.started, Date.now());
+  })();
   io.to(game.id).emit('game_over', {
     gameId: game.id,
     winnerId,
@@ -390,6 +432,8 @@ function finishGame(io, game, override = {}) {
     blackDelta: bd,
     pgn: chess.pgn(),
   });
+  userActiveGame.delete(game.white);
+  userActiveGame.delete(game.black);
   activeGames.delete(game.id);
 }
 
@@ -455,8 +499,12 @@ function tryTeamMatchmake(io) {
     }
   }
   if (total !== 4) return;
-  // Remove from queue
-  for (const e of picked) teamQueue.delete(e.id);
+  // Remove from queue, and clear any accepted duo invites now that the game
+  // starts (otherwise a consumed invite leaks forever).
+  for (const e of picked) {
+    teamQueue.delete(e.id);
+    if (e.type === 'duo' && e.inviteId) duoInvites.delete(e.inviteId);
+  }
 
   // Form teams: respect duos. Snake-draft 4 solos so team avg ELOs balance.
   const duos = picked.filter(e => e.type === 'duo');
@@ -582,27 +630,29 @@ function finishTeamGame(io, tg, override = {}) {
 
   const whiteUids = [tg.whiteMembers[0].uid, tg.whiteMembers[1].uid];
   const blackUids = [tg.blackMembers[0].uid, tg.blackMembers[1].uid];
-  const update2v2 = db.prepare(`UPDATE users SET elo_2v2 = elo_2v2 + ?,
-      wins_2v2 = wins_2v2 + ?, losses_2v2 = losses_2v2 + ?, draws_2v2 = draws_2v2 + ?
-    WHERE id = ?`);
   const wWin = isDraw ? 0 : (winnerColor === 'w' ? 1 : 0);
   const wLoss = isDraw ? 0 : (winnerColor === 'w' ? 0 : 1);
   const wDraw = isDraw ? 1 : 0;
-  for (const u of whiteUids) update2v2.run(wDelta, wWin, wLoss, wDraw, u);
-  for (const u of blackUids) update2v2.run(bDelta, 1 - wWin - wDraw, 1 - wLoss - wDraw, wDraw, u);
 
-  // Persist game record.
+  // Apply the four elo_2v2 updates + persist game record atomically.
   try {
-    db.prepare(`INSERT INTO team_games (id, white_p1_id, white_p2_id, black_p1_id, black_p2_id,
-                                        mode, result, winner_color, pgn,
-                                        white_avg_elo_before, black_avg_elo_before,
-                                        white_elo_delta, black_elo_delta,
-                                        created_at, ended_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      tg.id, whiteUids[0], whiteUids[1], blackUids[0], blackUids[1],
-      tg.mode, reason, winnerColor || null, chess.pgn(),
-      wAvg, bAvg, wDelta, bDelta,
-      tg.started, Date.now());
+    db.transaction(() => {
+      const update2v2 = db.prepare(`UPDATE users SET elo_2v2 = elo_2v2 + ?,
+          wins_2v2 = wins_2v2 + ?, losses_2v2 = losses_2v2 + ?, draws_2v2 = draws_2v2 + ?
+        WHERE id = ?`);
+      for (const u of whiteUids) update2v2.run(wDelta, wWin, wLoss, wDraw, u);
+      for (const u of blackUids) update2v2.run(bDelta, 1 - wWin - wDraw, 1 - wLoss - wDraw, wDraw, u);
+      db.prepare(`INSERT INTO team_games (id, white_p1_id, white_p2_id, black_p1_id, black_p2_id,
+                                          mode, result, winner_color, pgn,
+                                          white_avg_elo_before, black_avg_elo_before,
+                                          white_elo_delta, black_elo_delta,
+                                          created_at, ended_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        tg.id, whiteUids[0], whiteUids[1], blackUids[0], blackUids[1],
+        tg.mode, reason, winnerColor || null, chess.pgn(),
+        wAvg, bAvg, wDelta, bDelta,
+        tg.started, Date.now());
+    })();
   } catch (e) {
     console.error('[team-game] persist failed', e);
   }

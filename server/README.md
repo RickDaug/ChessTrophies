@@ -78,6 +78,7 @@ socket.on('game_over', ({ winnerId, reason, whiteDelta, blackDelta }) => { /* sh
 | `/api/auth/login` | POST | — | `{ email, password }` | `{ token }` |
 | `/api/me` | GET | yes | — | user profile |
 | `/api/rankings?metric=elo&limit=100` | GET | — | — | `{ metric, players: [...] }` |
+| `/api/users/search?q=al&limit=8` | GET | yes | — | `{ users: [{ id, username, elo }] }` |
 | `/api/friends` | GET | yes | — | `{ friends: [...] }` |
 | `/api/friends/add` | POST | yes | `{ username }` | `{ ok, friend }` |
 | `/api/games/recent` | GET | yes | — | `{ games: [...] }` |
@@ -100,9 +101,11 @@ key, so it survives across devices (web vs Android). Clients should:
 
 `POST /api/auth/forgot` issues a reset token. If `RESEND_API_KEY` is set, the
 token/link is emailed via [Resend](https://resend.com) (link built from
-`APP_URL`). When unset, sending is a no-op and the response includes a `devToken`
-(in non-production, or when `EXPOSE_RESET_TOKEN=1`) so the flow can be tested.
-Relevant env vars: `RESEND_API_KEY`, `RESEND_FROM`, `APP_URL`.
+`APP_URL`). The response includes a `devToken` ONLY when `EXPOSE_RESET_TOKEN=1`
+is explicitly set (a dev/test escape hatch). This is intentionally NOT keyed off
+`NODE_ENV`, so a misconfigured production deploy can never leak a usable token --
+`EXPOSE_RESET_TOKEN` must stay unset in production. Relevant env vars:
+`RESEND_API_KEY`, `RESEND_FROM`, `APP_URL`, `EXPOSE_RESET_TOKEN`.
 
 ## WebSocket events
 
@@ -121,6 +124,19 @@ Relevant env vars: `RESEND_API_KEY`, `RESEND_FROM`, `APP_URL`.
 - `illegal_move` `{ gameId, from, to }`
 - `chat` `{ from, text, at }`
 - `game_over` `{ gameId, winnerId, reason, whiteDelta, blackDelta, pgn }`
+
+## Scaling: single instance only
+
+This server MUST run as a single instance (one replica). Active games, the
+matchmaking queue, and Socket.IO connections are all held in process memory and
+are NOT shared between instances. Running multiple replicas would split players
+across isolated states — matchmaking would fail to pair, and in-game move/chat
+events would not reach the opponent if they're connected to a different replica.
+
+`railway.json` pins `deploy.numReplicas: 1` to enforce this. Before horizontal
+scaling is possible, the server needs: a shared Socket.IO adapter (e.g. the
+Redis adapter) so events fan out across instances, and a shared matchmaking
+store (e.g. Redis) so the queue is global rather than per-process.
 
 ## Architecture notes
 
