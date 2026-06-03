@@ -19,14 +19,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const httpServer = http.createServer(app);
 
-// Known production web origins that must always be allowed to call the API, even
-// if CORS_ORIGIN wasn't configured for them. The hosted site (Vercel) is a
-// different origin from this backend (Railway), so without these the browser
-// blocks every cross-origin login/socket request.
+// Origins that must always be allowed to call the API, even if CORS_ORIGIN wasn't
+// configured for them. Without these the WebView/browser blocks every cross-origin
+// login + socket request:
+//   - the hosted web site (Vercel) is a different origin from this backend (Railway);
+//   - the native Capacitor app's WebView runs on a localhost scheme (https://localhost
+//     on Android, capacitor://localhost on iOS) and is fully CORS-gated too.
 const DEFAULT_WEB_ORIGINS = [
   'https://www.playchesstrophies.com',
   'https://playchesstrophies.com',
   'https://chesstrophies-production.up.railway.app',
+  // Native app (Capacitor) WebView origins:
+  'https://localhost',
+  'capacitor://localhost',
+  'http://localhost',
 ];
 
 function parseCorsOrigins(value) {
