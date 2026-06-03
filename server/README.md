@@ -125,18 +125,25 @@ is explicitly set (a dev/test escape hatch). This is intentionally NOT keyed off
 - `chat` `{ from, text, at }`
 - `game_over` `{ gameId, winnerId, reason, whiteDelta, blackDelta, pgn }`
 
-## Scaling: single instance only
+## Scaling (single instance by default; multi-instance via REDIS_URL)
 
-This server MUST run as a single instance (one replica). Active games, the
-matchmaking queue, and Socket.IO connections are all held in process memory and
-are NOT shared between instances. Running multiple replicas would split players
-across isolated states — matchmaking would fail to pair, and in-game move/chat
-events would not reach the opponent if they're connected to a different replica.
+By default (no `REDIS_URL`) the server runs as a SINGLE instance: active games,
+the matchmaking queue, and presence live in process memory. `railway.json` keeps
+`deploy.numReplicas: 1` for this default.
 
-`railway.json` pins `deploy.numReplicas: 1` to enforce this. Before horizontal
-scaling is possible, the server needs: a shared Socket.IO adapter (e.g. the
-Redis adapter) so events fan out across instances, and a shared matchmaking
-store (e.g. Redis) so the queue is global rather than per-process.
+Set `REDIS_URL` to enable HORIZONTAL SCALING across multiple replicas:
+- Socket.IO uses the Redis adapter, so broadcasts fan out across instances.
+- Matchmaking (1v1 + 2v2/duo), live game state (board + server clocks),
+  presence, disconnect-grace, reconnect/resume, and rematch are all kept in
+  Redis with per-game locks, so any instance can host either player and games
+  survive being spread across replicas. (See `scale-store.js` / `scale-team.js`.)
+
+To scale: provision a Redis instance, set `REDIS_URL`, then raise
+`deploy.numReplicas`. Across replicas, prefer the WebSocket transport (or enable
+load-balancer session affinity) so a connection stays on one instance; the client
+already prefers WebSocket. Verified with two instances + a shared Redis: players
+on different instances match, exchange moves with synced clocks, reconnect on the
+other instance, and rematch — for both 1v1 and 2v2.
 
 ## Architecture notes
 

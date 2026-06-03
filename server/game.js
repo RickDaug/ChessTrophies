@@ -6,6 +6,7 @@ import { Chess } from 'chess.js';
 import crypto from 'crypto';
 import { db, getUserById } from './db.js';
 import * as scale from './scale-store.js';
+import * as scaleTeam from './scale-team.js';
 
 const activeGames = new Map();     // gameId -> { white, black, chess, mode, started }
 const userActiveGame = new Map();  // uid -> gameId (1v1, mirrors userActiveTeamGame)
@@ -191,7 +192,7 @@ let scaleR = null;
 export function attachSocketHandlers(io, verifyToken, redisClient = null) {
   scaleR = redisClient || null;
   startTimeoutSweep(io);            // covers in-memory games (1v1 single-instance + 2v2)
-  if (scaleR) scale.startSweep(io, scaleR); // covers redis-backed 1v1 across instances
+  if (scaleR) { scale.startSweep(io, scaleR); scaleTeam.startSweep(io, scaleR); } // redis-backed 1v1 + 2v2 sweeps
   io.on('connection', (socket) => {
     socket.on('auth', async ({ token }) => {
       // Flood/brute-force protection: cap failed auth attempts per socket.
@@ -277,12 +278,13 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
     });
 
     // --- 2v2 team matchmaking ---
-    socket.on('team_mm_join', ({ inviteId, tc }) => {
+    socket.on('team_mm_join', async ({ inviteId, tc }) => {
       const uid = socket.data.userId; if (!uid) return;
       if (!consumeBucket(teamMmBuckets, uid, 3, 0.2)) {
         socket.emit('rate_limited', { event: 'team_mm_join', retryInMs: 5000 });
         return;
       }
+      if (scaleR) { try { await scaleTeam.joinTeamQueue(io, scaleR, uid, { inviteId, tc }); } catch (e) { console.error('[scale] team_mm_join', e && e.message); } return; }
       const entryTc = normalizeTc(tc);
       // If user is already queued (solo or as part of a duo), ignore.
       if (findTeamQueueEntryByUid(uid)) return;
@@ -341,14 +343,16 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       }
     });
 
-    socket.on('team_mm_leave', () => {
+    socket.on('team_mm_leave', async () => {
       const uid = socket.data.userId; if (!uid) return;
+      if (scaleR) { try { await scaleTeam.leaveTeamQueue(io, scaleR, uid); } catch (e) {} return; }
       removeUidFromTeamQueue(io, uid);
     });
 
     // Friend-duo invite lifecycle.
-    socket.on('duo_invite', ({ friendId }) => {
+    socket.on('duo_invite', async ({ friendId }) => {
       const uid = socket.data.userId; if (!uid) return;
+      if (scaleR) { try { await scaleTeam.duoInvite(io, scaleR, uid, friendId); } catch (e) { console.error('[scale] duo_invite', e && e.message); } return; }
       if (typeof friendId !== 'string' || friendId === uid) return;
       const friend = getUserById(friendId);
       if (!friend) { socket.emit('duo_err', { error: 'friend not found' }); return; }
@@ -384,8 +388,9 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       }, 60_000);
     });
 
-    socket.on('duo_accept', ({ inviteId }) => {
+    socket.on('duo_accept', async ({ inviteId }) => {
       const uid = socket.data.userId; if (!uid) return;
+      if (scaleR) { try { await scaleTeam.duoAccept(io, scaleR, uid, inviteId); } catch (e) {} return; }
       const invite = duoInvites.get(inviteId);
       if (!invite || invite.guestId !== uid) return;
       invite.accepted = true;
@@ -397,16 +402,18 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       socket.emit('duo_ready', { inviteId, partner: publicUser(getUserById(invite.hostId)) });
     });
 
-    socket.on('duo_decline', ({ inviteId }) => {
+    socket.on('duo_decline', async ({ inviteId }) => {
       const uid = socket.data.userId; if (!uid) return;
+      if (scaleR) { try { await scaleTeam.duoDecline(io, scaleR, uid, inviteId); } catch (e) {} return; }
       const invite = duoInvites.get(inviteId);
       if (!invite || invite.guestId !== uid) return;
       duoInvites.delete(inviteId);
       io.sockets.sockets.get(invite.hostSocketId)?.emit('duo_declined', { inviteId });
     });
 
-    socket.on('duo_cancel', ({ inviteId }) => {
+    socket.on('duo_cancel', async ({ inviteId }) => {
       const uid = socket.data.userId; if (!uid) return;
+      if (scaleR) { try { await scaleTeam.duoCancel(io, scaleR, uid, inviteId); } catch (e) {} return; }
       const invite = duoInvites.get(inviteId);
       if (!invite || invite.hostId !== uid) return;
       duoInvites.delete(inviteId);
@@ -423,8 +430,14 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       // 2v2 first (more specific check; 2v2 stays in-memory / single-instance)
       const tg = activeTeamGames.get(gameId);
       if (tg) { applyTeamMove(io, socket, tg, uid, { from, to, promotion }); return; }
-      // 1v1 in multi-instance mode -> shared Redis store.
-      if (scaleR) { try { await scale.handleMove(io, scaleR, socket, uid, { gameId, from, to, promotion }); } catch (e) { console.error('[scale] move', e && e.message); } return; }
+      // Multi-instance mode -> shared Redis store (team game or 1v1).
+      if (scaleR) {
+        try {
+          if (await scaleTeam.isTeamGame(scaleR, gameId)) await scaleTeam.handleTeamMove(io, scaleR, socket, uid, gameId, { from, to, promotion });
+          else await scale.handleMove(io, scaleR, socket, uid, { gameId, from, to, promotion });
+        } catch (e) { console.error('[scale] move', e && e.message); }
+        return;
+      }
       const game = activeGames.get(gameId); if (!game) return;
       const playerColor = game.white === uid ? 'w' : game.black === uid ? 'b' : null;
       if (!playerColor) return;
@@ -462,7 +475,13 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
         finishTeamGame(io, tg, { reason: 'resignation', winnerColor: myTeam === 'w' ? 'b' : 'w' });
         return;
       }
-      if (scaleR) { try { await scale.handleResign(io, scaleR, uid, gameId); } catch (e) { console.error('[scale] resign', e && e.message); } return; }
+      if (scaleR) {
+        try {
+          if (await scaleTeam.isTeamGame(scaleR, gameId)) await scaleTeam.handleTeamResign(io, scaleR, uid, gameId);
+          else await scale.handleResign(io, scaleR, uid, gameId);
+        } catch (e) { console.error('[scale] resign', e && e.message); }
+        return;
+      }
       const game = activeGames.get(gameId); if (!game) return;
       const winner = game.white === uid ? game.black : game.white;
       finishGame(io, game, { reason: 'resignation', winnerId: winner });
@@ -589,7 +608,7 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
         // 1v1 disconnect (multi-instance mode -> shared store; immediate forfeit
         // for now, grace/reconnect across instances lands in the next increment).
         if (scaleR) {
-          try { await scale.onDisconnect(io, scaleR, uid); } catch (e) { console.error('[scale] disconnect', e && e.message); }
+          try { await scale.onDisconnect(io, scaleR, uid); await scaleTeam.onTeamDisconnect(io, scaleR, uid); } catch (e) { console.error('[scale] disconnect', e && e.message); }
         } else {
           // Single-instance: 30s grace window instead of an immediate forfeit.
           // The clock KEEPS running; the timeout sweep may still flag the player.
