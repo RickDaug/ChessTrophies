@@ -163,6 +163,166 @@
         { p: 'Every strong player has lost thousands of games. They got strong precisely because they treated each loss as a lesson rather than a verdict. After a defeat, find the one moment it slipped away and understand it. That single habit, reviewing your own games honestly, separates players who improve from players who just play.' },
         { p: 'Be patient with yourself. Chess rewards the player who keeps showing up, keeps solving puzzles, and keeps reviewing. Skill arrives quietly, game by game, and one day you notice you are seeing things you used to walk right past.' }
       ]
+    },
+    {
+      id: 'the-fork',
+      cat: 'Tactics',
+      icon: '♘',
+      title: 'The Fork: One Move, Two Victims',
+      blurb: 'Attack two things at once and your opponent can only save one.',
+      mins: 5,
+      body: [
+        { h: 'The friendliest tactic to learn' },
+        { p: 'A fork is when a single piece attacks two or more enemy targets in the same moment. Your opponent gets one move to respond, but two things are under fire, so they have to abandon one of them. It is the purest example of getting something for nothing, and it is usually the first tactic a new player learns to love.' },
+        { p: 'Every piece can fork, even a humble pawn. A pawn that pushes forward and threatens two pieces sitting side by side will win one of them outright. Bishops fork along their diagonals, rooks along ranks and files, and the queen, attacking in every direction, is a forking machine. But one piece forks better than all the others.' },
+        { h: 'The knight’s special talent' },
+        { p: 'The knight is the king of forks, and the reason is its strange L-shaped jump. Because no other piece moves like it, a knight can attack a queen and a rook at the same time without either of them being able to attack the knight back. When a knight forks the enemy king and queen at once, it earns the nickname "the royal fork," and it wins the game on the spot.' },
+        { p: 'Knights are sneaky precisely because their movement feels alien. A bishop’s threat travels in a straight line you can see; a knight’s threat hops over pieces and lands where you were not looking. That is why so many beginners hang their queen to a knight they simply did not picture.' },
+        { h: 'How to spot them coming' },
+        { p: 'Forks feed on two things: undefended pieces and pieces that share a line a single attacker can reach. Train yourself to notice when two enemy pieces are a knight’s-jump apart, or lined up on the same diagonal, rank, or file. Just as important, keep your own valuable pieces from sitting on those forkable patterns, especially near your king, where a check and a capture can come as one devastating move.' }
+      ]
+    },
+    {
+      id: 'pins-and-skewers',
+      cat: 'Tactics',
+      icon: '\u{1F4CC}',
+      title: 'Pins and Skewers: Two Sides of a Coin',
+      blurb: 'Line up the enemy and freeze a piece or win the one behind it.',
+      mins: 5,
+      body: [
+        { h: 'The same trick, facing two ways' },
+        { p: 'Pins and skewers both work by lining up two enemy pieces on a single straight line and attacking through them with a bishop, rook, or queen. The difference is only which piece stands in front. In a pin, the less valuable piece is in front, and it dare not move because something precious hides behind it. In a skewer, the valuable piece is in front, so when it flees, you grab whatever was sheltering behind it.' },
+        { p: 'Because only the long-range pieces, bishops, rooks, and queens, can attack along a line, only they can pin or skewer. A knight or pawn can never do it. That alone is a good reason to value your bishops and rooks on open lines, where these threats live.' },
+        { h: 'Absolute versus relative pins' },
+        { p: 'A pin against the king is called absolute, because it is literally illegal to move the pinned piece, doing so would expose your own king to check, which the rules forbid. The pinned piece is nailed to the spot completely. A relative pin is softer: the piece in front shields a queen or rook rather than the king, so it can legally move, but doing so loses material. The opponent may sometimes accept that loss for a bigger gain, which is why relative pins reward careful calculation.' },
+        { p: 'Pins are powerful because a pinned piece is a paralyzed piece. It cannot capture, cannot defend, cannot do its job. A favorite plan of strong players is to pin a defender and then pile more attackers onto whatever it was guarding, since the frozen piece can no longer help.' },
+        { h: 'Using them and avoiding them' },
+        { p: 'To exploit a pin, attack the pinned piece again with a pawn or another piece, it cannot run, so you simply win it. To escape a pin, you can block the line with another piece, challenge the pinning piece by attacking it, or unpin by moving the valuable piece behind to safety. And whenever you develop, take a half-second to notice if you are walking a knight or bishop into a pin in front of your own king or queen.' }
+      ]
+    },
+    {
+      id: 'discovered-attacks',
+      cat: 'Tactics',
+      icon: '⚔',
+      title: 'Discovered Attacks and the Double Check',
+      blurb: 'Move one piece out of the way and a second piece springs to life.',
+      mins: 5,
+      body: [
+        { h: 'The ambush behind your own piece' },
+        { p: 'A discovered attack happens when you move one piece out of the way to unleash an attack from a different piece standing behind it. The magic is that two things happen at once: the piece you moved can make its own threat, while the piece it uncovered makes another. Your opponent suddenly faces two problems created by a single move, and as with a fork, they can usually only solve one.' },
+        { p: 'The reason this is so deadly is that the moving piece is free to do whatever it likes. It can capture, it can threaten, it can run to safety, all while the hidden piece behind it does the real damage. A discovered attack that uncovers a threat on the queen while the moving piece grabs a rook can win enormous material in one stroke.' },
+        { h: 'The discovered check' },
+        { p: 'When the uncovered attack is a check, the tactic becomes vicious. The opponent must answer the check, so they have no time to deal with whatever your moving piece just did. That is how a discovered check can casually capture the queen: the king is in check from the piece behind, the opponent is forced to respond to the check, and your roving piece walks away with the prize.' },
+        { h: 'Double check: the most violent move in chess' },
+        { p: 'There is one move no defense can blunt: the double check, where moving a piece gives check from that piece and from the one behind it at the same time. Two pieces are checking the king at once. You cannot capture both, you cannot block both, so the only legal reply is to move the king. The king must run, no matter what else is hanging on the board, which is why double check often leads straight to checkmate. When you see the chance for a double check, slow down and look hard, you may have a forced mate hiding in plain sight.' }
+      ]
+    },
+    {
+      id: 'back-rank-luft',
+      cat: 'Tactics',
+      icon: '♜',
+      title: 'The Back Rank and the Lifesaving Luft',
+      blurb: 'A tucked-in king can be mated by a rook on its own home row.',
+      mins: 4,
+      body: [
+        { h: 'Safe can become trapped' },
+        { p: 'You castle to make your king safe, and usually it works. But there is a famous trap hiding inside that safety. After castling, your king often sits on the back rank with a wall of its own pawns directly in front of it. Those pawns shield the king from above, but they also block its escape. If an enemy rook or queen ever lands on that back rank with check, the king has nowhere to step, and it is checkmate.' },
+        { p: 'This is the back-rank mate, and it has ended countless games where one player was even winning on material. They were so focused on attacking that they never noticed their own king was boxed in by its loyal pawns, one rook check away from disaster.' },
+        { h: 'Luft: a breath of air for your king' },
+        { p: 'The cure is a small, quiet move called making luft, a German word for air. You simply push one of the pawns in front of your king up a square, usually the one in front of the knight, opening a little escape hatch. Now if a rook checks along the back rank, your king has a square to flee to, and the mate evaporates. One tiny pawn move buys lasting peace of mind.' },
+        { h: 'Use it as a weapon too' },
+        { p: 'Back-rank weakness cuts both ways, so hunt for it in your opponent’s camp. If their king is hemmed in by its pawns and their back rank is poorly defended, you may have a winning combination: deflect or distract the lone defender of that rank, then crash in with a rook or queen for mate. Many beautiful finishes are nothing more than spotting that the enemy never made luft.' }
+      ]
+    },
+    {
+      id: 'mate-patterns',
+      cat: 'Tactics',
+      icon: '♛',
+      title: 'Checkmate Patterns Worth Knowing',
+      blurb: 'Mates come in named shapes. Learn the pictures, spot them faster.',
+      mins: 6,
+      body: [
+        { h: 'Mates are pictures, not calculations' },
+        { p: 'Beginners think checkmate is found by calculating endlessly. Strong players know better: most mates are recurring shapes you simply recognize, the way you recognize a friend’s face. Once a pattern lives in your memory, you stop calculating it and just see it. Here are a few classics worth keeping in your mind’s eye, each with its own name and personality.' },
+        { h: 'The smothered mate' },
+        { p: 'The smothered mate is the most elegant trap in chess. The enemy king is hemmed in on all sides by its own pieces, with no square to escape to. A lone knight delivers the final blow, and because the king is smothered by its own army, nothing can capture or block the knight. The classic version uses a stunning queen sacrifice to force the king’s own rook into the last escape square, then the knight hops in for mate. It feels like magic the first time you land it.' },
+        { h: 'Anastasia, the Arabian, and the ladder' },
+        { p: 'The Anastasia’s mate weaves a knight and a rook together: the knight covers the king’s escape squares while the rook delivers mate along the edge, trapping the king against the side of the board. The Arabian mate is one of the oldest known, a knight and a rook working as a team to corner a king, with the knight guarding the flight squares and the rook giving the final check from up close.' },
+        { p: 'The ladder mate, sometimes called the staircase, is the friendliest to learn and a perfect first checkmate. With two rooks, or a rook and a queen, you check the king along one rank, push it back a row, then check it along the next, walking it step by step to the edge of the board like climbing down a ladder, until it runs out of rows and the game is over. Practice this one until it is automatic; it teaches you how heavy pieces cooperate.' },
+        { h: 'Why naming them helps' },
+        { p: 'Naming a pattern turns a vague tangle of pieces into a single idea you can summon instantly. When the shape of the position starts to resemble a smothered mate or an Anastasia, your eyes light up and you go looking for the finish. Collect these patterns the way you collect anything you love, and your tactical vision quietly doubles.' }
+      ]
+    },
+    {
+      id: 'the-opposition',
+      cat: 'Endgame',
+      icon: '♚',
+      title: 'The Opposition: The Key to King Endings',
+      blurb: 'When kings face off, the player NOT to move often holds the power.',
+      mins: 5,
+      body: [
+        { h: 'A standoff that decides everything' },
+        { p: 'In king-and-pawn endgames, the most important idea by far is something called the opposition. It describes the moment when the two kings stand facing each other with a single empty square between them, nose to nose along a file or rank. Kings can never move next to each other, so this standoff creates a strange and crucial rule: the player who does NOT have to move is the one in control. You "have the opposition" when it is your opponent’s turn and the kings are facing off, because they are forced to step aside and let your king advance.' },
+        { p: 'It sounds backward that being forced to move is a disadvantage, but in the endgame it often is. With few pieces on the board, every king step matters, and the side compelled to give way is the side that loses ground. Whoever holds the opposition can shoulder the enemy king backward and clear a path for a pawn.' },
+        { h: 'Why it wins and draws games' },
+        { p: 'Holding the opposition is frequently the difference between promoting your last pawn and watching the game fizzle into a draw. With a pawn and a king against a lone king, the attacker must use the opposition to force the defending king out of the pawn’s path. Get the opposition at the right moment and the pawn marches to a new queen; lose it by a single tempo and the same position is a dead draw.' },
+        { h: 'How to grab it' },
+        { p: 'To take the opposition, aim to be the one moving your king to face the enemy king with one square between you, so that they must move next. A handy guide: when there is an odd number of squares between the kings on the file, the player to move can usually seize the opposition. It feels abstract at first, but set up a king and pawn against a king and push them around, and within an afternoon the pattern clicks. Master this single idea and you will win endgames that you used to throw away.' }
+      ]
+    },
+    {
+      id: 'rook-endgames',
+      cat: 'Endgame',
+      icon: '♜',
+      title: 'Rook Endgames Don’t Have to Be Scary',
+      blurb: 'They are the most common endgame, and a few rules carry you far.',
+      mins: 5,
+      body: [
+        { h: 'The endgame you will meet most' },
+        { p: 'Rook endgames are the most common type of endgame there is, which is both good news and bad news. The bad news is that they are famously tricky, full of subtle drawing resources, so much so that there is an old saying that all rook endgames are drawn, half-joking and half-true. The good news is that you do not need to master every subtlety. A handful of guiding principles will steer you through the vast majority of them.' },
+        { h: 'Put the rook behind the passed pawn' },
+        { p: 'If you remember one rule, make it this: place your rook behind a passed pawn, whether the pawn is yours or your opponent’s. Behind your own passed pawn, the rook supports its march and gains scope with every square the pawn advances. Behind the enemy’s passed pawn, the rook restrains it and grows stronger as the pawn pushes forward into its line of fire. A rook in front of a passed pawn, by contrast, is a passive babysitter that gets more cramped with every step. This principle, attributed to the great Siegbert Tarrasch, decides a remarkable number of games.' },
+        { h: 'Activity beats a pawn' },
+        { p: 'In rook endgames, an active rook is worth more than you would guess from any point count, often more than an extra pawn. A rook that cuts off the enemy king, raids loose pawns from behind, or harasses from the side is doing real work, while a rook stuck on defense slowly loses. When in doubt, choose the move that makes your rook more active rather than the one that clings to material.' },
+        { h: 'Keep the king busy' },
+        { p: 'As in all endgames, your king must join the fight, and in rook endings it has a special job: shepherding your passed pawn and sheltering from annoying checks. When the enemy rook peppers your king with checks to stall your winning plan, the trick is to march your king toward the enemy rook, using your own pawn or pieces as a shield, until the checks run out. Learn the rook-behind-the-pawn rule, keep your rook active, and bring your king up, and rook endgames will stop being scary and start winning you points.' }
+      ]
+    },
+    {
+      id: 'opening-mistakes',
+      cat: 'Opening',
+      icon: '⚠',
+      title: 'Opening Mistakes That Lose Fast',
+      blurb: 'A few common habits can cost you the game in the first ten moves.',
+      mins: 6,
+      body: [
+        { h: 'Don’t bring your queen out early' },
+        { p: 'The queen is your strongest piece, and beginners are tempted to throw her into the action right away, hunting for quick attacks. It almost always backfires. Because the queen is so valuable, she cannot afford to be attacked, so the moment your opponent develops a knight or bishop that hits her, she has to flee. You waste move after move shuffling your queen to safety while your opponent calmly brings out their whole army with tempo, attacking your queen for free. Keep her home a little longer and develop your minor pieces first.' },
+        { h: 'Don’t move the same piece twice' },
+        { p: 'In the opening, every move should ideally wake up a new piece. Moving the same knight or bishop two or three times while the rest of your army sleeps is like sending one soldier to do push-ups while the others stay in bed. Each repeated move is a turn your opponent uses to develop a fresh piece, and those lost tempos pile up into a real disadvantage. Develop broadly, get everyone into the game, then start maneuvering.' },
+        { h: 'Don’t ignore development and king safety' },
+        { p: 'The fastest way to lose is to grab a pawn or chase a small gain while your pieces sit at home and your king lingers in the center. Open positions punish the undeveloped king mercilessly: files and diagonals fly open, and an army that is ready crashes through an army that is not. Follow the simple recipe, claim the center, develop knights and bishops, castle, and you will sidestep most opening disasters before they start.' },
+        { h: 'The Scholar’s Mate and how to refute it' },
+        { p: 'The most famous beginner trap is the Scholar’s Mate, a four-move checkmate where your opponent points a bishop and queen at the weak square next to your king, the one only the king itself defends, and tries to crash through for an instant mate. It looks terrifying the first time, but it is easily refuted by calm development. Simply bring out your knights to defend, and develop a piece that guards the targeted square or attacks the enterprising queen. Every move you make to repel the threat also develops a piece, so the attacker ends up with an exposed queen and nothing to show for it. Defend it once and you will never fear it again.' }
+      ]
+    },
+    {
+      id: 'blunder-check',
+      cat: 'Mindset',
+      icon: '\u{1F50D}',
+      title: 'The Two-Second Blunder Check',
+      blurb: 'One small habit stops you from hanging pieces for free.',
+      mins: 4,
+      body: [
+        { h: 'The mistake that costs the most' },
+        { p: 'Ask any coach what holds beginners back, and they will not say openings or fancy tactics. They will say blunders, simply giving away pieces for nothing. You can study brilliant strategy all you like, but if you hang your queen once a game, none of it matters. The single fastest way to gain strength is not to learn something new, it is to stop throwing pieces away. And the cure is a tiny habit that takes two seconds.' },
+        { h: 'The habit: check before you commit' },
+        { p: 'Here is the routine. You have chosen the move you want to play. Before you actually touch the piece, freeze for two seconds and ask three quick questions. First: if I make this move, is the piece I am moving safe where it lands? Second: does moving it leave anything else of mine undefended? Third, and most overlooked: what does my opponent get to do right after, is there a check, a capture, or a threat I am walking into? Only after those two seconds do you make the move.' },
+        { h: 'Checks, captures, and threats' },
+        { p: 'When you scan your opponent’s possible replies, look at forcing moves first, in this order: checks, captures, and threats. Forcing moves are the ones that take away your choices, and they are where nearly every blunder hides. Most disasters are not deep, they are a knight fork or a simple capture you would have seen instantly if you had only looked. The two-second check is just the discipline of always looking.' },
+        { h: 'Boring beats brilliant' },
+        { p: 'This habit is not glamorous. It will not feel like genius. But it is the closest thing to a cheat code that exists in chess improvement. The players who climb are rarely the ones with the flashiest ideas, they are the ones who quietly stopped blundering. Build the two-second check into every single move until it becomes automatic, and watch how many games you stop losing for no reason at all.' }
+      ]
     }
   ];
 

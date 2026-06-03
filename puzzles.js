@@ -119,6 +119,17 @@
 
   function coordOf(move) { return move.from + move.to + (move.promotion ? move.promotion : ''); }
 
+  // A puzzle may accept several winning moves (e.g. any of two discovered checks),
+  // so we match the played move against EVERY entry in current.solution, comparing
+  // either the full UCI (with promotion) or just from+to.
+  function matchesSolution(played) {
+    var sols = current.solution || [];
+    for (var i = 0; i < sols.length; i++) {
+      if (played === sols[i] || played.slice(0, 4) === sols[i].slice(0, 4)) return true;
+    }
+    return false;
+  }
+
   function attemptMove(from, to) {
     selected = null;
     if (!window.Chess) { return; }
@@ -127,16 +138,24 @@
     var mv = g.move({ from: from, to: to, promotion: 'q' });
     if (!mv) { renderBoard(); flash('That is not a legal move.', false); return; }
     var played = coordOf(mv);
-    var expected = current.solution[0];
-    // For mate-in-1, expected is the only mating move. For mate-in-2, the first
-    // move must match the unique key move; we accept it then auto-handle reply.
-    var isCorrectKey = (played === expected) || (played.slice(0, 4) === expected.slice(0, 4));
+    var isCorrectKey = matchesSolution(played);
+
+    // Mate in 1: the move must both match a key and actually be checkmate.
     if (current.objective === 'Mate in 1') {
       if (g.in_checkmate() && isCorrectKey) { liveFen = g.fen(); renderBoard(); onSolved(); }
       else { flash('Not the mate -- try again.', false); renderBoard(); }
       return;
     }
-    // Mate in 2
+
+    // Win material (forks, pins, skewers, discoveries): no mate to deliver, so the
+    // single winning move IS the solution. Accept it and we're done.
+    if (current.objective === 'Win material') {
+      if (isCorrectKey) { liveFen = g.fen(); renderBoard(); onSolved(); }
+      else { flash('Not the winning move -- try again.', false); renderBoard(); }
+      return;
+    }
+
+    // Mate in 2: play the forced key, let the engine answer, then find the mate.
     if (!isCorrectKey) { flash('Not the key move -- try again.', false); renderBoard(); return; }
     liveFen = g.fen(); renderBoard();
     if (g.in_checkmate()) { onSolved(); return; }
@@ -191,9 +210,15 @@
     if (!current) { flash('No puzzles available.', false); return; }
     liveFen = current.fen; selected = null; solvedThis = false;
     var meta = el('puzzle-meta');
-    if (meta) meta.textContent = current.objective + '  -  ' + cap(current.difficulty) + (mode === 'daily' ? '  -  Daily' : '');
+    if (meta) {
+      var label = (current.name ? current.name + '  ·  ' : '') + current.objective +
+        '  ·  ' + cap(current.difficulty) + (current.theme ? '  ·  ' + current.theme : '') +
+        (mode === 'daily' ? '  ·  Daily' : '');
+      meta.textContent = label;
+    }
     var turn = fenTurn(current.fen);
-    flash((turn === 'w' ? 'White' : 'Black') + ' to play. ' + current.objective + '.', true);
+    var aim = current.objective === 'Win material' ? 'Find the move that wins material.' : current.objective + '.';
+    flash((turn === 'w' ? 'White' : 'Black') + ' to play. ' + aim, true);
     var next = el('btn-pz-next'); if (next) next.style.display = 'none';
     renderBoard(); updateStats();
   }
