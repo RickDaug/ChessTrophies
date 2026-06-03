@@ -197,15 +197,27 @@ app.post('/api/progress', requireAuth, (req, res, next) => {
     }
     if (merged.size > MAX_LESSONS) throw new Error(`Too many completed lessons (max ${MAX_LESSONS}).`);
 
-    // Shallow-merge puzzles.
+    // Merge puzzle progress robustly so syncing from another device never erases
+    // solves: deep-union the solved map (byId), take the max of numeric counters,
+    // and let other scalar fields (e.g. dailyDate) take the incoming value.
     const puzzles = { ...existing.puzzles };
     if (body.puzzles !== undefined) {
       if (body.puzzles === null || typeof body.puzzles !== 'object' || Array.isArray(body.puzzles)) {
         throw new Error('puzzles must be an object.');
       }
-      Object.assign(puzzles, body.puzzles);
+      const inc = body.puzzles;
+      const byId = { ...(existing.puzzles && existing.puzzles.byId) };
+      if (inc.byId && typeof inc.byId === 'object' && !Array.isArray(inc.byId)) Object.assign(byId, inc.byId);
+      const maxNum = (a, b) => Math.max(Number(a) || 0, Number(b) || 0);
+      for (const k of Object.keys(inc)) {
+        if (k === 'byId') continue;
+        puzzles[k] = (k === 'solved' || k === 'best' || k === 'streak') ? maxNum(puzzles[k], inc[k]) : inc[k];
+      }
+      puzzles.byId = byId;
     }
-    if (Object.keys(puzzles).length > MAX_PUZZLE_KEYS) throw new Error(`Too many puzzle entries (max ${MAX_PUZZLE_KEYS}).`);
+    if (puzzles.byId && Object.keys(puzzles.byId).length > MAX_PUZZLE_KEYS) {
+      throw new Error(`Too many puzzle entries (max ${MAX_PUZZLE_KEYS}).`);
+    }
 
     const result = setProgress(req.userId, { lessonsCompleted: [...merged], puzzles });
     res.json(result);
