@@ -178,5 +178,45 @@
     return bestMove;
   }
 
-  window.CT_AI = { chooseMove: chooseMove };
+  // Expose on the correct global: window on the main thread, self inside a worker.
+  var glob = (typeof window !== 'undefined') ? window : (typeof self !== 'undefined' ? self : this);
+  var api = { chooseMove: chooseMove };
+
+  // Worker-backed async search — ONLY on the main thread (window + Worker present).
+  // Moves the up-to-~4s minimax search OFF the UI thread so the app never freezes.
+  // Falls back to the synchronous engine if Workers are unavailable, error, or hang.
+  if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
+    var _worker = null, _nextId = 1, _pending = {};
+    function _ensureWorker() {
+      if (_worker) return _worker;
+      try {
+        _worker = new Worker('ct-ai-worker.js');
+        _worker.onmessage = function (e) {
+          var d = e.data || {}; var cb = _pending[d.id];
+          if (cb) { delete _pending[d.id]; cb(d.move); }
+        };
+        _worker.onerror = function () { _worker = null; }; // next call falls back to sync
+      } catch (e) { _worker = null; }
+      return _worker;
+    }
+    function _syncFromFen(fen, aiElo) {
+      try { return chooseMove(new window.Chess(fen), aiElo); } catch (e) { return null; }
+    }
+    // fen is serializable for postMessage; the worker reconstructs the position.
+    api.chooseMoveAsync = function (fen, aiElo) {
+      return new Promise(function (resolve) {
+        var w = _ensureWorker();
+        if (!w) { resolve(_syncFromFen(fen, aiElo)); return; }
+        var id = _nextId++;
+        var timer = setTimeout(function () {
+          if (_pending[id]) { delete _pending[id]; resolve(_syncFromFen(fen, aiElo)); }
+        }, 12000);
+        _pending[id] = function (move) { clearTimeout(timer); resolve(move); };
+        try { w.postMessage({ id: id, fen: fen, aiElo: aiElo }); }
+        catch (e) { clearTimeout(timer); delete _pending[id]; resolve(_syncFromFen(fen, aiElo)); }
+      });
+    };
+  }
+
+  glob.CT_AI = api;
 })();

@@ -2955,10 +2955,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // If AI opponent's turn (offline only)
       if (!state.isOnline && state.opponent.isAI && state.game.turn() !== state.userColor) {
         state.aiThinking = true;
-        setTimeout(() => {
-          makeAIMove();
-          state.aiThinking = false;
-        }, 350);
+        // makeAIMove now runs the search off-thread (Web Worker) and clears
+        // state.aiThinking itself once the move resolves.
+        setTimeout(() => { makeAIMove(); }, 350);
       }
     });
   }
@@ -2985,11 +2984,27 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   // The minimax/alpha-beta engine + piece-square tables now live in ct-ai.js
   // (window.CT_AI.chooseMove). makeAIMove below just applies its choice.
   function makeAIMove() {
-    if (state.game.game_over()) return;
-    const m = window.CT_AI ? window.CT_AI.chooseMove(state.game, state.opponent.aiElo || 1200) : null;
-    if (!m) return;
-    const move = state.game.move({ from: m.from, to: m.to, promotion: m.promotion || 'q' });
-    if (move) afterMove(move);
+    if (state.game.game_over()) { state.aiThinking = false; return; }
+    const g = state.game;                       // capture: skip if a new game starts mid-think
+    const fen = g.fen();
+    const aiElo = state.opponent.aiElo || 1200;
+    const apply = (m) => {
+      state.aiThinking = false;
+      // Bail if the game was reset/left while the worker was thinking, or the move
+      // is no longer legal (defensive — the worker ran on a snapshot FEN).
+      if (!m || state.game !== g || g.game_over()) return;
+      const move = g.move({ from: m.from, to: m.to, promotion: m.promotion || 'q' });
+      if (move) afterMove(move);
+    };
+    // Prefer the off-thread (Web Worker) search so the UI never freezes; fall back
+    // to the synchronous engine if Workers are unavailable.
+    if (window.CT_AI && window.CT_AI.chooseMoveAsync) {
+      window.CT_AI.chooseMoveAsync(fen, aiElo).then(apply, () => { state.aiThinking = false; });
+    } else if (window.CT_AI) {
+      apply(window.CT_AI.chooseMove(g, aiElo));
+    } else {
+      state.aiThinking = false;
+    }
   }
 
   // ---------------------------------------------------------------------------
