@@ -454,6 +454,9 @@
       <input type="password" id="login-password" autocomplete="current-password" required>
       <div class="error" id="login-error"></div>
       <button type="submit" class="btn btn-block" style="margin-top:14px">Sign in</button>
+      <p class="center small" style="margin-top:10px">
+        <a href="#" id="link-forgot-password" style="color:var(--accent)">Forgot password?</a>
+      </p>
     </form>
 
     <form id="form-signup" class="auth-form" style="display:none">
@@ -770,6 +773,9 @@
         <div class="settings-section">
           <h3>⚙️ Account</h3>
           <p class="muted small" style="margin-bottom:10px;">Your theme is saved to your profile — it stays the same every time you sign in on this device.</p>
+          <button id="btn-change-password" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:8px;">
+            🔑 &nbsp; Change Password
+          </button>
           <button onclick="signOut()" style="width:100%;padding:11px;background:#8b2020;border:none;border-radius:10px;color:#fff;font-size:14px;cursor:pointer;font-weight:600;">Sign Out</button>
         </div>
 
@@ -934,6 +940,59 @@
     <div class="stack" style="margin-top:14px">
       <button class="btn btn-block" id="btn-friend-add">Add friend</button>
       <button class="btn btn-ghost btn-block" id="btn-friend-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-forgot-password">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2>Reset your password</h2>
+
+    <!-- Step 1: request a reset code -->
+    <div id="forgot-step-1">
+      <p class="muted small" style="margin:4px 0 12px">Enter your account email and we'll issue a reset code.</p>
+      <label for="forgot-email">Email</label>
+      <input type="email" id="forgot-email" autocomplete="email" placeholder="you@example.com">
+      <div class="muted small" id="forgot-status" style="margin-top:8px"></div>
+      <div class="error" id="forgot-error"></div>
+      <div class="stack" style="margin-top:14px">
+        <button class="btn btn-block" id="btn-forgot-send">Send reset link</button>
+        <button class="btn btn-ghost btn-block" id="btn-forgot-cancel">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Step 2: enter the code + a new password -->
+    <div id="forgot-step-2" style="display:none">
+      <p class="muted small" style="margin:4px 0 4px">Enter the reset code and choose a new password.</p>
+      <p class="muted small" style="margin:0 0 12px;font-size:11px">Note: email isn't wired up in this build, so your reset code is shown below (and logged on the server) instead of being emailed.</p>
+      <label for="reset-code">Reset code</label>
+      <input type="text" id="reset-code" autocomplete="off" placeholder="Paste the reset code">
+      <label for="reset-new-password" style="margin-top:10px;display:block">New password</label>
+      <input type="password" id="reset-new-password" autocomplete="new-password" placeholder="At least 6 characters" minlength="6">
+      <div class="muted small" id="reset-note" style="margin-top:8px"></div>
+      <div class="error" id="reset-error"></div>
+      <div class="stack" style="margin-top:14px">
+        <button class="btn btn-block" id="btn-reset-submit">Set new password</button>
+        <button class="btn btn-ghost btn-block" id="btn-reset-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-change-password">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2>Change password</h2>
+    <p class="muted small" style="margin:4px 0 12px">Enter your current password and a new one.</p>
+    <label for="cp-current">Current password</label>
+    <input type="password" id="cp-current" autocomplete="current-password">
+    <label for="cp-new" style="margin-top:10px;display:block">New password</label>
+    <input type="password" id="cp-new" autocomplete="new-password" placeholder="At least 6 characters" minlength="6">
+    <div class="error" id="cp-error"></div>
+    <div class="stack" style="margin-top:14px">
+      <button class="btn btn-block" id="btn-cp-submit">Update password</button>
+      <button class="btn btn-ghost btn-block" id="btn-cp-cancel">Cancel</button>
     </div>
   </div>
 </div>

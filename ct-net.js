@@ -55,7 +55,11 @@
       ready = false;
     }
     socket = window.io(serverUrl, {
-      transports: ['websocket'],
+      // Try WebSocket first, but allow HTTP long-polling as a fallback. Without
+      // polling, networks/proxies that block the WS upgrade leave the socket
+      // permanently unconnected (never authed -> isReady() stays false), which
+      // silently kicks online matchmaking back to broken single-device pairing.
+      transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
       timeout: 8000,

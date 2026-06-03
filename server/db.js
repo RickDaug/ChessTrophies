@@ -94,10 +94,20 @@ CREATE TABLE IF NOT EXISTS team_games (
   FOREIGN KEY (black_p2_id) REFERENCES users(id)
 );
 
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_users_elo ON users(elo DESC);
 CREATE INDEX IF NOT EXISTS idx_users_wins ON users(wins DESC);
 CREATE INDEX IF NOT EXISTS idx_games_created ON games(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_team_games_created ON team_games(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
 `);
 
 // Idempotent migrations: add 2v2-specific columns to users if they don't exist.

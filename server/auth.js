@@ -55,6 +55,69 @@ export async function login({ email, password }) {
   return makeToken(u.id);
 }
 
+// ---------------------------------------------------------------------------
+// Password reset + change password
+// ---------------------------------------------------------------------------
+
+const RESET_TTL_MS = 30 * 60 * 1000; // reset links are valid for 30 minutes
+
+// sha256-hash a raw token so we never store the usable token at rest.
+function hashToken(raw) {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+// Issue a password-reset token for the account with this email.
+// To avoid account enumeration the caller always responds 200 regardless of
+// whether an account exists; when none does we simply return { token: null }.
+export function requestPasswordReset(email) {
+  const lowEmail = normalizeString(email, 'email', { min: 3, max: 254 }).toLowerCase();
+  const u = getUserByEmail(lowEmail);
+  if (!u) return { token: null };
+
+  // Invalidate any prior unused tokens for this user so only one is ever live.
+  db.prepare('DELETE FROM password_resets WHERE user_id = ? AND used = 0').run(u.id);
+
+  const raw = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(raw);
+  const now = Date.now();
+  db.prepare(`INSERT INTO password_resets (token_hash, user_id, expires_at, used, created_at)
+              VALUES (?, ?, ?, 0, ?)`)
+    .run(tokenHash, u.id, now + RESET_TTL_MS, now);
+
+  return { token: raw, userId: u.id };
+}
+
+// Consume a reset token and set a new password. Throws on invalid/expired token
+// or invalid new password.
+export async function resetPassword(token, newPassword) {
+  const safePassword = normalizeString(newPassword, 'password', { min: 6, max: 128 });
+  const safeToken = typeof token === 'string' ? token.trim() : '';
+  const tokenHash = hashToken(safeToken);
+
+  const row = db.prepare(`SELECT * FROM password_resets
+                          WHERE token_hash = ? AND used = 0 AND expires_at > ?`)
+    .get(tokenHash, Date.now());
+  if (!row) throw new Error('This reset link is invalid or has expired.');
+
+  const pw_hash = await bcrypt.hash(safePassword, 12);
+  db.prepare('UPDATE users SET pw_hash = ? WHERE id = ?').run(pw_hash, row.user_id);
+  // Mark used and remove the row so the token can never be replayed.
+  db.prepare('DELETE FROM password_resets WHERE token_hash = ?').run(tokenHash);
+  return true;
+}
+
+// Change the password for an authenticated user after verifying the current one.
+export async function changePassword(userId, currentPassword, newPassword) {
+  const u = getUserById(userId);
+  if (!u) throw new Error('User not found.');
+  const currentOk = await bcrypt.compare(typeof currentPassword === 'string' ? currentPassword : '', u.pw_hash);
+  if (!currentOk) throw new Error('Current password is incorrect.');
+  const safePassword = normalizeString(newPassword, 'password', { min: 6, max: 128 });
+  const pw_hash = await bcrypt.hash(safePassword, 12);
+  db.prepare('UPDATE users SET pw_hash = ? WHERE id = ?').run(pw_hash, u.id);
+  return true;
+}
+
 export function makeToken(userId) {
   return jwt.sign({ uid: userId }, SECRET, { expiresIn: TOKEN_EXPIRY });
 }

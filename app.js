@@ -222,8 +222,34 @@
     const text = await res.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
-    if (!res.ok) throw new Error((data && (data.error || data.message)) || 'Request failed');
+    if (!res.ok) {
+      const err = new Error((data && (data.error || data.message)) || 'Request failed');
+      err.status = res.status; // lets callers tell a 4xx rejection from a 5xx/transient failure
+      throw err;
+    }
     return data;
+  }
+
+  // Attempt a server auth call, retrying once if the failure looks transient (a
+  // network error or 5xx -- e.g. a Railway cold start) rather than a definitive
+  // 4xx rejection. Returns the parsed body or throws; the thrown error carries
+  // .status for HTTP errors and .transient === true when we gave up after a
+  // connectivity/5xx failure (so callers can fall back to offline mode).
+  async function serverAuth(path, body) {
+    let lastErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await api(path, { method: 'POST', body: JSON.stringify(body) });
+      } catch (e) {
+        lastErr = e;
+        const transient = !e.status || e.status >= 500;
+        if (!transient) throw e;                 // definitive rejection -- don't retry
+        if (attempt === 0) await new Promise(r => setTimeout(r, 600));
+      }
+    }
+    lastErr = lastErr || new Error('Server unreachable');
+    lastErr.transient = true;
+    throw lastErr;
   }
 
   async function fetchMe() {
@@ -446,17 +472,17 @@
     try {
       const params = new URLSearchParams(window.location.search);
       const invitedBy = params.get('invitedBy') || undefined;
-      const { token } = await api('/api/auth/signup', {
-        method: 'POST',
-        body: JSON.stringify({ email, username, password, region, invitedBy, startingElo }),
-      });
+      const { token } = await serverAuth('/api/auth/signup', { email, username, password, region, invitedBy, startingElo });
       setSession({ userId: null, token });
       const profile = await fetchMe();
       const user = syncRemoteProfile(profile);
       setSession({ userId: user.id, token });
       return user;
     } catch (serverErr) {
-      // Fallback to the existing local-only path if the backend is unavailable.
+      // A definitive 4xx (e.g. email/username already taken on the server) is
+      // surfaced rather than silently creating a divergent local-only account.
+      // Only a genuinely unreachable backend falls through to offline signup.
+      if (serverErr.status && serverErr.status < 500 && !serverErr.transient) throw serverErr;
     }
 
     const salt = randomSalt();
@@ -474,7 +500,7 @@
     } catch (e) {}
     db.users[user.id] = user;
     saveDB(db);
-    setSession({ userId: user.id });
+    setSession({ userId: user.id, offline: true });
     return user;
   }
   async function login(email, password) {
@@ -482,25 +508,27 @@
     if (!isValidEmail(email)) throw new Error('Enter a valid email address.');
 
     try {
-      const { token } = await api('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      });
+      const { token } = await serverAuth('/api/auth/login', { email, password });
       setSession({ userId: null, token });
       const profile = await fetchMe();
       const user = syncRemoteProfile(profile);
       setSession({ userId: user.id, token });
       return user;
     } catch (serverErr) {
-      // Fallback to the existing local-only path if the backend is unavailable.
+      // Only fall back to the local account store when the server was genuinely
+      // unreachable. A definitive rejection (wrong password, no such account) is
+      // surfaced -- but a matching local account may still log in offline so
+      // accounts created before/without the backend keep working.
+      const u = findUserByEmail(db, email);
+      if (!u) {
+        if (serverErr.transient) throw new Error('Cannot reach the server. Check your connection and try again.');
+        throw serverErr; // e.g. "No account with that email" / "Incorrect password"
+      }
+      const h = await hashPassword(password, u.salt);
+      if (h !== u.pwHash) throw serverErr.transient ? new Error('Incorrect password.') : serverErr;
+      setSession({ userId: u.id, offline: true });
+      return u;
     }
-
-    const u = findUserByEmail(db, email);
-    if (!u) throw new Error('No account with that email.');
-    const h = await hashPassword(password, u.salt);
-    if (h !== u.pwHash) throw new Error('Incorrect password.');
-    setSession({ userId: u.id });
-    return u;
   }
 
   // ---------------------------------------------------------------------------
@@ -839,6 +867,8 @@
       state.user = u;
       if (window.__connectGameSocket) window.__connectGameSocket();
       enterApp();
+      const s = getSession();
+      if (s && s.offline) toast('Signed in offline — ranked online play is unavailable until you reconnect.');
     } catch (err) {
       $('#login-error').textContent = err.message;
     }
@@ -860,10 +890,135 @@
       toast('Welcome, ' + u.username + ' 👑', true);
       if (window.__connectGameSocket) window.__connectGameSocket();
       enterApp();
+      const s = getSession();
+      if (s && s.offline) toast('Account created offline — ranked online play is unavailable until you reconnect.');
     } catch (err) {
       $('#signup-error').textContent = err.message;
     }
   });
+
+  // Password reset (forgot password) ----------------------------------
+  // Two-step flow inside one modal: (1) request a reset code by email,
+  // (2) enter the code + a new password. Email isn't wired up in this build,
+  // so the server returns the code as `devToken` which we prefill for the user.
+  function showForgotStep(step) {
+    $('#forgot-step-1').style.display = step === 1 ? '' : 'none';
+    $('#forgot-step-2').style.display = step === 2 ? '' : 'none';
+  }
+
+  function resetForgotModal() {
+    showForgotStep(1);
+    $('#forgot-email').value = '';
+    $('#forgot-status').textContent = '';
+    $('#forgot-error').textContent = '';
+    $('#reset-code').value = '';
+    $('#reset-new-password').value = '';
+    $('#reset-note').textContent = '';
+    $('#reset-error').textContent = '';
+  }
+
+  // Open the reset modal from the login form's "Forgot password?" link.
+  const forgotLink = $('#link-forgot-password');
+  if (forgotLink) {
+    forgotLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      resetForgotModal();
+      // Pre-fill with whatever the user already typed into the login email field.
+      $('#forgot-email').value = $('#login-email').value || '';
+      openModal('forgot-password');
+    });
+  }
+
+  const forgotCancel = $('#btn-forgot-cancel');
+  if (forgotCancel) forgotCancel.addEventListener('click', () => closeModal('forgot-password'));
+  const resetCancel = $('#btn-reset-cancel');
+  if (resetCancel) resetCancel.addEventListener('click', () => closeModal('forgot-password'));
+
+  // Step 1: request a reset code.
+  const forgotSend = $('#btn-forgot-send');
+  if (forgotSend) {
+    forgotSend.addEventListener('click', async () => {
+      $('#forgot-error').textContent = '';
+      $('#forgot-status').textContent = '';
+      const email = ($('#forgot-email').value || '').trim();
+      if (!email) { $('#forgot-error').textContent = 'Enter your email.'; return; }
+      forgotSend.disabled = true;
+      try {
+        const r = await api('/api/auth/forgot', { method: 'POST', body: JSON.stringify({ email }) });
+        // Always show a neutral message so we don't reveal whether the email exists.
+        $('#forgot-status').textContent = 'If that email exists, a reset code has been issued.';
+        if (r && r.devToken) {
+          // Dev convenience: prefill the code field with the returned token.
+          $('#reset-code').value = r.devToken;
+          $('#reset-note').textContent = 'Reset code prefilled for you (email isn’t set up in this build).';
+        }
+        showForgotStep(2);
+      } catch (err) {
+        $('#forgot-error').textContent = err.message;
+      } finally {
+        forgotSend.disabled = false;
+      }
+    });
+  }
+
+  // Step 2: submit the code + new password.
+  const resetSubmit = $('#btn-reset-submit');
+  if (resetSubmit) {
+    resetSubmit.addEventListener('click', async () => {
+      $('#reset-error').textContent = '';
+      const token = ($('#reset-code').value || '').trim();
+      const newPassword = $('#reset-new-password').value || '';
+      if (!token) { $('#reset-error').textContent = 'Enter your reset code.'; return; }
+      if (newPassword.length < 6) { $('#reset-error').textContent = 'Password must be at least 6 characters.'; return; }
+      resetSubmit.disabled = true;
+      try {
+        await api('/api/auth/reset', { method: 'POST', body: JSON.stringify({ token, newPassword }) });
+        closeModal('forgot-password');
+        toast('Password updated — please sign in.', true);
+        // Switch back to the login tab so the user can sign in with the new password.
+        const loginTab = $('#screen-auth .tab[data-tab="login"]');
+        if (loginTab) loginTab.click();
+      } catch (err) {
+        $('#reset-error').textContent = err.message;
+      } finally {
+        resetSubmit.disabled = false;
+      }
+    });
+  }
+
+  // Change password (from Settings) -----------------------------------
+  const changePwBtn = $('#btn-change-password');
+  if (changePwBtn) {
+    changePwBtn.addEventListener('click', () => {
+      $('#cp-current').value = '';
+      $('#cp-new').value = '';
+      $('#cp-error').textContent = '';
+      openModal('change-password');
+    });
+  }
+  const cpCancel = $('#btn-cp-cancel');
+  if (cpCancel) cpCancel.addEventListener('click', () => closeModal('change-password'));
+
+  const cpSubmit = $('#btn-cp-submit');
+  if (cpSubmit) {
+    cpSubmit.addEventListener('click', async () => {
+      $('#cp-error').textContent = '';
+      const currentPassword = $('#cp-current').value || '';
+      const newPassword = $('#cp-new').value || '';
+      if (!currentPassword) { $('#cp-error').textContent = 'Enter your current password.'; return; }
+      if (newPassword.length < 6) { $('#cp-error').textContent = 'New password must be at least 6 characters.'; return; }
+      cpSubmit.disabled = true;
+      try {
+        await api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+        closeModal('change-password');
+        toast('Password changed.', true);
+      } catch (err) {
+        $('#cp-error').textContent = err.message;
+      } finally {
+        cpSubmit.disabled = false;
+      }
+    });
+  }
 
   // Continue as guest -------------------------------------------------
   // Asks the server for a goofy display name unique among active guests. The
@@ -1040,14 +1195,62 @@ function renderFriendsSummary() {
   });
   $('#btn-find-match').addEventListener('click', () => startOnlineOrFakeMatchmaking('ranked'));
 
-  // Prefer real server matchmaking when the socket is authenticated; fall back to
-  // legacy localStorage-based pairing only if there is no live server session.
+  // Prefer real server matchmaking. The legacy localStorage matcher only ever sees
+  // accounts created on THIS device, so it can never pair two real players across
+  // devices -- using it for a logged-in user just produces a fake ~3s "search" that
+  // finds nobody. So we only drop to it for guests (who have no server token), and
+  // for registered users we (re)connect and wait for the socket instead of silently
+  // degrading.
   function startOnlineOrFakeMatchmaking(mode) {
     if (window.CTNet && window.CTNet.isReady()) {
       startOnlineMatchmaking(mode);
-    } else {
-      startMatchmaking(mode);
+      return;
     }
+    const isGuest = !!(state.user && state.user.isGuest);
+    const sess = getSession();
+    const haveToken = !!(sess && sess.token);
+
+    if (isGuest || !window.CTNet) {
+      // Guests / no-network builds: same-device matchmaking is the only option.
+      startMatchmaking(mode);
+      return;
+    }
+    if (!haveToken) {
+      // Registered user but signed in via the offline fallback (server login failed),
+      // so there is no token and the game socket can't authenticate. Surface it
+      // instead of pretending to matchmake against a same-device pool.
+      toast('You’re signed in offline — log out and back in to play ranked online.');
+      return;
+    }
+    // Registered + token but the socket isn't ready yet (still connecting, or it
+    // dropped). (Re)connect and wait briefly rather than falling back.
+    if (window.__connectGameSocket) window.__connectGameSocket();
+    waitForSocketThenMatchmake(mode);
+  }
+
+  // Show a "Connecting…" state and start server matchmaking as soon as the socket
+  // authenticates, or error out clearly if it can't connect within a few seconds.
+  function waitForSocketThenMatchmake(mode) {
+    const titleEl = $('#mm-title'), statusEl = $('#mm-status'), timerEl = $('#mm-timer');
+    if (titleEl) titleEl.textContent = 'Connecting to server…';
+    if (statusEl) statusEl.textContent = 'Establishing a secure connection…';
+    if (timerEl) timerEl.textContent = '0:00';
+    openModal('matchmaking');
+    state._waitingForServerMatch = false;
+    const startedAt = Date.now();
+    if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
+    mmTimer = setInterval(() => {
+      if (window.CTNet && window.CTNet.isReady()) {
+        clearInterval(mmTimer); mmTimer = null;
+        startOnlineMatchmaking(mode); // re-opens the modal in its searching state
+        return;
+      }
+      if (Date.now() - startedAt > 8000) {
+        clearInterval(mmTimer); mmTimer = null;
+        closeModal('matchmaking');
+        toast('Could not reach the game server. Check your connection and try again.');
+      }
+    }, 250);
   }
     // 2v2 lobby buttons
     // - btn-duo-online -> real ranked 2v2 via the server (3-min queue, real opponents)

@@ -9,7 +9,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
-import { signup, login, requireAuth, verifyToken } from './auth.js';
+import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
 import { db, getUserById, topByMetric } from './db.js';
 import { attachSocketHandlers } from './game.js';
@@ -70,6 +70,46 @@ app.post('/api/auth/login', authLimiter, async (req, res, next) => {
     const password = requireStringField(body, 'password', { min: 1, max: 128 });
     const token = await login({ email, password });
     res.json({ token });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+// Request a password-reset token. Always responds 200 so callers cannot use
+// this endpoint to discover which emails have accounts (anti-enumeration).
+app.post('/api/auth/forgot', authLimiter, (req, res, next) => {
+  try {
+    const email = requireStringField(req.body || {}, 'email', { min: 3, max: 254 });
+    const { token } = requestPasswordReset(email);
+    if (token) {
+      // No email infrastructure yet, so log the token and (in dev) return it so
+      // the reset flow can be exercised end-to-end.
+      console.log('[password-reset] token for', email, '=', token);
+      // TODO: email the reset link via Resend instead of returning devToken once email is wired.
+      const exposeToken = process.env.EXPOSE_RESET_TOKEN === '1' || process.env.NODE_ENV !== 'production';
+      if (exposeToken) return res.json({ ok: true, devToken: token });
+    }
+    res.json({ ok: true });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+// Consume a reset token and set a new password.
+app.post('/api/auth/reset', authLimiter, async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const token = requireStringField(body, 'token', { min: 1, max: 256 });
+    const newPassword = requireStringField(body, 'newPassword', { min: 6, max: 128 });
+    await resetPassword(token, newPassword);
+    res.json({ ok: true });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+// Change the password of the currently authenticated user.
+app.post('/api/auth/change-password', authLimiter, requireAuth, async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const currentPassword = requireStringField(body, 'currentPassword', { min: 1, max: 128 });
+    const newPassword = requireStringField(body, 'newPassword', { min: 6, max: 128 });
+    await changePassword(req.userId, currentPassword, newPassword);
+    res.json({ ok: true });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
