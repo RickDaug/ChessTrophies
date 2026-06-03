@@ -1952,12 +1952,133 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     window.CTNet.joinQueue(mode, tc);
   }
 
+  // ---------------------------------------------------------------------------
+  // Online 1v1 connection / opponent status banners + rematch UX.
+  // ---------------------------------------------------------------------------
+  // Rematch state for the most-recently-finished online 1v1 game. We capture the
+  // gameId here because state.gameId is cleared by handleServerGameOver.
+  const rematchState = {
+    gameId: null,        // gameId of the game the result modal refers to
+    eligible: false,     // true only for online 1v1 (not vs AI, not 2v2)
+    phase: 'idle',       // 'idle' | 'offered' (we offered) | 'incoming' (they offered)
+  };
+  let oppCountdownTimer = null;
+
+  function netBanner(msg) {
+    const el = document.getElementById('net-banner');
+    if (!el) return;
+    if (msg == null) { el.style.display = 'none'; return; }
+    el.textContent = msg;
+    el.style.display = '';
+  }
+
+  function clearOppCountdown() {
+    if (oppCountdownTimer) { clearInterval(oppCountdownTimer); oppCountdownTimer = null; }
+  }
+
+  function oppBanner(msg) {
+    const el = document.getElementById('opp-banner');
+    if (!el) return;
+    if (msg == null) { clearOppCountdown(); el.style.display = 'none'; return; }
+    el.textContent = msg;
+    el.style.display = '';
+  }
+
+  // Clear all online-status UI + timers. Called on game end, leaving, new game.
+  function clearNetUI() {
+    netBanner(null);
+    oppBanner(null);
+    clearOppCountdown();
+  }
+
+  // --- Rematch result-modal UI ---
+  function resetRematchUI() {
+    rematchState.phase = 'idle';
+    const ui = document.getElementById('rematch-ui');
+    if (ui) ui.style.display = rematchState.eligible ? '' : 'none';
+    const offer = document.getElementById('btn-rematch-offer');
+    const waiting = document.getElementById('rematch-waiting');
+    const incoming = document.getElementById('rematch-incoming');
+    if (offer) offer.style.display = '';
+    if (waiting) waiting.style.display = 'none';
+    if (incoming) incoming.style.display = 'none';
+  }
+
+  function showRematchPhase(phase) {
+    rematchState.phase = phase;
+    const offer = document.getElementById('btn-rematch-offer');
+    const waiting = document.getElementById('rematch-waiting');
+    const incoming = document.getElementById('rematch-incoming');
+    if (offer) offer.style.display = phase === 'idle' ? '' : 'none';
+    if (waiting) waiting.style.display = phase === 'offered' ? '' : 'none';
+    if (incoming) incoming.style.display = phase === 'incoming' ? '' : 'none';
+  }
+
+  // Wire rematch buttons once.
+  (function wireRematchButtons() {
+    const offer = document.getElementById('btn-rematch-offer');
+    const cancel = document.getElementById('btn-rematch-cancel');
+    const accept = document.getElementById('btn-rematch-accept');
+    const decline = document.getElementById('btn-rematch-decline');
+    if (offer) offer.addEventListener('click', () => {
+      if (!rematchState.gameId || !window.CTNet || !window.CTNet.isReady()) {
+        toast('Not connected — cannot rematch.');
+        return;
+      }
+      window.CTNet.offerRematch(rematchState.gameId);
+      showRematchPhase('offered');
+    });
+    if (cancel) cancel.addEventListener('click', () => {
+      // Locally revert; server treats no-accept as expiry. Send a decline of our
+      // own offer is not in the contract, so we just stop waiting on this client.
+      if (rematchState.gameId && window.CTNet && window.CTNet.isReady()) {
+        window.CTNet.declineRematch(rematchState.gameId);
+      }
+      showRematchPhase('idle');
+    });
+    if (accept) accept.addEventListener('click', () => {
+      if (!rematchState.gameId || !window.CTNet || !window.CTNet.isReady()) {
+        toast('Not connected — cannot rematch.');
+        return;
+      }
+      window.CTNet.acceptRematch(rematchState.gameId);
+      showRematchPhase('offered'); // waiting for match_found to arrive
+    });
+    if (decline) decline.addEventListener('click', () => {
+      if (rematchState.gameId && window.CTNet && window.CTNet.isReady()) {
+        window.CTNet.declineRematch(rematchState.gameId);
+      }
+      showRematchPhase('idle');
+    });
+  })();
+
+  function handleRematchOffered(data) {
+    if (!data || !rematchState.gameId || data.gameId !== rematchState.gameId) return;
+    // Only meaningful while the result modal is up.
+    if (!document.getElementById('modal-result').classList.contains('show')) return;
+    showRematchPhase('incoming');
+  }
+
+  function handleRematchEnded(data, msg) {
+    if (data && rematchState.gameId && data.gameId !== rematchState.gameId) return;
+    showRematchPhase('idle');
+    toast(msg);
+  }
+
   function handleServerMatchFound(data) {
-    if (!state._waitingForServerMatch) return;
+    // Accept this match if we're queueing OR if a rematch is in flight (the
+    // server starts a fresh 1v1 game and both sides get a normal match_found).
+    const fromRematch = rematchState.phase === 'offered' || rematchState.phase === 'incoming';
+    if (!state._waitingForServerMatch && !fromRematch) return;
     state._waitingForServerMatch = false;
     if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
     if (mmGiveUpTimer) { clearTimeout(mmGiveUpTimer); mmGiveUpTimer = null; }
     closeModal('matchmaking');
+    // A new game is starting — tear down the result modal + rematch/status UI.
+    closeModal('result');
+    clearNetUI();
+    rematchState.phase = 'idle';
+    rematchState.gameId = null;
     const me = state.user;
     if (!me || !data || !data.gameId) return;
     const iAmWhite = data.white && data.white.id === me.id;
@@ -1971,6 +2092,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     state.isOnline = true;
     state.gameId = data.gameId;
     state.awaitingServerGameOver = true;
+    rematchState.eligible = true; // online 1v1 match -> rematch allowed
     state._forceColor = iAmWhite ? 'w' : 'b';
     toast('Matched with ' + state.opponent.username + ' (ELO ' + state.opponent.elo + ')', true);
     state.tc = data.tc || null;
@@ -2026,6 +2148,12 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     if (!state.isOnline || data.gameId !== state.gameId) return;
     state.awaitingServerGameOver = false;
     clockStop();
+    // Opponent grace expiry sends a normal game_over (reason 'disconnect') — make
+    // sure the disconnected banner clears now.
+    oppBanner(null);
+    // Capture the finished game's id so the rematch button can reference it after
+    // state.gameId is cleared below. eligible was set when this 1v1 match started.
+    rematchState.gameId = state.gameId;
     const me = state.user;
     let winnerColor = null;
     if (data.winnerId) {
@@ -2044,13 +2172,104 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     state.gameId = null;
   }
 
+  // Full resync of our active online 1v1 game from a server game_state payload.
+  // Sent after we reconnect (auth_ok -> game_state) so we pick up any move the
+  // opponent made while we were gone, and our clocks re-align.
+  function handleServerGameState(data) {
+    if (!data || !data.gameId || !data.fen) return;
+    // 2v2 has its own resume path; ignore team game_state here.
+    if (window.Duo && window.__duo && window.__duo.online && window.__duo.gameId === data.gameId) return;
+    // Adopt this as our active game (covers the case where state.gameId was
+    // cleared while the socket was down).
+    state.isOnline = true;
+    state.gameId = data.gameId;
+    state.awaitingServerGameOver = true;
+    rematchState.eligible = true;
+    const me = state.user;
+    // yourColor is authoritative; fall back to existing userColor.
+    state.userColor = data.yourColor || state.userColor;
+    state.orientation = state.userColor;
+    // Opponent identity (white/black are public user objects).
+    if (me && (data.white || data.black)) {
+      const iAmWhite = state.userColor === 'w';
+      const oppData = iAmWhite ? data.black : data.white;
+      if (oppData) {
+        state.opponent = {
+          username: oppData.username || (state.opponent && state.opponent.username) || 'Opponent',
+          elo: oppData.elo || (state.opponent && state.opponent.elo) || 1200,
+          isAI: false,
+          userId: oppData.id || (state.opponent && state.opponent.userId) || null,
+        };
+      }
+    }
+    // Rebuild the board from the authoritative FEN.
+    try { state.game = new Chess(data.fen); }
+    catch (e) { console.warn('[CTNet] bad game_state fen', e); return; }
+    state.gameEnded = false;
+    state.selected = null;
+    state.legalTargets = [];
+    state.lastMove = null;
+    state.applyingRemoteMove = false;
+    if (data.mode) state.gameMode = data.mode === 'ranked' ? 'ranked' : 'unranked';
+    // Make sure we're on the game screen, then re-render for our color.
+    if (!document.querySelector('#screen-game.active')) showScreen('game');
+    setupGameScreen();
+    renderBoard();
+    updateStatus();
+    // Resync clocks (null clock => unlimited game, clockSync stops the clock).
+    if (data.clock) {
+      const m = clock1v1Map();
+      clockSync(data.clock, m.topEl, m.botEl, m.topSide, m.botSide);
+    } else {
+      clockStop();
+    }
+    // Resync succeeded — we're back; clear the reconnecting banner.
+    netBanner(null);
+  }
+
+  // Our own socket dropped (onDisconnect). socket.io is configured to retry.
+  function handleSelfDisconnect(reason) {
+    clockStop();
+    if (state.isOnline && state.gameId) {
+      netBanner('Reconnecting…');
+    }
+  }
+
+  // socket.io exhausted its reconnection attempts — surface a clear failure.
+  function handleReconnectFailed() {
+    if (state.isOnline && state.gameId) {
+      netBanner('Connection lost. Please check your network.');
+    }
+  }
+
+  // Opponent dropped: show a live countdown banner for the grace window.
+  function handleOpponentDisconnected(data) {
+    if (!data || data.gameId !== state.gameId) return;
+    clearOppCountdown();
+    let remaining = Math.max(0, Math.ceil((data.graceMs || 0) / 1000));
+    const paint = () => {
+      if (remaining <= 0) { clearOppCountdown(); return; }
+      oppBanner('Opponent disconnected — ' + remaining + 's to reconnect');
+      remaining -= 1;
+    };
+    paint();
+    oppCountdownTimer = setInterval(paint, 1000);
+  }
+
+  function handleOpponentReconnected(data) {
+    if (data && data.gameId !== state.gameId) return;
+    oppBanner(null);
+    toast('Opponent reconnected.');
+  }
+
   function connectGameSocketIfPossible() {
     const sess = getSession();
     if (!sess || !sess.token || !window.CTNet) return;
     window.CTNet.connect(SERVER_URL, sess.token, {
-      onAuthOk: () => { /* ready to matchmake */ },
+      onAuthOk: () => { /* ready to matchmake; server sends game_state to resume */ },
       onAuthErr: (e) => { console.warn('[CTNet] auth_err', e); },
-      onDisconnect: () => { clockStop(); /* server will reconnect automatically */ },
+      onDisconnect: handleSelfDisconnect,
+      onReconnectFailed: handleReconnectFailed,
     });
     // Register once; CTNet keeps an internal list, but we want at most one of each.
     if (!state._netHandlersRegistered) {
@@ -2059,6 +2278,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       window.CTNet.on('illegalMove', handleServerIllegalMove);
       window.CTNet.on('gameOver', handleServerGameOver);
       window.CTNet.on('rateLimited', (d) => toast('Slow down (' + (d && d.event) + ')'));
+      // Rematch (1v1) lifecycle
+      window.CTNet.on('rematchOffered', handleRematchOffered);
+      window.CTNet.on('rematchDeclined', (d) => handleRematchEnded(d, 'Rematch declined.'));
+      window.CTNet.on('rematchExpired', (d) => handleRematchEnded(d, 'Rematch offer expired.'));
+      // Disconnect grace + reconnect/resume (1v1)
+      window.CTNet.on('opponentDisconnected', handleOpponentDisconnected);
+      window.CTNet.on('opponentReconnected', handleOpponentReconnected);
+      window.CTNet.on('gameState', handleServerGameState);
       // 2v2 events
       window.CTNet.on('teamMatchFound', handleTeamMatchFound);
       window.CTNet.on('teamQueued', handleTeamQueued);
@@ -2381,7 +2608,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       state.gameId = null;
       state.applyingRemoteMove = false;
       state.awaitingServerGameOver = false;
+      rematchState.eligible = false; // offline/AI games can't rematch online
     }
+    // New game starting — clear any stale online status banners + countdowns.
+    clearNetUI();
     // Tear down any previous clock; online clocked games re-init it after startGame.
     clockStop();
     state.gameMode = mode;
@@ -2972,6 +3202,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const me = state.user;
     state.gameEnded = true;
     clockStop();
+    // Game ended — drop any disconnect/reconnect status banners + their timers.
+    netBanner(null);
+    oppBanner(null);
     const opp = state.opponent;
     const myWon = winnerColor === state.userColor;
     const isDraw = winnerColor === null;
@@ -3252,6 +3485,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     $('#result-title').textContent = title;
     $('#result-body').textContent = body;
     $('#result-rewards').innerHTML = rewards.join('') + renderAdSlot('medium');
+    // Rematch UI: only for online 1v1 games (eligible flag set at match start and
+    // cleared for offline/2v2). Reset to its default "Rematch" state each time.
+    resetRematchUI();
     openModal('result');
     // Celebrate trophy unlocks: confetti + title shine, timed with the fanfare.
     try {
@@ -3294,6 +3530,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
 
   $('#btn-result-close').addEventListener('click', () => {
+    // Dismissing the result drops any pending rematch offer/eligibility.
+    if (rematchState.phase === 'offered' && rematchState.gameId && window.CTNet && window.CTNet.isReady()) {
+      window.CTNet.declineRematch(rematchState.gameId);
+    }
+    rematchState.phase = 'idle';
+    rematchState.eligible = false;
+    rematchState.gameId = null;
+    clearNetUI();
     closeModal('result');
     showScreen('lobby');
   _addLobbyChatButton();

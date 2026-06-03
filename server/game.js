@@ -11,6 +11,16 @@ const socketUser = new Map();      // socketId -> userId
 const chatBuckets = new Map();     // userId -> { tokens, lastRefill }
 const mmBuckets = new Map();       // userId -> { tokens, lastRefill }
 
+// --- Rematch (1v1) state ---
+// recentGames: short-lived snapshot of a finished 1v1 so a rematch can be set up
+// after the game object is gone. gameId -> { whiteUid, blackUid, mode, tc, expireTimer }.
+const recentGames = new Map();
+// rematchOffers: standing rematch offers. gameId -> { offers: Set<uid>, expireTimer }.
+const rematchOffers = new Map();
+const RECENT_GAME_TTL_MS = 120_000;
+const REMATCH_OFFER_TTL_MS = 30_000;
+const DISCONNECT_GRACE_MS = 30_000;
+
 // --- 2v2 (team) state ---
 const teamQueue = new Map();       // entryId -> { id, type:'solo'|'duo', members:[{uid,socketId,elo}], joinedAt }
 const duoInvites = new Map();      // inviteId -> { hostId, hostSocketId, guestId, createdAt, expiresAt }
@@ -201,6 +211,39 @@ export function attachSocketHandlers(io, verifyToken) {
       userSocket.set(user.id, socket.id);
       socketUser.set(socket.id, user.id);
       socket.emit('auth_ok', { user: publicUser(user) });
+
+      // Resume an in-progress 1v1 game on (re)auth so a reconnecting client can
+      // rejoin the room and resync board + clocks.
+      const resumeId = userActiveGame.get(user.id);
+      if (resumeId) {
+        const game = activeGames.get(resumeId);
+        if (game && !game._ended && (game.white === user.id || game.black === user.id)) {
+          socket.join(resumeId);
+          const yourColor = game.white === user.id ? 'w' : 'b';
+          const opponent = game.white === user.id ? game.black : game.white;
+          // If this reconnect clears a pending disconnect, cancel the grace timer.
+          if (game.disconnectedUid === user.id) {
+            if (game.disconnectTimer) clearTimeout(game.disconnectTimer);
+            delete game.disconnectTimer;
+            delete game.disconnectedUid;
+            const oppSock = userSocket.get(opponent);
+            if (oppSock) io.sockets.sockets.get(oppSock)?.emit('opponent_reconnected', { gameId: resumeId });
+          }
+          let clockSnap = null;
+          if (game.clock) {
+            clockSnap = { w: game.clock.w, b: game.clock.b, running: game.clock.running, serverNow: Date.now() };
+          }
+          socket.emit('game_state', {
+            gameId: resumeId,
+            fen: game.chess.fen(),
+            mode: game.mode,
+            yourColor,
+            white: publicUser(getUserById(game.white)),
+            black: publicUser(getUserById(game.black)),
+            clock: clockSnap,
+          });
+        }
+      }
     });
 
     // Skill-based matchmaking
@@ -408,6 +451,71 @@ export function attachSocketHandlers(io, verifyToken) {
       finishGame(io, game, { reason: 'resignation', winnerId: winner });
     });
 
+    // --- Rematch (1v1 only) ---
+    socket.on('rematch_offer', ({ gameId }) => {
+      const uid = socket.data.userId; if (!uid) return;
+      const rg = recentGames.get(gameId);
+      if (!rg) return;
+      if (rg.whiteUid !== uid && rg.blackUid !== uid) return; // not a player
+      const opponentUid = rg.whiteUid === uid ? rg.blackUid : rg.whiteUid;
+      let offer = rematchOffers.get(gameId);
+      if (!offer) {
+        offer = { offers: new Set(), expireTimer: null };
+        rematchOffers.set(gameId, offer);
+      }
+      // If the opponent already has a standing offer -> start the rematch now.
+      if (offer.offers.has(opponentUid)) {
+        startRematch(io, gameId);
+        return;
+      }
+      offer.offers.add(uid);
+      // (Re)arm the auto-expire window.
+      if (offer.expireTimer) clearTimeout(offer.expireTimer);
+      offer.expireTimer = setTimeout(() => {
+        rematchOffers.delete(gameId);
+        const rg2 = recentGames.get(gameId);
+        if (rg2) {
+          for (const u of [rg2.whiteUid, rg2.blackUid]) {
+            const s = userSocket.get(u);
+            if (s) io.sockets.sockets.get(s)?.emit('rematch_expired', { gameId });
+          }
+        }
+      }, REMATCH_OFFER_TTL_MS);
+      if (typeof offer.expireTimer.unref === 'function') offer.expireTimer.unref();
+      // Notify the opponent of the standing offer.
+      const oppSock = userSocket.get(opponentUid);
+      if (oppSock) io.sockets.sockets.get(oppSock)?.emit('rematch_offered', { gameId, from: publicUser(getUserById(uid)) });
+    });
+
+    socket.on('rematch_accept', ({ gameId }) => {
+      const uid = socket.data.userId; if (!uid) return;
+      const rg = recentGames.get(gameId);
+      if (!rg) return;
+      if (rg.whiteUid !== uid && rg.blackUid !== uid) return;
+      const opponentUid = rg.whiteUid === uid ? rg.blackUid : rg.whiteUid;
+      const offer = rematchOffers.get(gameId);
+      // Accept only makes sense if the opponent has a standing offer.
+      if (!offer || !offer.offers.has(opponentUid)) {
+        // Treat a bare accept like an offer so the flow still completes.
+        let o = rematchOffers.get(gameId);
+        if (!o) { o = { offers: new Set(), expireTimer: null }; rematchOffers.set(gameId, o); }
+        o.offers.add(uid);
+        return;
+      }
+      startRematch(io, gameId);
+    });
+
+    socket.on('rematch_decline', ({ gameId }) => {
+      const uid = socket.data.userId; if (!uid) return;
+      const rg = recentGames.get(gameId);
+      if (!rg) return;
+      if (rg.whiteUid !== uid && rg.blackUid !== uid) return;
+      const offererUid = rg.whiteUid === uid ? rg.blackUid : rg.whiteUid;
+      clearRematchOffer(gameId);
+      const offSock = userSocket.get(offererUid);
+      if (offSock) io.sockets.sockets.get(offSock)?.emit('rematch_declined', { gameId });
+    });
+
     socket.on('chat', ({ gameId, text }) => {
       const uid = socket.data.userId; if (!uid) return;
       if (!consumeBucket(chatBuckets, uid, 5, 1)) {
@@ -444,14 +552,40 @@ export function attachSocketHandlers(io, verifyToken) {
             if (otherSock) io.sockets.sockets.get(otherSock)?.emit('duo_cancelled', { inviteId: iid });
           }
         }
-        // Forfeit an active 1v1 game the user is in (opponent wins). Resolves the
-        // game (records ELO) and frees the activeGames/userActiveGame entries.
+        // Clear any pending rematch offers involving this user; notify the other side.
+        for (const [gid, offer] of rematchOffers) {
+          const rg = recentGames.get(gid);
+          if (!rg) { clearRematchOffer(gid); continue; }
+          if (rg.whiteUid !== uid && rg.blackUid !== uid) continue;
+          const otherUid = rg.whiteUid === uid ? rg.blackUid : rg.whiteUid;
+          const hadOwnOffer = offer.offers.has(uid);
+          clearRematchOffer(gid);
+          const otherSock = userSocket.get(otherUid);
+          if (otherSock) {
+            // If THIS user was the offerer, the other side sees a decline; else expire.
+            io.sockets.sockets.get(otherSock)?.emit(hadOwnOffer ? 'rematch_declined' : 'rematch_expired', { gameId: gid });
+          }
+        }
+        // 1v1 disconnect: start a 30s grace window instead of an immediate forfeit.
+        // The clock KEEPS running; the timeout sweep may still flag the player.
         const oneVOneId = userActiveGame.get(uid);
         if (oneVOneId) {
           const game = activeGames.get(oneVOneId);
           if (game && !game._ended) {
-            const winner = game.white === uid ? game.black : game.white;
-            finishGame(io, game, { reason: 'disconnect', winnerId: winner });
+            const opponent = game.white === uid ? game.black : game.white;
+            game.disconnectedUid = uid;
+            if (game.disconnectTimer) clearTimeout(game.disconnectTimer);
+            game.disconnectTimer = setTimeout(() => {
+              // Only forfeit if the game is still live and the uid is still marked
+              // disconnected (i.e. they never reconnected). The _ended guard makes
+              // this safe against a racing timeout/checkmate finish.
+              if (!game._ended && game.disconnectedUid === uid) {
+                finishGame(io, game, { reason: 'disconnect', winnerId: opponent });
+              }
+            }, DISCONNECT_GRACE_MS);
+            if (typeof game.disconnectTimer.unref === 'function') game.disconnectTimer.unref();
+            const oppSock = userSocket.get(opponent);
+            if (oppSock) io.sockets.sockets.get(oppSock)?.emit('opponent_disconnected', { gameId: oneVOneId, graceMs: DISCONNECT_GRACE_MS });
           }
         }
         // Abort an active team game the user is in (other side wins by forfeit).
@@ -495,6 +629,14 @@ function tryMatchmake(io) {
 
 function startGame(io, a, b) {
   const [white, black] = Math.random() < 0.5 ? [a, b] : [b, a];
+  startGameWithColors(io, white, black);
+}
+
+// Color-forced game start: `white`/`black` are {uid, socketId, elo, mode, tc}.
+// Used by the rematch path (to swap colors deterministically) and by startGame
+// (after it has randomized which entry is white).
+function startGameWithColors(io, white, black) {
+  const a = white; // keep `a` for tc/mode reads below (matches old startGame)
   const gameId = newGameId();
   const chess = new Chess();
   const tc = normalizeTc(a.tc);
@@ -534,6 +676,8 @@ function startGame(io, a, b) {
 function finishGame(io, game, override = {}) {
   if (game._ended) return;
   game._ended = true;
+  // Don't leak a pending disconnect grace timer if the game ends another way.
+  if (game.disconnectTimer) { clearTimeout(game.disconnectTimer); game.disconnectTimer = null; }
   const chess = game.chess;
   let winnerId = override.winnerId || null;
   let reason = override.reason || (chess.isCheckmate() ? 'checkmate' : (chess.isDraw() ? 'draw' : 'unknown'));
@@ -592,6 +736,55 @@ function finishGame(io, game, override = {}) {
   userActiveGame.delete(game.white);
   userActiveGame.delete(game.black);
   activeGames.delete(game.id);
+
+  // Stash a short-lived snapshot so a rematch can be set up after the game
+  // object is gone. Auto-deleted after the TTL.
+  const existingRecent = recentGames.get(game.id);
+  if (existingRecent?.expireTimer) clearTimeout(existingRecent.expireTimer);
+  const recent = { whiteUid: game.white, blackUid: game.black, mode: game.mode, tc: game.tc, expireTimer: null };
+  recent.expireTimer = setTimeout(() => {
+    recentGames.delete(game.id);
+    clearRematchOffer(game.id);
+  }, RECENT_GAME_TTL_MS);
+  if (typeof recent.expireTimer.unref === 'function') recent.expireTimer.unref();
+  recentGames.set(game.id, recent);
+}
+
+// Clear a standing rematch offer (and its expire timer) for a gameId.
+function clearRematchOffer(gameId) {
+  const offer = rematchOffers.get(gameId);
+  if (!offer) return;
+  if (offer.expireTimer) clearTimeout(offer.expireTimer);
+  rematchOffers.delete(gameId);
+}
+
+// Start a rematch for a recent 1v1 game: same players, same mode/tc, colors
+// swapped. Reuses the normal startGame path so both clients get match_found.
+function startRematch(io, gameId) {
+  const rg = recentGames.get(gameId);
+  if (!rg) return;
+  // Consume the offer + recent snapshot up front so we can't double-fire.
+  clearRematchOffer(gameId);
+  if (rg.expireTimer) clearTimeout(rg.expireTimer);
+  recentGames.delete(gameId);
+
+  // Colors swapped: previous Black becomes White.
+  const newWhiteUid = rg.blackUid;
+  const newBlackUid = rg.whiteUid;
+  const wSock = userSocket.get(newWhiteUid);
+  const bSock = userSocket.get(newBlackUid);
+  if (!wSock || !bSock) return; // a player went offline; abort silently
+  const wUser = getUserById(newWhiteUid);
+  const bUser = getUserById(newBlackUid);
+  if (!wUser || !bUser) return;
+  // startGame randomizes colors internally, so pre-bias by passing the desired
+  // White first and Black second is not enough. Force the order by giving
+  // startGame two entries and overriding its randomization via fixed seats:
+  // we pass them so a is White-intended; startGame still flips 50/50, so we
+  // call a color-forced variant.
+  startGameWithColors(io,
+    { uid: newWhiteUid, socketId: wSock, elo: wUser.elo, mode: rg.mode, tc: rg.tc },
+    { uid: newBlackUid, socketId: bSock, elo: bUser.elo, mode: rg.mode, tc: rg.tc });
 }
 
 // ===========================================================================

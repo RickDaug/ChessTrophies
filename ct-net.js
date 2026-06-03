@@ -2,15 +2,19 @@
  * ct-net.js - thin socket.io-client wrapper for ChessTrophies online play.
  *
  * Exposes window.CTNet with:
- *   connect(serverUrl, token, { onAuthOk, onAuthErr, onDisconnect })
+ *   connect(serverUrl, token, { onAuthOk, onAuthErr, onDisconnect, onReconnectFailed })
  *   disconnect()
  *   isReady()                     -- connected AND auth_ok received
  *   joinQueue(mode)               -- emit mm_join
  *   leaveQueue()                  -- emit mm_leave
  *   sendMove({ gameId, from, to, promotion })
  *   resign(gameId)
+ *   offerRematch(gameId) / acceptRematch(gameId) / declineRematch(gameId)
  *   on(event, handler)            -- events: matchFound, moveMade, illegalMove,
- *                                   gameOver, rateLimited
+ *                                   gameOver, rateLimited, rematchOffered,
+ *                                   rematchDeclined, rematchExpired,
+ *                                   opponentDisconnected, opponentReconnected,
+ *                                   gameState
  *   off(event, handler)
  *
  * Depends on window.io (socket.io-client global, loaded via <script> tag).
@@ -84,6 +88,14 @@
       if (opts.onDisconnect) opts.onDisconnect(reason);
     });
 
+    // socket.io manager exhausted reconnectionAttempts -- it will not retry again.
+    if (socket.io && typeof socket.io.on === 'function') {
+      socket.io.on('reconnect_failed', function () {
+        ready = false;
+        if (opts.onReconnectFailed) opts.onReconnectFailed();
+      });
+    }
+
     socket.on('match_found', function (data) { emit('matchFound', data); });
     socket.on('move_made', function (data) { emit('moveMade', data); });
     socket.on('illegal_move', function (data) { emit('illegalMove', data); });
@@ -94,6 +106,14 @@
     socket.on('team_mm_queued', function (data) { emit('teamQueued', data); });
     socket.on('team_mm_left', function (data) { emit('teamLeft', data); });
     socket.on('team_mm_err', function (data) { emit('teamErr', data); });
+    // Rematch (1v1) lifecycle
+    socket.on('rematch_offered', function (data) { emit('rematchOffered', data); });
+    socket.on('rematch_declined', function (data) { emit('rematchDeclined', data); });
+    socket.on('rematch_expired', function (data) { emit('rematchExpired', data); });
+    // Disconnect grace + reconnect/resume (1v1)
+    socket.on('opponent_disconnected', function (data) { emit('opponentDisconnected', data); });
+    socket.on('opponent_reconnected', function (data) { emit('opponentReconnected', data); });
+    socket.on('game_state', function (data) { emit('gameState', data); });
     // Duo invite lifecycle
     socket.on('duo_invite_received', function (data) { emit('duoInviteReceived', data); });
     socket.on('duo_invite_sent', function (data) { emit('duoInviteSent', data); });
@@ -144,6 +164,23 @@
     return true;
   }
 
+  // --- Rematch (1v1) ---
+  function offerRematch(gameId) {
+    if (!ready) return false;
+    socket.emit('rematch_offer', { gameId: gameId });
+    return true;
+  }
+  function acceptRematch(gameId) {
+    if (!ready) return false;
+    socket.emit('rematch_accept', { gameId: gameId });
+    return true;
+  }
+  function declineRematch(gameId) {
+    if (!ready) return false;
+    socket.emit('rematch_decline', { gameId: gameId });
+    return true;
+  }
+
   // --- 2v2 team play ---
   function joinTeamQueue(inviteId, tc) {
     if (!ready) return false;
@@ -186,6 +223,9 @@
     leaveQueue: leaveQueue,
     sendMove: sendMove,
     resign: resign,
+    offerRematch: offerRematch,
+    acceptRematch: acceptRematch,
+    declineRematch: declineRematch,
     joinTeamQueue: joinTeamQueue,
     leaveTeamQueue: leaveTeamQueue,
     inviteDuo: inviteDuo,
