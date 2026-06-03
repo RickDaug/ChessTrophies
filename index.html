@@ -131,7 +131,14 @@
   .sq .coord.rank { left: 3px; top: 1px; }
   .player-card { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 6px 0; }
   .player-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(245, 196, 81, .15); }
-  .player-card .clock { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .player-card .clock { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 18px; letter-spacing: .02em; padding: 4px 10px; border-radius: 8px; background: var(--panel-2, #1c2233); min-width: 64px; text-align: center; }
+  .player-card .clock.running { background: rgba(245, 196, 81, .16); color: var(--accent, #f5c451); }
+  .player-card .clock.low { background: rgba(248, 113, 113, .18); color: var(--danger, #f87171); }
+  /* time-control picker */
+  .tc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tc-opt { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); cursor: pointer; font-weight: 700; }
+  .tc-opt .tc-sub { font-weight: 500; font-size: 12px; color: var(--muted); }
+  .tc-opt.selected { border-color: var(--accent, #f5c451); box-shadow: 0 0 0 2px rgba(245, 196, 81, .18); }
   .captured { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 4px; min-height: 18px; }
   .captured svg { width: 18px; height: 18px; opacity: .85; }
 
@@ -624,6 +631,7 @@
         <div class="muted small" id="pt-elo">—</div>
         <div class="captured" id="pt-captured"></div>
       </div>
+      <div class="clock" id="pt-clock" style="display:none"></div>
     </div>
 
     <div class="board-wrap">
@@ -638,6 +646,7 @@
         <div class="muted small" id="pb-elo">—</div>
         <div class="captured" id="pb-captured"></div>
       </div>
+      <div class="clock" id="pb-clock" style="display:none"></div>
     </div>
   </section>
 
@@ -645,7 +654,15 @@
       <section id="screen-duo" class="screen">
       <h2 style="display:flex;align-items:center;gap:8px">2v2 Team Chess <button id="duo-quit" class="btn" style="margin-left:auto;padding:6px 12px">Quit</button></h2>
       <div class="muted small" id="duo-teams" style="margin-bottom:6px"></div>
+      <div class="player-card" id="duo-card-top" style="display:none">
+        <div style="flex:1;min-width:0;font-weight:600" id="duo-top-label">Opponents</div>
+        <div class="clock" id="duo-clock-top"></div>
+      </div>
       <div class="board-wrap"><div class="board" id="duo-board"></div></div>
+      <div class="player-card" id="duo-card-bot" style="display:none">
+        <div style="flex:1;min-width:0;font-weight:600" id="duo-bot-label">Your team</div>
+        <div class="clock" id="duo-clock-bot"></div>
+      </div>
       <div id="duo-status" style="text-align:center;font-weight:600;margin:10px 0"></div>
       <div id="duo-suggest" style="display:none;margin:8px 0"></div>
     </section>
@@ -896,6 +913,18 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-timecontrol">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2 style="margin:0 0 4px" id="tc-title">Choose a time control</h2>
+    <p class="muted small" id="tc-subtitle" style="margin:0 0 14px">Both players must pick the same time control to be matched.</p>
+    <div class="tc-grid" id="tc-grid"></div>
+    <div class="stack" style="margin-top:16px">
+      <button class="btn btn-block" id="btn-tc-start">Find match</button>
+      <button class="btn btn-ghost btn-block" id="btn-tc-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="modal-matchmaking">
   <div class="modal">
     <div class="handle"></div>

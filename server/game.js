@@ -18,6 +18,102 @@ const activeTeamGames = new Map(); // gameId -> team game object (see startTeamG
 const userActiveTeamGame = new Map(); // uid -> gameId (so we can find which game on resign/move)
 const teamMmBuckets = new Map();   // uid -> token bucket
 
+// --- Time controls (server-authoritative clocks) ---
+// Allowlisted keys; anything else is treated as 'unlimited' (no clock).
+const TC_ALLOWLIST = new Set(['1+0', '3+2', '5+0', '10+0', '15+10', 'unlimited']);
+
+// Normalise an incoming tc value to an allowlisted key (defaults to 'unlimited').
+function normalizeTc(tc) {
+  return (typeof tc === 'string' && TC_ALLOWLIST.has(tc)) ? tc : 'unlimited';
+}
+
+// Parse an allowlisted tc key into { initialMs, incrementMs } or null for unlimited.
+function parseTc(tc) {
+  const key = normalizeTc(tc);
+  if (key === 'unlimited') return null;
+  const m = /^(\d+)\+(\d+)$/.exec(key);
+  if (!m) return null;
+  return { initialMs: Number(m[1]) * 60 * 1000, incrementMs: Number(m[2]) * 1000 };
+}
+
+// Build the clock object for a fresh clocked game (or null for unlimited).
+function makeClock(parsed) {
+  if (!parsed) return null;
+  return {
+    w: parsed.initialMs,
+    b: parsed.initialMs,
+    incrementMs: parsed.incrementMs,
+    running: 'w',
+    turnStartedAt: Date.now(),
+  };
+}
+
+// Wire-shape for match_found / team_match_found.
+function clockSnapshotForStart(clock, parsed) {
+  if (!clock || !parsed) return null;
+  return {
+    initialMs: parsed.initialMs,
+    incrementMs: clock.incrementMs,
+    w: clock.w,
+    b: clock.b,
+    running: clock.running,
+    serverNow: Date.now(),
+  };
+}
+
+// Wire-shape for move_made.
+function clockSnapshotForMove(clock) {
+  return { w: clock.w, b: clock.b, running: clock.running, serverNow: Date.now() };
+}
+
+// Timeout-scoring nicety: a side that flags loses, UNLESS the side that would
+// WIN on time has insufficient mating material — in which case it's a draw.
+// We test the winning color's own pieces: a lone king, K+N, or K+B (any number
+// of same-color bishops) cannot force mate, so the win is downgraded to a draw.
+function colorHasMatingMaterial(chess, color) {
+  try {
+    const board = chess.board();
+    let knights = 0, bishops = 0;
+    for (const row of board) {
+      for (const sq of row) {
+        if (!sq || sq.color !== color) continue;
+        const t = sq.type;
+        if (t === 'q' || t === 'r' || t === 'p') return true; // can mate
+        if (t === 'n') knights++;
+        else if (t === 'b') bishops++;
+      }
+    }
+    // King-only, K+single minor cannot force mate. K + (2+ knights) or
+    // K + bishop(s) + knight, etc. -> treat as sufficient (be permissive).
+    if (knights + bishops >= 2) return true;
+    return false; // lone K, K+N, or K+B
+  } catch {
+    return true; // on any error, don't downgrade the result
+  }
+}
+
+// Finish a clocked 1v1 game on a flag by `flagColor` ('w'|'b'). Normally a loss
+// for the flagger; downgraded to a draw if the winner can't mate.
+function timeoutFinishGame(io, game, flagColor) {
+  const winnerColor = flagColor === 'w' ? 'b' : 'w';
+  if (!colorHasMatingMaterial(game.chess, winnerColor)) {
+    finishGame(io, game, { reason: 'timeout', winnerId: null });
+    return;
+  }
+  const winnerId = winnerColor === 'w' ? game.white : game.black;
+  finishGame(io, game, { reason: 'timeout', winnerId });
+}
+
+// Finish a clocked 2v2 game on a flag by team `flagColor`.
+function timeoutFinishTeamGame(io, tg, flagColor) {
+  const winnerColor = flagColor === 'w' ? 'b' : 'w';
+  if (!colorHasMatingMaterial(tg.chess, winnerColor)) {
+    finishTeamGame(io, tg, { reason: 'timeout', winnerColor: null });
+    return;
+  }
+  finishTeamGame(io, tg, { reason: 'timeout', winnerColor });
+}
+
 function newGameId() { return 'g_' + crypto.randomBytes(6).toString('hex'); }
 function newDuoInviteId() { return 'di_' + crypto.randomBytes(5).toString('hex'); }
 function newTeamEntryId() { return 'tq_' + crypto.randomBytes(5).toString('hex'); }
@@ -43,7 +139,40 @@ function eloDelta(a, b, score) {
   return Math.round(K * (score - exp));
 }
 
+// Single timeout sweep timer (lives for the server lifetime). Scans clocked
+// games for a running side whose remaining time has hit zero even though they
+// never sent a move, and flags them.
+let timeoutSweepTimer = null;
+function startTimeoutSweep(io) {
+  if (timeoutSweepTimer) return;
+  timeoutSweepTimer = setInterval(() => {
+    const now = Date.now();
+    // 1v1
+    for (const game of activeGames.values()) {
+      if (!game.clock || game._ended) continue;
+      const clock = game.clock;
+      const remaining = clock[clock.running] - (now - clock.turnStartedAt);
+      if (remaining <= 0) {
+        clock[clock.running] = 0;
+        timeoutFinishGame(io, game, clock.running);
+      }
+    }
+    // 2v2
+    for (const tg of activeTeamGames.values()) {
+      if (!tg.clock || tg._ended) continue;
+      const clock = tg.clock;
+      const remaining = clock[clock.running] - (now - clock.turnStartedAt);
+      if (remaining <= 0) {
+        clock[clock.running] = 0;
+        timeoutFinishTeamGame(io, tg, clock.running);
+      }
+    }
+  }, 1000);
+  if (typeof timeoutSweepTimer.unref === 'function') timeoutSweepTimer.unref();
+}
+
 export function attachSocketHandlers(io, verifyToken) {
+  startTimeoutSweep(io);
   io.on('connection', (socket) => {
     socket.on('auth', ({ token }) => {
       // Flood/brute-force protection: cap failed auth attempts per socket.
@@ -75,14 +204,14 @@ export function attachSocketHandlers(io, verifyToken) {
     });
 
     // Skill-based matchmaking
-    socket.on('mm_join', ({ mode }) => {
+    socket.on('mm_join', ({ mode, tc }) => {
       const uid = socket.data.userId; if (!uid) return;
       if (!consumeBucket(mmBuckets, uid, 3, 0.2)) {
         socket.emit('rate_limited', { event: 'mm_join', retryInMs: 5000 });
         return;
       }
       const user = getUserById(uid);
-      matchmakingQueue.set(uid, { socketId: socket.id, elo: user.elo, joinedAt: Date.now(), mode: typeof mode === 'string' ? mode : 'ranked' });
+      matchmakingQueue.set(uid, { socketId: socket.id, elo: user.elo, joinedAt: Date.now(), mode: typeof mode === 'string' ? mode : 'ranked', tc: normalizeTc(tc) });
       tryMatchmake(io);
     });
     socket.on('mm_leave', () => {
@@ -91,12 +220,13 @@ export function attachSocketHandlers(io, verifyToken) {
     });
 
     // --- 2v2 team matchmaking ---
-    socket.on('team_mm_join', ({ inviteId }) => {
+    socket.on('team_mm_join', ({ inviteId, tc }) => {
       const uid = socket.data.userId; if (!uid) return;
       if (!consumeBucket(teamMmBuckets, uid, 3, 0.2)) {
         socket.emit('rate_limited', { event: 'team_mm_join', retryInMs: 5000 });
         return;
       }
+      const entryTc = normalizeTc(tc);
       // If user is already queued (solo or as part of a duo), ignore.
       if (findTeamQueueEntryByUid(uid)) return;
       const user = getUserById(uid);
@@ -115,6 +245,7 @@ export function attachSocketHandlers(io, verifyToken) {
             id: newTeamEntryId(),
             type: 'duo',
             inviteId,
+            tc: entryTc,
             members: [{ uid: invite.hostId, socketId: socket.id, elo: ratingFor2v2(user) }],
             joinedAt: Date.now(),
           };
@@ -143,6 +274,7 @@ export function attachSocketHandlers(io, verifyToken) {
         const entry = {
           id: newTeamEntryId(),
           type: 'solo',
+          tc: entryTc,
           members: [{ uid, socketId: socket.id, elo: ratingFor2v2(user) }],
           joinedAt: Date.now(),
         };
@@ -240,7 +372,24 @@ export function attachSocketHandlers(io, verifyToken) {
       if (game.chess.turn() !== playerColor) return;
       const move = game.chess.move({ from, to, promotion: promotion || 'q' });
       if (!move) { socket.emit('illegal_move', { gameId, from, to }); return; }
-      io.to(gameId).emit('move_made', { gameId, move, fen: game.chess.fen() });
+      // Server-authoritative clock: charge the mover's elapsed time.
+      let clockPayload = null;
+      if (game.clock) {
+        const clock = game.clock;
+        const elapsed = Date.now() - clock.turnStartedAt;
+        clock[playerColor] -= elapsed;
+        if (clock[playerColor] <= 0) {
+          // Mover flagged: timeout loss (or draw if winner can't mate).
+          clock[playerColor] = 0;
+          timeoutFinishGame(io, game, playerColor);
+          return;
+        }
+        clock[playerColor] += clock.incrementMs;
+        clock.running = playerColor === 'w' ? 'b' : 'w';
+        clock.turnStartedAt = Date.now();
+        clockPayload = clockSnapshotForMove(clock);
+      }
+      io.to(gameId).emit('move_made', { gameId, move, fen: game.chess.fen(), clock: clockPayload });
       if (game.chess.isGameOver()) finishGame(io, game);
     });
 
@@ -333,7 +482,8 @@ function tryMatchmake(io) {
     const match = players.find((b) =>
       b.uid !== a.uid && matchmakingQueue.has(b.uid) &&
       Math.abs(a.elo - b.elo) <= tolerance &&
-      a.mode === b.mode
+      a.mode === b.mode &&
+      a.tc === b.tc
     );
     if (match) {
       matchmakingQueue.delete(a.uid);
@@ -347,6 +497,9 @@ function startGame(io, a, b) {
   const [white, black] = Math.random() < 0.5 ? [a, b] : [b, a];
   const gameId = newGameId();
   const chess = new Chess();
+  const tc = normalizeTc(a.tc);
+  const parsed = parseTc(tc);
+  const clock = makeClock(parsed);
   const game = {
     id: gameId,
     white: white.uid,
@@ -354,6 +507,8 @@ function startGame(io, a, b) {
     chess,
     mode: a.mode,
     started: Date.now(),
+    tc,
+    clock,
     whiteEloBefore: getUserById(white.uid).elo,
     blackEloBefore: getUserById(black.uid).elo,
   };
@@ -371,6 +526,8 @@ function startGame(io, a, b) {
     white: publicUser(whiteUser),
     black: publicUser(blackUser),
     mode: game.mode,
+    tc,
+    clock: clockSnapshotForStart(clock, parsed),
   });
 }
 
@@ -486,18 +643,31 @@ function teamOfUid(tg, uid) {
 
 function tryTeamMatchmake(io) {
   // FIFO walk: greedily pick entries that fit; if total reaches exactly 4, pair.
-  const entries = [...teamQueue.values()]
+  // Only entries sharing the SAME tc may be grouped together.
+  const ready = [...teamQueue.values()]
     .filter(e => e.type !== 'duo' || e.members.length === 2)  // skip duos waiting for guest
     .sort((a, b) => a.joinedAt - b.joinedAt);
-  const picked = [];
-  let total = 0;
-  for (const e of entries) {
-    if (total + e.members.length <= 4) {
-      picked.push(e);
-      total += e.members.length;
-      if (total === 4) break;
-    }
+  const byTc = new Map();
+  for (const e of ready) {
+    const key = normalizeTc(e.tc);
+    if (!byTc.has(key)) byTc.set(key, []);
+    byTc.get(key).push(e);
   }
+  let picked = [];
+  let matchedTc = 'unlimited';
+  for (const [key, entries] of byTc) {
+    const group = [];
+    let t = 0;
+    for (const e of entries) {
+      if (t + e.members.length <= 4) {
+        group.push(e);
+        t += e.members.length;
+        if (t === 4) break;
+      }
+    }
+    if (t === 4) { picked = group; matchedTc = key; break; }
+  }
+  const total = picked.reduce((s, e) => s + e.members.length, 0);
   if (total !== 4) return;
   // Remove from queue, and clear any accepted duo invites now that the game
   // starts (otherwise a consumed invite leaks forever).
@@ -527,12 +697,15 @@ function tryTeamMatchmake(io) {
   if (Math.random() < 0.5) whiteMembers.reverse();
   if (Math.random() < 0.5) blackMembers.reverse();
 
-  startTeamGame(io, whiteMembers, blackMembers);
+  startTeamGame(io, whiteMembers, blackMembers, matchedTc);
 }
 
-function startTeamGame(io, whiteMembers, blackMembers) {
+function startTeamGame(io, whiteMembers, blackMembers, tc = 'unlimited') {
   const gameId = newGameId();
   const chess = new Chess();
+  const normTc = normalizeTc(tc);
+  const parsed = parseTc(normTc);
+  const clock = makeClock(parsed);
   const whiteByUid = {};
   const blackByUid = {};
   whiteMembers.forEach((m, i) => { whiteByUid[m.uid] = i; });
@@ -544,6 +717,8 @@ function startTeamGame(io, whiteMembers, blackMembers) {
     chess,
     mode: 'team-ranked',
     started: Date.now(),
+    tc: normTc,
+    clock,
     whiteMembers, blackMembers,
     whiteByUid, blackByUid,
     turnCount: { w: 0, b: 0 }, // number of moves each team has played
@@ -583,6 +758,8 @@ function startTeamGame(io, whiteMembers, blackMembers) {
         black: { p1: publicUser(blackUsers[0]), p2: publicUser(blackUsers[1]) },
         whiteAvgElo: tg.whiteAvgEloBefore,
         blackAvgElo: tg.blackAvgEloBefore,
+        tc: normTc,
+        clock: clockSnapshotForStart(clock, parsed),
       });
     }
   }
@@ -599,12 +776,30 @@ function applyTeamMove(io, socket, tg, uid, { from, to, promotion }) {
   const move = tg.chess.move({ from, to, promotion: promotion || 'q' });
   if (!move) { socket.emit('illegal_move', { gameId: tg.id, from, to, reason: 'illegal' }); return; }
   tg.turnCount[myTeam] += 1;
+  // Server-authoritative per-team clock: charge the moving team's elapsed time.
+  let clockPayload = null;
+  if (tg.clock) {
+    const clock = tg.clock;
+    const elapsed = Date.now() - clock.turnStartedAt;
+    clock[myTeam] -= elapsed;
+    if (clock[myTeam] <= 0) {
+      // Moving team flagged: timeout loss (or draw if winner can't mate).
+      clock[myTeam] = 0;
+      timeoutFinishTeamGame(io, tg, myTeam);
+      return;
+    }
+    clock[myTeam] += clock.incrementMs;
+    clock.running = myTeam === 'w' ? 'b' : 'w';
+    clock.turnStartedAt = Date.now();
+    clockPayload = clockSnapshotForMove(clock);
+  }
   io.to(tg.id).emit('move_made', {
     gameId: tg.id,
     move,
     fen: tg.chess.fen(),
     turnCount: { w: tg.turnCount.w, b: tg.turnCount.b },
     nextSeat: tg.turnCount[tg.chess.turn()] % 2,
+    clock: clockPayload,
   });
   if (tg.chess.isGameOver()) finishTeamGame(io, tg);
 }

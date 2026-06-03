@@ -120,9 +120,9 @@
 
   function isReady() { return ready; }
 
-  function joinQueue(mode) {
+  function joinQueue(mode, tc) {
     if (!ready) return false;
-    socket.emit('mm_join', { mode: mode || 'ranked' });
+    socket.emit('mm_join', { mode: mode || 'ranked', tc: tc || 'unlimited' });
     return true;
   }
 
@@ -145,9 +145,11 @@
   }
 
   // --- 2v2 team play ---
-  function joinTeamQueue(inviteId) {
+  function joinTeamQueue(inviteId, tc) {
     if (!ready) return false;
-    socket.emit('team_mm_join', inviteId ? { inviteId: inviteId } : {});
+    var payload = inviteId ? { inviteId: inviteId } : {};
+    payload.tc = tc || 'unlimited';
+    socket.emit('team_mm_join', payload);
     return true;
   }
   function leaveTeamQueue() {

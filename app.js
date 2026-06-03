@@ -604,7 +604,135 @@
     gameId: null,         // server-issued game id when in an online match
     applyingRemoteMove: false, // guard so afterMove doesn't echo opponent moves back to server
     awaitingServerGameOver: false, // when online, defer local handleGameOver until server sends game_over
+    selectedTc: '5+0', // last-chosen time control for online matchmaking
   };
+
+  // ---------------------------------------------------------------------------
+  // Time controls (game clocks). Key format "<minutes>+<incrementSeconds>".
+  // The server pairs only players on the SAME tc key, so these strings matter.
+  // ---------------------------------------------------------------------------
+  const TC_OPTIONS = [
+    { key: '1+0',    label: '1+0',   cat: 'Bullet' },
+    { key: '3+2',    label: '3+2',   cat: 'Blitz' },
+    { key: '5+0',    label: '5+0',   cat: 'Blitz' },
+    { key: '10+0',   label: '10+0',  cat: 'Rapid' },
+    { key: '15+10',  label: '15+10', cat: 'Rapid' },
+    { key: 'unlimited', label: '∞',  cat: 'Unlimited' },
+  ];
+  const TC_DEFAULT = '5+0';
+  const TC_STORE_KEY = 'ct_selected_tc_v1';
+
+  function tcDisplay(key) {
+    if (!key || key === 'unlimited') return 'unlimited';
+    return key; // already in "M+S" form
+  }
+  function loadSelectedTc() {
+    try {
+      const v = localStorage.getItem(TC_STORE_KEY);
+      if (v && TC_OPTIONS.some((o) => o.key === v)) { state.selectedTc = v; return; }
+    } catch (e) {}
+    state.selectedTc = TC_DEFAULT;
+  }
+  function saveSelectedTc(key) {
+    state.selectedTc = key;
+    try { localStorage.setItem(TC_STORE_KEY, key); } catch (e) {}
+  }
+  loadSelectedTc();
+
+  // ---------------------------------------------------------------------------
+  // Client-side clock runner. The server is authoritative; we only smooth the
+  // display of the running side between move events. clockState is rebuilt from
+  // every clock-bearing payload using `serverNow` so latency doesn't accumulate.
+  // ---------------------------------------------------------------------------
+  const clockState = {
+    active: false,         // true only for a clocked (non-unlimited) game
+    wMs: 0, bMs: 0,        // last server-reported remaining ms per side
+    running: 'w',          // side currently counting down
+    localBase: 0,          // Date.now() captured when wMs/bMs were valid
+    // element ids for the side mapped to each on-screen card
+    topSide: 'b', botSide: 'w',
+    topEl: null, botEl: null,
+    interval: null,
+  };
+
+  function clockStop() {
+    if (clockState.interval) { clearInterval(clockState.interval); clockState.interval = null; }
+    clockState.active = false;
+    // Hide whatever clock elements we were driving.
+    [clockState.topEl, clockState.botEl].forEach((el) => { if (el) el.style.display = 'none'; });
+  }
+
+  function fmtClock(ms) {
+    if (ms < 0) ms = 0;
+    const totalSecs = ms / 1000;
+    const mins = Math.floor(totalSecs / 60);
+    if (ms < 20000) {
+      // Under 20s: show tenths for urgency.
+      const secs = Math.floor(totalSecs % 60);
+      const tenths = Math.floor((ms % 1000) / 100);
+      return mins + ':' + String(secs).padStart(2, '0') + '.' + tenths;
+    }
+    const secs = Math.round(totalSecs % 60);
+    // round can yield 60 at boundaries; normalize.
+    if (secs === 60) return (mins + 1) + ':00';
+    return mins + ':' + String(secs).padStart(2, '0');
+  }
+
+  // Remaining ms for a side right now, accounting for the running side ticking.
+  function clockRemaining(side) {
+    let ms = side === 'w' ? clockState.wMs : clockState.bMs;
+    if (clockState.running === side) ms -= (Date.now() - clockState.localBase);
+    return Math.max(0, ms);
+  }
+
+  function clockPaint() {
+    if (!clockState.active) return;
+    const pairs = [
+      { el: clockState.topEl, side: clockState.topSide },
+      { el: clockState.botEl, side: clockState.botSide },
+    ];
+    pairs.forEach((p) => {
+      if (!p.el) return;
+      const ms = clockRemaining(p.side);
+      p.el.textContent = fmtClock(ms);
+      p.el.style.display = '';
+      p.el.classList.toggle('running', clockState.running === p.side && ms > 0);
+      p.el.classList.toggle('low', ms < 20000);
+    });
+  }
+
+  // Start/refresh the clock from a server payload's clock object.
+  // clock = { initialMs?, incrementMs?, w, b, running, serverNow }
+  // topEl/botEl are the DOM clock elements; topSide/botSide map sides to cards.
+  function clockSync(clock, topEl, botEl, topSide, botSide) {
+    if (!clock) { clockStop(); return; }
+    clockState.wMs = typeof clock.w === 'number' ? clock.w : clockState.wMs;
+    clockState.bMs = typeof clock.b === 'number' ? clock.b : clockState.bMs;
+    clockState.running = clock.running || clockState.running;
+    // localBase aligns "now" with the server's clock snapshot. We don't have a
+    // real offset, so treat serverNow as ~= the moment we received it; this keeps
+    // the running side from drifting because every move event re-syncs.
+    clockState.localBase = Date.now();
+    if (topEl) clockState.topEl = topEl;
+    if (botEl) clockState.botEl = botEl;
+    if (topSide) clockState.topSide = topSide;
+    if (botSide) clockState.botSide = botSide;
+    clockState.active = true;
+    clockPaint();
+    if (!clockState.interval) {
+      clockState.interval = setInterval(clockPaint, 200);
+    }
+  }
+
+  // 1v1: map the two on-screen clock cards to board sides from current orientation.
+  // Bottom of the board is always the `orientation` color; top is the other side.
+  function clock1v1Map() {
+    return {
+      topEl: document.getElementById('pt-clock'), botEl: document.getElementById('pb-clock'),
+      topSide: state.orientation === 'w' ? 'b' : 'w',
+      botSide: state.orientation,
+    };
+  }
 
   // ---------------------------------------------------------------------------
   // Achievement catalog
@@ -1290,9 +1418,11 @@ function renderFriendsSummary() {
   $('#btn-new-match').addEventListener('click', () => {
     // Challenge a player = ranked online matchmaking vs a similar-ELO opponent
     state.pendingChallenge = null;
-    startOnlineOrFakeMatchmaking('ranked');
+    openTimeControlPicker({}, () => startOnlineOrFakeMatchmaking('ranked'));
   });
-  $('#btn-find-match').addEventListener('click', () => startOnlineOrFakeMatchmaking('ranked'));
+  $('#btn-find-match').addEventListener('click', () => {
+    openTimeControlPicker({}, () => startOnlineOrFakeMatchmaking('ranked'));
+  });
 
   // Prefer real server matchmaking. The legacy localStorage matcher only ever sees
   // accounts created on THIS device, so it can never pair two real players across
@@ -1300,6 +1430,47 @@ function renderFriendsSummary() {
   // finds nobody. So we only drop to it for guests (who have no server token), and
   // for registered users we (re)connect and wait for the socket instead of silently
   // degrading.
+  // Render the time-control picker and resolve the user's choice via callback.
+  // Used by both 1v1 and 2v2 entry points; persists the last choice.
+  let _tcOnStart = null;
+  function renderTcGrid() {
+    const grid = $('#tc-grid');
+    if (!grid) return;
+    grid.innerHTML = TC_OPTIONS.map((o) =>
+      '<div class="tc-opt' + (o.key === state.selectedTc ? ' selected' : '') + '" data-tc="' + o.key + '">' +
+        '<span>' + o.label + '</span>' +
+        '<span class="tc-sub">' + o.cat + '</span>' +
+      '</div>'
+    ).join('');
+    $$('#tc-grid .tc-opt').forEach((el) => {
+      el.addEventListener('click', () => {
+        saveSelectedTc(el.dataset.tc);
+        $$('#tc-grid .tc-opt').forEach((o) => o.classList.toggle('selected', o.dataset.tc === state.selectedTc));
+      });
+    });
+  }
+  function openTimeControlPicker(opts, onStart) {
+    opts = opts || {};
+    _tcOnStart = onStart;
+    const titleEl = $('#tc-title'), subEl = $('#tc-subtitle');
+    if (titleEl) titleEl.textContent = opts.title || 'Choose a time control';
+    if (subEl) subEl.textContent = opts.subtitle || 'Both players must pick the same time control to be matched.';
+    const startBtn = $('#btn-tc-start');
+    if (startBtn) startBtn.textContent = opts.startLabel || 'Find match';
+    renderTcGrid();
+    openModal('timecontrol');
+  }
+  {
+    const startBtn = $('#btn-tc-start');
+    if (startBtn) startBtn.addEventListener('click', () => {
+      closeModal('timecontrol');
+      const cb = _tcOnStart; _tcOnStart = null;
+      if (typeof cb === 'function') cb(state.selectedTc);
+    });
+    const cancelBtn = $('#btn-tc-cancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { _tcOnStart = null; closeModal('timecontrol'); });
+  }
+
   function startOnlineOrFakeMatchmaking(mode) {
     if (window.CTNet && window.CTNet.isReady()) {
       startOnlineMatchmaking(mode);
@@ -1354,8 +1525,8 @@ function renderFriendsSummary() {
     // 2v2 lobby buttons
     // - btn-duo-online -> real ranked 2v2 via the server (3-min queue, real opponents)
     // - btn-duo-ranked -> kept as alias for older builds (treated as online)
-    { const b = $('#btn-duo-online'); if (b) b.addEventListener('click', () => startOnlineTeamMatchmaking()); }
-    { const b = $('#btn-duo-ranked'); if (b) b.addEventListener('click', () => startOnlineTeamMatchmaking()); }
+    { const b = $('#btn-duo-online'); if (b) b.addEventListener('click', () => openTimeControlPicker({ title: 'Choose a 2v2 time control', startLabel: 'Find ranked 2v2' }, () => startOnlineTeamMatchmaking())); }
+    { const b = $('#btn-duo-ranked'); if (b) b.addEventListener('click', () => openTimeControlPicker({ title: 'Choose a 2v2 time control', startLabel: 'Find ranked 2v2' }, () => startOnlineTeamMatchmaking())); }
     { const b = $('#duo-quit'); if (b) b.addEventListener('click', () => { if (window.Duo.quit()) { window.__duo.game = null; showScreen('lobby'); } }); }
   const practiceEloInput = $('#practice-elo');
   const practiceEloLabel = $('#practice-elo-label');
@@ -1756,8 +1927,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
     if (mmGiveUpTimer) { clearTimeout(mmGiveUpTimer); mmGiveUpTimer = null; }
     mmStart = Date.now();
+    const tc = state.selectedTc || TC_DEFAULT;
     const titleEl = $('#mm-title'), statusEl = $('#mm-status'), timerEl = $('#mm-timer');
-    if (titleEl) titleEl.textContent = 'Searching for an opponent…';
+    if (titleEl) titleEl.textContent = 'Searching for a ' + tcDisplay(tc) + ' game…';
     if (statusEl) statusEl.textContent = 'Looking on the server for a player near ' + state.user.elo + ' ELO…';
     if (timerEl) timerEl.textContent = '0:00';
     openModal('matchmaking');
@@ -1777,7 +1949,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       closeModal('matchmaking');
       toast('No opponent found right now — try again.');
     }, MATCH_SEARCH_MS);
-    window.CTNet.joinQueue(mode);
+    window.CTNet.joinQueue(mode, tc);
   }
 
   function handleServerMatchFound(data) {
@@ -1801,8 +1973,15 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     state.awaitingServerGameOver = true;
     state._forceColor = iAmWhite ? 'w' : 'b';
     toast('Matched with ' + state.opponent.username + ' (ELO ' + state.opponent.elo + ')', true);
+    state.tc = data.tc || null;
     startGame(data.mode === 'ranked' ? 'ranked' : 'unranked');
     state._forceColor = null;
+    // Clocked game: initialize both clocks (unlimited games omit `clock`).
+    clockStop();
+    if (data.clock) {
+      const m = clock1v1Map();
+      clockSync(data.clock, m.topEl, m.botEl, m.topSide, m.botSide);
+    }
   }
 
   function handleServerMoveMade(data) {
@@ -1815,6 +1994,11 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     if (!state.isOnline || !state.game) return;
     if (data.gameId !== state.gameId) return;
     const mv = data.move; if (!mv) return;
+    // Re-sync clocks from the server on every move_made (ours and theirs).
+    if (data.clock && clockState.active) {
+      const m = clock1v1Map();
+      clockSync(data.clock, m.topEl, m.botEl, m.topSide, m.botSide);
+    }
     // Only apply opponent's move; our own move was already applied locally.
     if (mv.color === state.userColor) return;
     state.applyingRemoteMove = true;
@@ -1841,6 +2025,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     }
     if (!state.isOnline || data.gameId !== state.gameId) return;
     state.awaitingServerGameOver = false;
+    clockStop();
     const me = state.user;
     let winnerColor = null;
     if (data.winnerId) {
@@ -1865,7 +2050,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     window.CTNet.connect(SERVER_URL, sess.token, {
       onAuthOk: () => { /* ready to matchmake */ },
       onAuthErr: (e) => { console.warn('[CTNet] auth_err', e); },
-      onDisconnect: () => { /* server will reconnect automatically */ },
+      onDisconnect: () => { clockStop(); /* server will reconnect automatically */ },
     });
     // Register once; CTNet keeps an internal list, but we want at most one of each.
     if (!state._netHandlersRegistered) {
@@ -1982,7 +2167,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     stopTeamQueueTimer();
     tqStart = Date.now();
     const titleEl = $('#tq-title'), statusEl = $('#tq-status'), timerEl = $('#tq-timer'), partnerEl = $('#tq-partner');
-    if (titleEl) titleEl.textContent = 'Searching for a 2v2 match…';
+    if (titleEl) titleEl.textContent = 'Searching for a ' + tcDisplay(state.selectedTc || TC_DEFAULT) + ' 2v2 match…';
     {
       const totalS = Math.round(TEAM_QUEUE_TIMEOUT_MS / 1000);
       const tm = Math.floor(totalS / 60), ts = totalS % 60;
@@ -2010,7 +2195,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         }
       }
     }, 250);
-    window.CTNet.joinTeamQueue();
+    window.CTNet.joinTeamQueue(null, state.selectedTc || TC_DEFAULT);
   }
 
   function handleTeamQueued(data) {
@@ -2073,7 +2258,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
           }
         }
       }, 250);
-      window.CTNet.joinTeamQueue(data.inviteId);
+      window.CTNet.joinTeamQueue(data.inviteId, state.selectedTc || TC_DEFAULT);
     }
   }
 
@@ -2105,7 +2290,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
           }
         }
       }, 250);
-      window.CTNet.joinTeamQueue(data.inviteId);
+      window.CTNet.joinTeamQueue(data.inviteId, state.selectedTc || TC_DEFAULT);
     }
   }
 
@@ -2197,6 +2382,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       state.applyingRemoteMove = false;
       state.awaitingServerGameOver = false;
     }
+    // Tear down any previous clock; online clocked games re-init it after startGame.
+    clockStop();
     state.gameMode = mode;
     if (state.is960 && window.CT_random960Fen) {
       state.startFen960 = state.startFen960 || window.CT_random960Fen();
@@ -2242,6 +2429,13 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     state.orientation = state.orientation === 'w' ? 'b' : 'w';
     setupGameScreen();
     renderBoard();
+    // Re-map clocks to the swapped cards (no clock data changes; just sides).
+    if (clockState.active) {
+      const m = clock1v1Map();
+      clockState.topEl = m.topEl; clockState.botEl = m.botEl;
+      clockState.topSide = m.topSide; clockState.botSide = m.botSide;
+      clockPaint();
+    }
   });
 
   $('#btn-resign').addEventListener('click', () => {
@@ -2777,6 +2971,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   function finishGame(winnerColor, reason) {
     const me = state.user;
     state.gameEnded = true;
+    clockStop();
     const opp = state.opponent;
     const myWon = winnerColor === state.userColor;
     const isDraw = winnerColor === null;
@@ -3046,11 +3241,13 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     } else if (myWon) {
       title = 'Victory! 🏆';
       body = reason === 'checkmate' ? 'You delivered checkmate.' :
-             reason === 'resignation' ? 'Your opponent resigned.' : 'You won.';
+             reason === 'resignation' ? 'Your opponent resigned.' :
+             reason === 'timeout' ? 'You won on time.' : 'You won.';
     } else {
       title = 'Defeat';
       body = reason === 'checkmate' ? 'Checkmated.' :
-             reason === 'resignation' ? 'You resigned.' : 'Your opponent won.';
+             reason === 'resignation' ? 'You resigned.' :
+             reason === 'timeout' ? 'You lost on time.' : 'Your opponent won.';
     }
     $('#result-title').textContent = title;
     $('#result-body').textContent = body;
@@ -4006,6 +4203,28 @@ window.signOut = signOut;
   };
   window.__duo = duo;
 
+  // 2v2: map the two clock cards to team colors. Your team is always at the
+  // bottom (the board flips when youColor === 'b'). w/b in the payload are
+  // per-TEAM remaining ms.
+  function duoClockMap() {
+    return {
+      topEl: document.getElementById('duo-clock-top'),
+      botEl: document.getElementById('duo-clock-bot'),
+      topSide: duo.youColor === 'w' ? 'b' : 'w',
+      botSide: duo.youColor,
+    };
+  }
+  function duoShowClockCards(show) {
+    const t = document.getElementById('duo-card-top');
+    const b = document.getElementById('duo-card-bot');
+    if (t) t.style.display = show ? '' : 'none';
+    if (b) b.style.display = show ? '' : 'none';
+    const tl = document.getElementById('duo-top-label');
+    const bl = document.getElementById('duo-bot-label');
+    if (tl) tl.textContent = 'Opponents';
+    if (bl) bl.textContent = 'Your team';
+  }
+
   // Is it the human player's seat to move right now?
   function duoIsYourTurn() {
     if (!duo.game || duo.over) return false;
@@ -4059,6 +4278,9 @@ window.signOut = signOut;
       const me = state.user;
       if (me) { unlockAchievement(me, 'duo_first'); { const _db = loadDB(); if (state.user) _db.users[state.user.id] = state.user; saveDB(_db); } }
     } catch(e){}
+    // Reset clocks; an online clocked game re-inits them in duoStartOnline.
+    clockStop();
+    duoShowClockCards(false);
     showScreen('duo');
     duoRender();
     duoUpdateStatus();
@@ -4166,6 +4388,11 @@ window.signOut = signOut;
     if (!duo.online || !duo.game || duo.gameId !== data.gameId) return;
     const mv = data.move;
     if (!mv) return;
+    // Re-sync the team clocks from the server on every move.
+    if (data.clock && clockState.active) {
+      const mp = duoClockMap();
+      clockSync(data.clock, mp.topEl, mp.botEl, mp.topSide, mp.botSide);
+    }
     duo._awaitingServerMove = null;
     const applied = duo.game.move({ from: mv.from, to: mv.to, promotion: mv.promotion || 'q' });
     if (!applied) {
@@ -4179,6 +4406,7 @@ window.signOut = signOut;
   function duoHandleServerGameOver(data) {
     if (!duo.online || duo.gameId !== data.gameId) return;
     duo.ended = true; duo.over = true;
+    clockStop();
     const winnerColor = data.winnerColor || null;
     const isDraw = !winnerColor;
     const youWon = winnerColor === duo.youColor;
@@ -4311,7 +4539,10 @@ window.signOut = signOut;
 
   function duoShowResult(youWon, isDraw, reason, delta) {
     const s = $('#duo-status');
-    if (s) s.textContent = isDraw ? 'Draw \u2014 ' + reason : (youWon ? 'Victory! Your team wins.' : 'Defeat \u2014 your team lost.');
+    const onTime = reason === 'timeout';
+    if (s) s.textContent = isDraw ? 'Draw \u2014 ' + reason
+      : (youWon ? ('Victory! Your team wins' + (onTime ? ' on time.' : '.'))
+                : ('Defeat \u2014 your team lost' + (onTime ? ' on time.' : '.')));
     const p = $('#duo-suggest');
     if (p) {
       const dtxt = duo.ranked ? ('<div class="muted small">2v2 rating ' + (delta>=0?'+':'') + delta + ' (now ' + (state.user?state.user.elo2v2:'?') + ')</div>') : '<div class="muted small">Private match \u2014 no rating change.</div>';
@@ -4364,6 +4595,13 @@ window.signOut = signOut;
       whiteAvgElo: m.whiteAvgElo,
       blackAvgElo: m.blackAvgElo,
     });
+    duo.tc = m.tc || null;
+    // Clocked team game: show + start both team clocks (unlimited omits `clock`).
+    if (m.clock) {
+      duoShowClockCards(true);
+      const mp = duoClockMap();
+      clockSync(m.clock, mp.topEl, mp.botEl, mp.topSide, mp.botSide);
+    }
   }
 
   window.Duo = {
