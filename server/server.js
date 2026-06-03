@@ -19,12 +19,27 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const httpServer = http.createServer(app);
 
+// Known production web origins that must always be allowed to call the API, even
+// if CORS_ORIGIN wasn't configured for them. The hosted site (Vercel) is a
+// different origin from this backend (Railway), so without these the browser
+// blocks every cross-origin login/socket request.
+const DEFAULT_WEB_ORIGINS = [
+  'https://www.playchesstrophies.com',
+  'https://playchesstrophies.com',
+  'https://chesstrophies-production.up.railway.app',
+];
+
 function parseCorsOrigins(value) {
   if (!value || value.trim() === '*') return '*';
   return value.split(',').map(s => s.trim()).filter(Boolean);
 }
 
-const corsOrigins = parseCorsOrigins(process.env.CORS_ORIGIN);
+let corsOrigins = parseCorsOrigins(process.env.CORS_ORIGIN);
+// Unless CORS is wide open ('*'), always union-in the production web origins so
+// the hosted client works regardless of how CORS_ORIGIN is set in the env.
+if (corsOrigins !== '*') {
+  corsOrigins = Array.from(new Set([...corsOrigins, ...DEFAULT_WEB_ORIGINS]));
+}
 const io = new IO(httpServer, { cors: { origin: corsOrigins === '*' ? '*' : corsOrigins } });
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many auth attempts. Please try again later.' } });
