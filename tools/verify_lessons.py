@@ -16,9 +16,13 @@ import chess
 #   solution: list of {from,to[,promotion]} (UCI parts),
 #   hint, difficulty (1-5), concept,
 #   theme: one of 'capture','mate','promote','fork','pin','skewer',
-#          'discovered','double','remove','develop','endgame','move'
+#          'discovered','double','remove','develop','endgame','move',
+#          'deflection','decoy','overload','interference','zwischenzug','trap'
 #   (theme drives extra assertions; 'move' = just legal)
 #   capture_piece (optional): expected captured piece type letter for capture/skewer/pin themes
+#   reply (optional): {from,to[,promotion]} = the opponent's forced/typical response
+#          to animate AFTER the player's correct move (must be legal after solution[0])
+#   payoff (optional): short caption shown while the reply animates (the point of the tactic)
 
 L = []
 
@@ -216,6 +220,7 @@ add(id='FK01', chapter='The Fork', title='Knight Forks King and Rook',
    desc="White to play. Land the knight where it checks the king and attacks the rook at once.",
    fen='r3k3/8/4N3/8/8/8/8/4K3 w - - 0 1', side='w',
    solution=[{'from': 'e6', 'to': 'c7'}],
+   reply={'from': 'e8', 'to': 'd7'}, payoff='…the king must run, and the rook is yours.',
    hint='Find the L-shape that hits both the king and the rook in one jump.',
    difficulty=2, theme='fork',
    concept="A fork is one piece attacking two targets at once. The knight is the master forker — it can hit a king and a rook on squares from which neither can defend or block.")
@@ -224,6 +229,7 @@ add(id='FK02', chapter='The Fork', title='The Royal Fork',
    desc="White to play. Fork the king and queen with a single knight leap.",
    fen='2q1k3/8/8/5N2/8/8/8/4K3 w - - 0 1', side='w',
    solution=[{'from': 'f5', 'to': 'd6'}],
+   reply={'from': 'e8', 'to': 'd7'}, payoff='…the king steps away and the queen falls.',
    hint='A knight check that also attacks the queen wins her — the king must move first.',
    difficulty=3, theme='fork',
    concept="A royal fork hits both the king and the queen. Because check must be answered, the king is forced to move and you scoop up the queen next turn. It is a knight's deadliest trick.")
@@ -240,6 +246,7 @@ add(id='FK04', chapter='The Fork', title='Queen Double Attack',
    desc="White to play. One queen move attacks the king and the loose rook together.",
    fen='1k5r/8/8/8/8/8/8/3QK3 w - - 0 1', side='w',
    solution=[{'from': 'd1', 'to': 'd8'}],
+   reply={'from': 'b8', 'to': 'a7'}, payoff='…the king dodges and the rook drops.',
    hint='Find a queen move that gives check and lines up on the rook at the same time.',
    difficulty=2, theme='fork',
    concept="The queen forks by hitting two things along her many lines of attack. A check that also aims at a loose piece forces the king to move and lets you grab the other target.")
@@ -256,6 +263,7 @@ add(id='FK06', chapter='The Fork', title='Knight Forks King and Queen on the Rim
    desc="White to play. A knight check on the edge also snares the queen.",
    fen='8/8/8/8/1q6/4N3/8/k5K1 w - - 0 1', side='w',
    solution=[{'from': 'e3', 'to': 'c2'}],
+   reply={'from': 'a1', 'to': 'b1'}, payoff='…the king shuffles aside and the queen falls.',
    hint='Jump to a square that checks the cornered king and attacks the queen too.',
    difficulty=3, theme='fork',
    concept="Kings stuck on the edge are easy fork targets. Look for a knight square that checks the king and simultaneously attacks the queen — the rim gives the king nowhere to hide.")
@@ -267,6 +275,7 @@ add(id='PN01', chapter='Pins', title='Take the Pinned Queen',
    desc="White to play. The black queen is pinned to its king — capture it for free.",
    fen='4k3/4q3/8/8/4R3/8/8/4K3 w - - 0 1', side='w',
    solution=[{'from': 'e4', 'to': 'e7'}],
+   reply={'from': 'e8', 'to': 'e7'}, payoff='…the king recaptures, but you have won the queen for a rook.',
    hint="The queen can't move aside — the king sits right behind it. Just take it.",
    difficulty=2, theme='capture', capture_piece='q',
    concept="In an absolute pin, a piece cannot move because its own king sits directly behind it. The pinned piece is frozen — you can pile up on it and win it without it ever escaping.")
@@ -292,6 +301,7 @@ add(id='PN04', chapter='Pins', title='Win the Pinned Bishop',
    desc="White to play. A black bishop is pinned to its king — capture it with your pawn.",
    fen='4k3/8/8/4b3/3P4/8/8/4R1K1 w - - 0 1', side='w',
    solution=[{'from': 'd4', 'to': 'e5'}],
+   reply={'from': 'e8', 'to': 'e7'}, payoff='…the king can only watch — you have won a clean piece.',
    hint='The bishop is pinned against the king, so capture it for free with the pawn.',
    difficulty=2, theme='capture', capture_piece='b',
    concept="A pinned piece is glued in place. Here a rook pins the bishop to its king, so the bishop cannot recapture — your pawn simply takes it and wins a piece.")
@@ -311,6 +321,7 @@ add(id='SK01', chapter='Skewers & Discovered Attacks', title='Skewer the King, W
    desc="White to play. Check the king so it must step aside, exposing the queen behind it.",
    fen='3qk3/8/8/8/8/8/8/3RK3 w - - 0 1', side='w',
    solution=[{'from': 'd1', 'to': 'd8'}],
+   reply={'from': 'e8', 'to': 'd8'}, payoff='…the king grabs the rook back, but the queen is won.',
    hint='A skewer is a reverse pin: check the king and the queen behind it falls.',
    difficulty=2, theme='capture', capture_piece='q',
    concept="A skewer is a pin in reverse: the more valuable piece is in front. You check the king, it must move, and the piece hiding behind it is left hanging for you to take.")
@@ -319,6 +330,7 @@ add(id='SK02', chapter='Skewers & Discovered Attacks', title='Skewer Along the D
    desc="White to play. Check the king on the diagonal so the rook lined up behind it falls.",
    fen='8/1r6/8/3k4/8/8/2B5/4K3 w - - 0 1', side='w',
    solution=[{'from': 'c2', 'to': 'e4'}],
+   reply={'from': 'd5', 'to': 'd6'}, payoff='…the king slides off the diagonal and the rook falls.',
    hint='Slide the bishop to give check; the rook on the same diagonal behind the king is the prize.',
    difficulty=3, theme='move',
    concept="Bishops and queens skewer along diagonals. Give check so the king must dodge, and whatever stood behind it on that diagonal is left hanging for you to take.")
@@ -331,6 +343,7 @@ add(id='SK03', chapter='Skewers & Discovered Attacks', title='Discovered Check',
              {'from': 'e3', 'to': 'f4'}, {'from': 'e3', 'to': 'g5'},
              {'from': 'e3', 'to': 'h6'}, {'from': 'e3', 'to': 'd2'},
              {'from': 'e3', 'to': 'c1'}, {'from': 'e3', 'to': 'f2'}],
+   reply={'from': 'e8', 'to': 'd7'}, payoff='…the king must answer the rook, and your bishop went wherever it pleased.',
    hint='Any bishop move uncovers the rook checking the king down the e-file.',
    difficulty=3, theme='discovered',
    concept="A discovered check happens when you move one piece out of the way to reveal a check from the piece behind it. The moving piece is free to go anywhere — even to grab material.")
@@ -338,11 +351,12 @@ add(id='SK03', chapter='Skewers & Discovered Attacks', title='Discovered Check',
 add(id='SK04', chapter='Skewers & Discovered Attacks', title='Discovered Attack Wins the Queen',
    desc="White to play. Unveil your rook's check while the knight jumps to attack the queen.",
    fen='4k3/8/8/3q4/4N3/8/8/4R1K1 w - - 0 1', side='w',
-   solution=[{'from': 'e4', 'to': 'c5'}, {'from': 'e4', 'to': 'd6'},
-             {'from': 'e4', 'to': 'f6'}, {'from': 'e4', 'to': 'c3'},
+   solution=[{'from': 'e4', 'to': 'f6'}, {'from': 'e4', 'to': 'c5'},
+             {'from': 'e4', 'to': 'd6'}, {'from': 'e4', 'to': 'c3'},
              {'from': 'e4', 'to': 'g3'}, {'from': 'e4', 'to': 'd2'},
              {'from': 'e4', 'to': 'f2'}, {'from': 'e4', 'to': 'g5'}],
-   hint='Move the knight: the rook checks the king while the knight can also hit the queen.',
+   reply={'from': 'e8', 'to': 'f8'}, payoff='…the king must meet the check, then the knight snaps off the queen.',
+   hint='Move the knight to f6: the rook checks the king while the knight also hits the queen.',
    difficulty=4, theme='discovered',
    concept="The deadliest discoveries hit two targets. While the unveiled piece gives check, the moving piece attacks something else. The opponent must answer the check and loses the other piece.")
 
@@ -350,6 +364,7 @@ add(id='SK05', chapter='Skewers & Discovered Attacks', title='Double Check',
    desc="White to play. Leap the knight so the knight AND the uncovered rook both check the king.",
    fen='4k3/8/8/8/4N3/8/8/4R1K1 w - - 0 1', side='w',
    solution=[{'from': 'e4', 'to': 'd6'}, {'from': 'e4', 'to': 'f6'}],
+   reply={'from': 'e8', 'to': 'd8'}, payoff='…against a double check the king MUST move — nothing else works.',
    hint='Find the knight jump that checks the king itself while revealing the rook behind it.',
    difficulty=4, theme='discovered',
    concept="A double check attacks the king with two pieces at once. It cannot be blocked or met by capturing just one attacker — the king is forced to move, with no other option.")
@@ -361,6 +376,7 @@ add(id='RG01', chapter='Remove the Guard', title='Capture the Defender',
    desc="White to play. A knight guards the back-rank square — take it so mate becomes possible.",
    fen='6k1/5ppp/8/8/8/8/5n2/R5K1 w - - 0 1', side='w',
    solution=[{'from': 'g1', 'to': 'f2'}],
+   reply={'from': 'g7', 'to': 'g6'}, payoff='…the guard is gone; next move Ra8 is mate.',
    hint="That knight is the only thing guarding the mating square — remove it.",
    difficulty=2, theme='capture', capture_piece='n',
    concept="Sometimes only one piece defends a key square. Remove that guard — by capturing or chasing it — and the square, or the mate behind it, falls into your hands.")
@@ -377,6 +393,7 @@ add(id='RG03', chapter='Remove the Guard', title='Capture the Guard of the Queen
    desc="White to play. A bishop defends the black queen — capture the bishop and the queen is loose.",
    fen='3qk3/8/5b2/8/7B/8/8/4K3 w - - 0 1', side='w',
    solution=[{'from': 'h4', 'to': 'f6'}],
+   reply={'from': 'd8', 'to': 'd7'}, payoff='…the guard is gone, so the queen must flee — and you have won a bishop.',
    hint='Take the piece that protects the queen; next move the queen hangs.',
    difficulty=3, theme='capture', capture_piece='b',
    concept="Before you win a defended piece, deal with its defender. Capture or deflect the guard first, and the piece it was protecting becomes a free target on the next move.")
@@ -390,7 +407,73 @@ add(id='RG04', chapter='Remove the Guard', title='Remove the Knight That Holds t
    concept="Identify exactly what is defending the square you want, then take it. With the single guard gone, your heavy pieces dominate the weakened back rank.")
 
 # ============================================================
-# CHAPTER 8 — Opening Principles
+# CHAPTER 8 — Advanced Tactics
+# ============================================================
+add(id='AT01', chapter='Advanced Tactics', title='Deflect the Defender',
+   desc="White to play. The black rook is the lone guard of the back rank — force it off with a check.",
+   fen='r5k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1', side='w',
+   solution=[{'from': 'e1', 'to': 'e8'}],
+   reply={'from': 'a8', 'to': 'e8'}, payoff='…the rook is dragged off the eighth rank — its defensive duty abandoned.',
+   hint='Give a check that the rook is forced to answer, pulling it away from its post.',
+   difficulty=3, theme='deflection',
+   concept="Deflection forces a defending piece away from a job it must do. Hit it with a check or threat it cannot ignore, and the square or piece it was guarding is suddenly undefended.")
+
+add(id='AT02', chapter='Advanced Tactics', title='Decoy the King',
+   desc="White to play. Sacrifice the queen to lure the king onto a square where a knight fork wins it back with interest.",
+   fen='2r3k1/5p1p/8/1N5Q/8/8/1B6/6K1 w - - 0 1', side='w',
+   solution=[{'from': 'h5', 'to': 'f7'}],
+   reply={'from': 'g8', 'to': 'f7'}, payoff='…the king is decoyed to f7, where Nd6+ will fork king and rook.',
+   hint='Offer the queen on a square the king is forced to capture, landing it in a knight fork.',
+   difficulty=4, theme='decoy',
+   concept="A decoy lures an enemy piece — often the king — onto a fatal square. You give it something it must take; the square it lands on then falls victim to a fork or other blow.")
+
+add(id='AT03', chapter='Advanced Tactics', title='Punish the Overloaded Piece',
+   desc="White to play. The black queen is doing two jobs at once — make it choose by capturing one of them.",
+   fen='3r2k1/3q1ppp/8/8/8/8/5PPP/3RR1K1 w - - 0 1', side='w',
+   solution=[{'from': 'd1', 'to': 'd7'}],
+   reply={'from': 'd8', 'to': 'd7'}, payoff='…the rook must recapture, abandoning the back rank to a mating rook.',
+   hint='The queen guards both the rook and the back rank. Take the rook and overload it.',
+   difficulty=4, theme='overload',
+   concept="An overloaded piece is defending two things at once. Attack one of its duties: when it answers there, the other duty is abandoned and the second target falls.")
+
+add(id='AT04', chapter='Advanced Tactics', title='Interfere With the Defense',
+   desc="White to play. A black bishop defends c8 along the diagonal — plant a knight in the way to cut the line.",
+   fen='2r3k1/5ppp/b7/2N5/8/8/5PPP/2R3K1 w - - 0 1', side='w',
+   solution=[{'from': 'c5', 'to': 'b7'}],
+   reply={'from': 'a6', 'to': 'b7'}, payoff='…the bishop captures, but the defensive line was broken — Rxc8 follows.',
+   hint='Block the diagonal between the bishop and the square it guards by jumping a knight onto it.',
+   difficulty=4, theme='interference',
+   concept="Interference breaks the line a defender needs. Drop a piece between the defender and what it protects, and even though you may lose that piece, the defense collapses for a move.")
+
+add(id='AT05', chapter='Advanced Tactics', title='The In-Between Move (Zwischenzug)',
+   desc="White to play. Your knight is attacked — but instead of retreating, strike first with a forcing fork.",
+   fen='4k3/5q2/8/1b6/2N5/8/8/6K1 w - - 0 1', side='w',
+   solution=[{'from': 'c4', 'to': 'd6'}],
+   reply={'from': 'e8', 'to': 'd7'}, payoff='…the in-between check is answered first; then the knight takes the queen.',
+   hint="The bishop attacks your knight — but a knight check that also hits the queen comes first.",
+   difficulty=4, theme='zwischenzug',
+   concept="A zwischenzug, or in-between move, is an unexpected reply inserted before the 'expected' one. When your piece is attacked, look for a more forcing move — a check or threat — to play first.")
+
+add(id='AT06', chapter='Advanced Tactics', title='Trap the Knight on the Rim',
+   desc="White to play. The black knight has strayed to the edge — push the pawn so every escape is cut off.",
+   fen='k7/8/8/7n/3B4/4P3/5PP1/6K1 w - - 0 1', side='w',
+   solution=[{'from': 'g2', 'to': 'g4'}],
+   reply={'from': 'h5', 'to': 'f6'}, payoff='…wherever the knight jumps it is covered — it cannot escape and will be won.',
+   hint='Attack the knight with a pawn; its bishop and pawns already cover every flight square.',
+   difficulty=3, theme='trap',
+   concept="Trapping a piece means attacking it where it has no safe square. A piece on the rim is especially vulnerable — fence off its escape squares first, then attack it and win it.")
+
+add(id='AT07', chapter='Advanced Tactics', title='Trap the Greedy Rook',
+   desc="White to play. The cornered black rook is boxed in by its own pieces — leap a knight at it.",
+   fen='rb4k1/p4ppp/8/8/2N5/8/8/6K1 w - - 0 1', side='w',
+   solution=[{'from': 'c4', 'to': 'b6'}],
+   reply={'from': 'b8', 'to': 'd6'}, payoff='…the rook is hemmed in by its own pawn and bishop — there is no flight square.',
+   hint="The rook's own pawn blocks the file and its bishop blocks the rank — jump the knight to attack it.",
+   difficulty=3, theme='trap',
+   concept="A piece can be trapped by its own army. When a rook's own pawns and pieces block its escape, a single attacker is enough — it has nowhere to run and is simply lost.")
+
+# ============================================================
+# CHAPTER 9 — Opening Principles
 # ============================================================
 add(id='OP01', chapter='Opening Principles', title='Claim the Center',
    desc="White to play the first move. Stake your flag in the center with a pawn.",
@@ -442,7 +525,7 @@ add(id='OP06', chapter='Opening Principles', title='Knight to the Rim Is Dim —
    concept="A knight on the edge of the board reaches only a few squares — 'a knight on the rim is dim.' Develop knights toward the center, where their power is greatest.")
 
 # ============================================================
-# CHAPTER 9 — Endgame Essentials
+# CHAPTER 10 — Endgame Essentials
 # ============================================================
 add(id='EG01', chapter='Endgame Essentials', title='Promote the Passed Pawn',
    desc="White to play. Nothing can stop the runner — push it home to a queen.",
@@ -594,10 +677,73 @@ def verify():
                 b2.push(mv)
                 if not b2.is_check():
                     local.append('%s gives no check (discovered)' % uci(sm))
+            elif theme in ('deflection', 'decoy'):
+                # A forcing blow: must give check (the defender/king is forced to respond).
+                b2.push(mv)
+                if not b2.is_check():
+                    local.append('%s gives no check (%s)' % (uci(sm), theme))
+            elif theme == 'overload':
+                # Capture one of the overloaded piece's duties.
+                if not board.is_capture(mv):
+                    local.append('%s is not a capture (overload)' % uci(sm))
+                b2.push(mv)
+            elif theme == 'interference':
+                # Place a piece on a square between an enemy defender and its target
+                # (i.e. a quiet, non-capturing move that lands a piece in the line).
+                if board.is_capture(mv):
+                    local.append('%s is a capture, not interference' % uci(sm))
+                b2.push(mv)
+            elif theme == 'zwischenzug':
+                # The in-between move must itself be forcing (a check).
+                b2.push(mv)
+                if not b2.is_check():
+                    local.append('%s is not forcing (zwischenzug)' % uci(sm))
+            elif theme == 'trap':
+                # After the move, the targeted enemy piece must be attacked with
+                # no safe square to flee to (it is trapped).
+                b2.push(mv)
+                mover_color = board.turn
+                trapped_found = False
+                for sq in chess.SQUARES:
+                    pc = b2.piece_at(sq)
+                    if pc and pc.color != mover_color and pc.piece_type in (
+                            chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN):
+                        if not b2.is_attacked_by(mover_color, sq):
+                            continue
+                        # does this piece have any safe escape?
+                        has_safe = False
+                        for em in b2.legal_moves:
+                            if em.from_square == sq:
+                                b3 = b2.copy()
+                                b3.push(em)
+                                if not b3.is_attacked_by(mover_color, em.to_square):
+                                    has_safe = True
+                                    break
+                        if not has_safe:
+                            trapped_found = True
+                if not trapped_found:
+                    local.append('%s traps nothing (no attacked piece without escape)' % uci(sm))
             return local
 
         for sm in les['solution']:
             errs += push_test(sm)
+
+        # reply legality: push solution[0], then the reply must be a legal move.
+        if les.get('reply'):
+            rep = les['reply']
+            if not les['solution']:
+                errs.append('reply given but no solution')
+            else:
+                b3 = board.copy()
+                first = chess.Move.from_uci(uci(les['solution'][0]))
+                if first in b3.legal_moves:
+                    b3.push(first)
+                    rep_uci = uci(rep)
+                    rep_legal = set(m.uci() for m in b3.legal_moves)
+                    if rep_uci not in rep_legal:
+                        errs.append('reply %s not legal after solution[0] %s' % (rep_uci, uci(les['solution'][0])))
+                else:
+                    errs.append('cannot test reply: solution[0] illegal')
 
         # mate uniqueness warning
         if theme == 'mate':
@@ -655,6 +801,14 @@ def emit_js():
         lines.append(
             "      solution:[%s], hint:'%s', difficulty:%d," % (
                 sol, js_escape(les['hint']), les['difficulty']))
+        if les.get('reply'):
+            rp = les['reply']
+            reply_js = "{from:'%s', to:'%s'%s}" % (
+                rp['from'], rp['to'],
+                (", promotion:'%s'" % rp['promotion']) if rp.get('promotion') else '')
+            lines.append("      reply:%s," % reply_js)
+            if les.get('payoff'):
+                lines.append("      payoff:'%s'," % js_escape(les['payoff']))
         lines.append(
             "      concept:'%s' }," % js_escape(les['concept']))
     lines.append('  ];')

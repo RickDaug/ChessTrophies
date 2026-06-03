@@ -1,0 +1,52 @@
+name: Verify chess content
+
+# Guards against broken chess data being merged. Verifies academy lessons and
+# tactics puzzles with python-chess, and syntax-checks the key client JS files.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify-data:
+    name: Verify lessons & puzzles (python-chess)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3'
+
+      - name: Install python-chess
+        run: pip install chess
+
+      - name: Verify academy lessons
+        run: python tools/verify_lessons.py
+
+      - name: Verify tactics puzzles
+        run: python tools/verify_puzzles.py
+
+  verify-js:
+    name: Syntax-check client JS
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: node --check key client JS files
+        run: |
+          node --check academy.js
+          node --check puzzles.js
+          node --check puzzles-data.js
+          node --check learn-library.js
+          node --check app.js
+          node --check ct-net.js

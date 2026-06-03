@@ -11,7 +11,8 @@ import 'dotenv/config';
 
 import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
-import { db, getUserById, topByMetric } from './db.js';
+import { db, getUserById, topByMetric, getProgress, setProgress } from './db.js';
+import { sendResetEmail } from './email.js';
 import { attachSocketHandlers } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,15 +76,17 @@ app.post('/api/auth/login', authLimiter, async (req, res, next) => {
 
 // Request a password-reset token. Always responds 200 so callers cannot use
 // this endpoint to discover which emails have accounts (anti-enumeration).
-app.post('/api/auth/forgot', authLimiter, (req, res, next) => {
+app.post('/api/auth/forgot', authLimiter, async (req, res, next) => {
   try {
     const email = requireStringField(req.body || {}, 'email', { min: 3, max: 254 });
     const { token } = requestPasswordReset(email);
     if (token) {
-      // No email infrastructure yet, so log the token and (in dev) return it so
-      // the reset flow can be exercised end-to-end.
       console.log('[password-reset] token for', email, '=', token);
-      // TODO: email the reset link via Resend instead of returning devToken once email is wired.
+      // Email the reset link via Resend when RESEND_API_KEY is configured.
+      // sendResetEmail is best-effort and never throws. When email is NOT
+      // configured (no API key) the devToken below remains the fallback so the
+      // reset flow can still be exercised end-to-end.
+      await sendResetEmail(email, token);
       const exposeToken = process.env.EXPOSE_RESET_TOKEN === '1' || process.env.NODE_ENV !== 'production';
       if (exposeToken) return res.json({ ok: true, devToken: token });
     }
@@ -163,6 +166,50 @@ app.get('/api/games/recent', requireAuth, (req, res) => {
     ORDER BY ended_at DESC LIMIT 50
   `).all(req.userId, req.userId);
   res.json({ games: rows });
+});
+
+// Learning-progress sync (survives across devices / web vs Android).
+// Stored per-user in users.flags JSON under a `progress` key.
+const MAX_LESSONS = 1000;
+const MAX_LESSON_ID_LEN = 128;
+const MAX_PUZZLE_KEYS = 5000;
+
+app.get('/api/progress', requireAuth, (req, res, next) => {
+  try {
+    res.json(getProgress(req.user));
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+app.post('/api/progress', requireAuth, (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const existing = getProgress(req.user);
+
+    // Merge lessonsCompleted: union + dedup. Accept short string ids only.
+    const merged = new Set(existing.lessonsCompleted);
+    if (body.lessonsCompleted !== undefined) {
+      if (!Array.isArray(body.lessonsCompleted)) throw new Error('lessonsCompleted must be an array.');
+      for (const id of body.lessonsCompleted) {
+        if (typeof id !== 'string') throw new Error('lessonsCompleted ids must be strings.');
+        const trimmed = id.trim();
+        if (trimmed && trimmed.length <= MAX_LESSON_ID_LEN) merged.add(trimmed);
+      }
+    }
+    if (merged.size > MAX_LESSONS) throw new Error(`Too many completed lessons (max ${MAX_LESSONS}).`);
+
+    // Shallow-merge puzzles.
+    const puzzles = { ...existing.puzzles };
+    if (body.puzzles !== undefined) {
+      if (body.puzzles === null || typeof body.puzzles !== 'object' || Array.isArray(body.puzzles)) {
+        throw new Error('puzzles must be an object.');
+      }
+      Object.assign(puzzles, body.puzzles);
+    }
+    if (Object.keys(puzzles).length > MAX_PUZZLE_KEYS) throw new Error(`Too many puzzle entries (max ${MAX_PUZZLE_KEYS}).`);
+
+    const result = setProgress(req.userId, { lessonsCompleted: [...merged], puzzles });
+    res.json(result);
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
 // Guest sessions: assign a goofy display name unique among active guests.

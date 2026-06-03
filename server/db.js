@@ -137,6 +137,38 @@ export function createUser(u) {
               VALUES (?, ?, ?, ?, ?, ?, ?)`)
     .run(u.id, u.email, u.username, u.region || '', u.pw_hash, u.invited_by || null, Date.now());
 }
+// --- Learning-progress sync (stored under users.flags JSON `progress` key) ---
+
+function parseFlags(user) {
+  try {
+    const obj = user && user.flags ? JSON.parse(user.flags) : {};
+    return obj && typeof obj === 'object' ? obj : {};
+  } catch { return {}; }
+}
+
+// Read a user's learning progress, defaulting to an empty shape.
+export function getProgress(user) {
+  const flags = parseFlags(user);
+  const p = flags.progress && typeof flags.progress === 'object' ? flags.progress : {};
+  return {
+    lessonsCompleted: Array.isArray(p.lessonsCompleted) ? p.lessonsCompleted : [],
+    puzzles: p.puzzles && typeof p.puzzles === 'object' ? p.puzzles : {},
+  };
+}
+
+// Persist progress back into the user's flags JSON, preserving other flags.
+export function setProgress(userId, progress) {
+  const user = getUserById(userId);
+  if (!user) throw new Error('User not found.');
+  const flags = parseFlags(user);
+  flags.progress = {
+    lessonsCompleted: Array.isArray(progress.lessonsCompleted) ? progress.lessonsCompleted : [],
+    puzzles: progress.puzzles && typeof progress.puzzles === 'object' ? progress.puzzles : {},
+  };
+  db.prepare('UPDATE users SET flags = ? WHERE id = ?').run(JSON.stringify(flags), userId);
+  return flags.progress;
+}
+
 export function topByMetric(metric, limit = 100) {
   const allowed = { elo: 'elo', wins: 'wins', best_streak: 'best_streak', invites_accepted: 'invites_accepted' };
   const col = allowed[metric] || 'elo';

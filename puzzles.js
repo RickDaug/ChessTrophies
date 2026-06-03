@@ -49,17 +49,88 @@
   var liveFen = null;   // chess.js position as we solve
   var selected = null;  // selected from-square
   var solvedThis = false;
+  var hintStage = 0;    // graduated hint escalation for the current puzzle
   var mode = 'mixed';   // mixed | easy | medium | hard | daily
+
+  // Conceptual hint nudges keyed by puzzle theme (lowercased). Falls back per
+  // objective, then to a generic prompt.
+  var THEME_HINTS = {
+    'fork': 'Look for a fork that hits two pieces at once.',
+    'knight fork': 'Look for a knight fork.',
+    'pin': 'A piece is pinned -- pile on it or exploit it.',
+    'skewer': 'Line up a skewer: force the valuable piece to move.',
+    'discovered attack': 'Unveil a discovered attack by moving the front piece.',
+    'discovered check': 'Move a piece to spring a discovered check.',
+    'double check': 'Deliver a double check -- the king must move.',
+    'back rank': 'The enemy king has no escape on the back rank.',
+    'back-rank mate': 'The enemy king has no escape on the back rank.',
+    'smothered mate': 'The king is smothered by its own pieces.',
+    'deflection': 'Deflect the defender away from what it guards.',
+    'decoy': 'Lure a piece onto a fatal square.',
+    'sacrifice': 'A sacrifice cracks the position open -- give to get.',
+    'mate': 'Force the king into a net it cannot escape.',
+    'trapped piece': 'A piece is trapped -- close the net.'
+  };
+  var FULL_PIECE = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+
+  function conceptualHint() {
+    var theme = (current && current.theme ? String(current.theme) : '').toLowerCase().trim();
+    if (theme && THEME_HINTS[theme]) return THEME_HINTS[theme];
+    // partial match on theme keywords
+    if (theme) {
+      for (var key in THEME_HINTS) {
+        if (THEME_HINTS.hasOwnProperty(key) && theme.indexOf(key) !== -1) return THEME_HINTS[key];
+      }
+    }
+    var obj = current && current.objective;
+    if (obj === 'Mate in 1' || obj === 'Mate in 2') return 'Hunt for a forcing checkmate.';
+    if (obj === 'Win material') return 'Find the move that wins material by force.';
+    return 'Look for the most forcing move.';
+  }
+
+  // Derive the human-readable piece type sitting on the from-square of the key move.
+  function pieceTypeOnFromSquare() {
+    if (!current || !current.solution || !current.solution.length) return null;
+    var from = current.solution[0].slice(0, 2);
+    var t = null;
+    if (window.Chess) {
+      try { var g = new window.Chess(liveFen || current.fen); var pc = g.get(from); if (pc) t = pc.type; } catch (e) {}
+    }
+    if (!t) {
+      // fall back to parsing the FEN directly
+      var board = parseFen(liveFen || current.fen);
+      var fileIdx = FILES.indexOf(from[0]); var rankIdx = 8 - (+from[1]);
+      if (board[rankIdx] && board[rankIdx][fileIdx]) t = board[rankIdx][fileIdx].type;
+    }
+    return t ? (FULL_PIECE[t] || null) : null;
+  }
+
+  // Escalating hint: concept -> piece to move -> highlight from-square.
+  function giveHint() {
+    if (!current) return;
+    hintStage = Math.min(hintStage + 1, 3);
+    if (hintStage === 1) { flash(conceptualHint(), true); return; }
+    if (hintStage === 2) {
+      var name = pieceTypeOnFromSquare();
+      if (name) { flash('Move your ' + name + '.', true); return; }
+      hintStage = 3; // no piece info available -- escalate straight to the square
+    }
+    // stage 3: reveal the from-square (but never the destination)
+    var sqn = current.solution[0].slice(0, 2);
+    selected = sqn; renderBoard();
+    flash('Try the piece on ' + sqn + '.', true);
+  }
 
   function allPuzzles() { return (window.CT_PUZZLES || []).slice(); }
 
   // Deterministic daily pick so everyone gets the same daily puzzle each day.
+  // UTC-based so every player worldwide gets the SAME puzzle on a given calendar day.
   function dailyPuzzle() {
     var list = allPuzzles(); if (!list.length) return null;
-    var d = new Date(); var key = d.getFullYear() * 372 + d.getMonth() * 31 + d.getDate();
+    var d = new Date(); var key = d.getUTCFullYear() * 372 + d.getUTCMonth() * 31 + d.getUTCDate();
     return list[key % list.length];
   }
-  function todayStr() { var d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+  function todayStr() { var d = new Date(); return d.getUTCFullYear() + '-' + (d.getUTCMonth() + 1) + '-' + d.getUTCDate(); }
 
   function pickPuzzle() {
     var prog = loadProgress();
@@ -183,6 +254,7 @@
     if (prog.streak > (prog.best || 0)) prog.best = prog.streak;
     if (mode === 'daily') { prog.dailyDate = todayStr(); prog.dailySolved = true; }
     saveProgress(prog);
+    if (window.CT_syncProgress) window.CT_syncProgress();
     try { if (window.ChessSounds && window.ChessSounds.move) window.ChessSounds.move(); } catch (e) {}
     var t = CT().toast; if (t) t('Solved! Streak ' + prog.streak, true);
     flash('Solved! Well played.', true);
@@ -208,7 +280,7 @@
   function loadPuzzle(p) {
     current = p || pickPuzzle();
     if (!current) { flash('No puzzles available.', false); return; }
-    liveFen = current.fen; selected = null; solvedThis = false;
+    liveFen = current.fen; selected = null; solvedThis = false; hintStage = 0;
     var meta = el('puzzle-meta');
     if (meta) {
       var label = (current.name ? current.name + '  ·  ' : '') + current.objective +
@@ -271,7 +343,7 @@
       if (m) { setMode(m.getAttribute('data-mode')); return; }
       if (e.target.id === 'btn-pz-next') loadPuzzle(null);
       if (e.target.id === 'btn-pz-reset') { liveFen = current.fen; selected = null; solvedThis = false; renderBoard(); flash('Position reset.', true); var n = el('btn-pz-next'); if (n) n.style.display = 'none'; }
-      if (e.target.id === 'btn-pz-hint') { if (current) { var sqn = current.solution[0].slice(0, 2); selected = sqn; renderBoard(); flash('Try moving the piece on ' + sqn + '.', true); } }
+      if (e.target.id === 'btn-pz-hint') { giveHint(); }
     });
     built = true;
   }

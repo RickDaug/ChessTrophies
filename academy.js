@@ -47,7 +47,7 @@
 
   // -------------------- RANKS / AVATAR --------------------
   // Rank determined by lessons completed. Thresholds are scaled to the curriculum
-  // length (currently 53 lessons) so the full "zero to Grandmaster" journey is
+  // length (currently 60 lessons) so the full "zero to Grandmaster" journey is
   // actually reachable: finishing every lesson earns the King. If you add lessons,
   // bump the top `min` toward the new LESSONS.length.
   const RANKS = [
@@ -60,7 +60,8 @@
     { min: 33,  piece: 'r', name: 'Expert'        },
     { min: 40,  piece: 'r', name: 'Expert II'     },
     { min: 47,  piece: 'q', name: 'Master'        },
-    { min: 53,  piece: 'k', name: 'Grandmaster'   },
+    { min: 53,  piece: 'q', name: 'Master II'     },
+    { min: 60,  piece: 'k', name: 'Grandmaster'   },
   ];
   function getRank(user) {
     const n = (user && user.lessonsCompleted) ? user.lessonsCompleted.length : 0;
@@ -196,10 +197,14 @@
     { id:'FK01', chapter:'The Fork', title:'Knight Forks King and Rook', desc:'White to play. Land the knight where it checks the king and attacks the rook at once.',
       fen:'r3k3/8/4N3/8/8/8/8/4K3 w - - 0 1', side:'w',
       solution:[{from:'e6', to:'c7'}], hint:'Find the L-shape that hits both the king and the rook in one jump.', difficulty:2,
+      reply:{from:'e8', to:'d7'},
+      payoff:'…the king must run, and the rook is yours.',
       concept:'A fork is one piece attacking two targets at once. The knight is the master forker — it can hit a king and a rook on squares from which neither can defend or block.' },
     { id:'FK02', chapter:'The Fork', title:'The Royal Fork', desc:'White to play. Fork the king and queen with a single knight leap.',
       fen:'2q1k3/8/8/5N2/8/8/8/4K3 w - - 0 1', side:'w',
       solution:[{from:'f5', to:'d6'}], hint:'A knight check that also attacks the queen wins her — the king must move first.', difficulty:3,
+      reply:{from:'e8', to:'d7'},
+      payoff:'…the king steps away and the queen falls.',
       concept:'A royal fork hits both the king and the queen. Because check must be answered, the king is forced to move and you scoop up the queen next turn. It is a knight\'s deadliest trick.' },
     { id:'FK03', chapter:'The Fork', title:'The Pawn Fork', desc:'White to play. Push the pawn so it attacks two pieces at once.',
       fen:'7k/8/2r1n3/8/3P4/8/8/4K3 w - - 0 1', side:'w',
@@ -208,6 +213,8 @@
     { id:'FK04', chapter:'The Fork', title:'Queen Double Attack', desc:'White to play. One queen move attacks the king and the loose rook together.',
       fen:'1k5r/8/8/8/8/8/8/3QK3 w - - 0 1', side:'w',
       solution:[{from:'d1', to:'d8'}], hint:'Find a queen move that gives check and lines up on the rook at the same time.', difficulty:2,
+      reply:{from:'b8', to:'a7'},
+      payoff:'…the king dodges and the rook drops.',
       concept:'The queen forks by hitting two things along her many lines of attack. A check that also aims at a loose piece forces the king to move and lets you grab the other target.' },
     { id:'FK05', chapter:'The Fork', title:'Bishop Forks Two Rooks', desc:'White to play. Place the bishop where both of its diagonals strike a rook.',
       fen:'2r3rk/8/8/8/8/7B/8/4K3 w - - 0 1', side:'w',
@@ -216,11 +223,15 @@
     { id:'FK06', chapter:'The Fork', title:'Knight Forks King and Queen on the Rim', desc:'White to play. A knight check on the edge also snares the queen.',
       fen:'8/8/8/8/1q6/4N3/8/k5K1 w - - 0 1', side:'w',
       solution:[{from:'e3', to:'c2'}], hint:'Jump to a square that checks the cornered king and attacks the queen too.', difficulty:3,
+      reply:{from:'a1', to:'b1'},
+      payoff:'…the king shuffles aside and the queen falls.',
       concept:'Kings stuck on the edge are easy fork targets. Look for a knight square that checks the king and simultaneously attacks the queen — the rim gives the king nowhere to hide.' },
     // PINS
     { id:'PN01', chapter:'Pins', title:'Take the Pinned Queen', desc:'White to play. The black queen is pinned to its king — capture it for free.',
       fen:'4k3/4q3/8/8/4R3/8/8/4K3 w - - 0 1', side:'w',
       solution:[{from:'e4', to:'e7'}], hint:'The queen can\'t move aside — the king sits right behind it. Just take it.', difficulty:2,
+      reply:{from:'e8', to:'e7'},
+      payoff:'…the king recaptures, but you have won the queen for a rook.',
       concept:'In an absolute pin, a piece cannot move because its own king sits directly behind it. The pinned piece is frozen — you can pile up on it and win it without it ever escaping.' },
     { id:'PN02', chapter:'Pins', title:'Pin the Knight to the King', desc:'White to play. Pin the knight against the king so it cannot move.',
       fen:'3k4/3n4/8/8/8/8/8/3RK3 w - - 0 1', side:'w',
@@ -233,6 +244,8 @@
     { id:'PN04', chapter:'Pins', title:'Win the Pinned Bishop', desc:'White to play. A black bishop is pinned to its king — capture it with your pawn.',
       fen:'4k3/8/8/4b3/3P4/8/8/4R1K1 w - - 0 1', side:'w',
       solution:[{from:'d4', to:'e5'}], hint:'The bishop is pinned against the king, so capture it for free with the pawn.', difficulty:2,
+      reply:{from:'e8', to:'e7'},
+      payoff:'…the king can only watch — you have won a clean piece.',
       concept:'A pinned piece is glued in place. Here a rook pins the bishop to its king, so the bishop cannot recapture — your pawn simply takes it and wins a piece.' },
     { id:'PN05', chapter:'Pins', title:'Pin and Win the Knight', desc:'White to play. Pin the knight to the queen, then snap it off with the bishop.',
       fen:'3qk3/8/8/8/8/6n1/8/B3K3 w - - 0 1', side:'w',
@@ -242,27 +255,39 @@
     { id:'SK01', chapter:'Skewers & Discovered Attacks', title:'Skewer the King, Win the Queen', desc:'White to play. Check the king so it must step aside, exposing the queen behind it.',
       fen:'3qk3/8/8/8/8/8/8/3RK3 w - - 0 1', side:'w',
       solution:[{from:'d1', to:'d8'}], hint:'A skewer is a reverse pin: check the king and the queen behind it falls.', difficulty:2,
+      reply:{from:'e8', to:'d8'},
+      payoff:'…the king grabs the rook back, but the queen is won.',
       concept:'A skewer is a pin in reverse: the more valuable piece is in front. You check the king, it must move, and the piece hiding behind it is left hanging for you to take.' },
     { id:'SK02', chapter:'Skewers & Discovered Attacks', title:'Skewer Along the Diagonal', desc:'White to play. Check the king on the diagonal so the rook lined up behind it falls.',
       fen:'8/1r6/8/3k4/8/8/2B5/4K3 w - - 0 1', side:'w',
       solution:[{from:'c2', to:'e4'}], hint:'Slide the bishop to give check; the rook on the same diagonal behind the king is the prize.', difficulty:3,
+      reply:{from:'d5', to:'d6'},
+      payoff:'…the king slides off the diagonal and the rook falls.',
       concept:'Bishops and queens skewer along diagonals. Give check so the king must dodge, and whatever stood behind it on that diagonal is left hanging for you to take.' },
     { id:'SK03', chapter:'Skewers & Discovered Attacks', title:'Discovered Check', desc:'White to play. Move the bishop to uncover your rook\'s check down the e-file.',
       fen:'3qk3/8/8/8/8/4B3/8/4R1K1 w - - 0 1', side:'w',
       solution:[{from:'e3', to:'a7'}, {from:'e3', to:'b6'}, {from:'e3', to:'c5'}, {from:'e3', to:'d4'}, {from:'e3', to:'f4'}, {from:'e3', to:'g5'}, {from:'e3', to:'h6'}, {from:'e3', to:'d2'}, {from:'e3', to:'c1'}, {from:'e3', to:'f2'}], hint:'Any bishop move uncovers the rook checking the king down the e-file.', difficulty:3,
+      reply:{from:'e8', to:'d7'},
+      payoff:'…the king must answer the rook, and your bishop went wherever it pleased.',
       concept:'A discovered check happens when you move one piece out of the way to reveal a check from the piece behind it. The moving piece is free to go anywhere — even to grab material.' },
     { id:'SK04', chapter:'Skewers & Discovered Attacks', title:'Discovered Attack Wins the Queen', desc:'White to play. Unveil your rook\'s check while the knight jumps to attack the queen.',
       fen:'4k3/8/8/3q4/4N3/8/8/4R1K1 w - - 0 1', side:'w',
-      solution:[{from:'e4', to:'c5'}, {from:'e4', to:'d6'}, {from:'e4', to:'f6'}, {from:'e4', to:'c3'}, {from:'e4', to:'g3'}, {from:'e4', to:'d2'}, {from:'e4', to:'f2'}, {from:'e4', to:'g5'}], hint:'Move the knight: the rook checks the king while the knight can also hit the queen.', difficulty:4,
+      solution:[{from:'e4', to:'f6'}, {from:'e4', to:'c5'}, {from:'e4', to:'d6'}, {from:'e4', to:'c3'}, {from:'e4', to:'g3'}, {from:'e4', to:'d2'}, {from:'e4', to:'f2'}, {from:'e4', to:'g5'}], hint:'Move the knight to f6: the rook checks the king while the knight also hits the queen.', difficulty:4,
+      reply:{from:'e8', to:'f8'},
+      payoff:'…the king must meet the check, then the knight snaps off the queen.',
       concept:'The deadliest discoveries hit two targets. While the unveiled piece gives check, the moving piece attacks something else. The opponent must answer the check and loses the other piece.' },
     { id:'SK05', chapter:'Skewers & Discovered Attacks', title:'Double Check', desc:'White to play. Leap the knight so the knight AND the uncovered rook both check the king.',
       fen:'4k3/8/8/8/4N3/8/8/4R1K1 w - - 0 1', side:'w',
       solution:[{from:'e4', to:'d6'}, {from:'e4', to:'f6'}], hint:'Find the knight jump that checks the king itself while revealing the rook behind it.', difficulty:4,
+      reply:{from:'e8', to:'d8'},
+      payoff:'…against a double check the king MUST move — nothing else works.',
       concept:'A double check attacks the king with two pieces at once. It cannot be blocked or met by capturing just one attacker — the king is forced to move, with no other option.' },
     // REMOVE THE GUARD
     { id:'RG01', chapter:'Remove the Guard', title:'Capture the Defender', desc:'White to play. A knight guards the back-rank square — take it so mate becomes possible.',
       fen:'6k1/5ppp/8/8/8/8/5n2/R5K1 w - - 0 1', side:'w',
       solution:[{from:'g1', to:'f2'}], hint:'That knight is the only thing guarding the mating square — remove it.', difficulty:2,
+      reply:{from:'g7', to:'g6'},
+      payoff:'…the guard is gone; next move Ra8 is mate.',
       concept:'Sometimes only one piece defends a key square. Remove that guard — by capturing or chasing it — and the square, or the mate behind it, falls into your hands.' },
     { id:'RG02', chapter:'Remove the Guard', title:'Trade Off the Last Defender', desc:'White to play. The black rook defends the back rank — exchange it and open the door.',
       fen:'r5k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1', side:'w',
@@ -271,11 +296,56 @@
     { id:'RG03', chapter:'Remove the Guard', title:'Capture the Guard of the Queen', desc:'White to play. A bishop defends the black queen — capture the bishop and the queen is loose.',
       fen:'3qk3/8/5b2/8/7B/8/8/4K3 w - - 0 1', side:'w',
       solution:[{from:'h4', to:'f6'}], hint:'Take the piece that protects the queen; next move the queen hangs.', difficulty:3,
+      reply:{from:'d8', to:'d7'},
+      payoff:'…the guard is gone, so the queen must flee — and you have won a bishop.',
       concept:'Before you win a defended piece, deal with its defender. Capture or deflect the guard first, and the piece it was protecting becomes a free target on the next move.' },
     { id:'RG04', chapter:'Remove the Guard', title:'Remove the Knight That Holds the Fort', desc:'White to play. A knight is the lone guard of the mating square — eliminate it with your rook.',
       fen:'5rk1/5ppp/8/8/8/8/8/1n2R1K1 w - - 0 1', side:'w',
       solution:[{from:'e1', to:'b1'}], hint:'Capture the knight guarding the back rank; mate threats follow.', difficulty:2,
       concept:'Identify exactly what is defending the square you want, then take it. With the single guard gone, your heavy pieces dominate the weakened back rank.' },
+    // ADVANCED TACTICS
+    { id:'AT01', chapter:'Advanced Tactics', title:'Deflect the Defender', desc:'White to play. The black rook is the lone guard of the back rank — force it off with a check.',
+      fen:'r5k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1', side:'w',
+      solution:[{from:'e1', to:'e8'}], hint:'Give a check that the rook is forced to answer, pulling it away from its post.', difficulty:3,
+      reply:{from:'a8', to:'e8'},
+      payoff:'…the rook is dragged off the eighth rank — its defensive duty abandoned.',
+      concept:'Deflection forces a defending piece away from a job it must do. Hit it with a check or threat it cannot ignore, and the square or piece it was guarding is suddenly undefended.' },
+    { id:'AT02', chapter:'Advanced Tactics', title:'Decoy the King', desc:'White to play. Sacrifice the queen to lure the king onto a square where a knight fork wins it back with interest.',
+      fen:'2r3k1/5p1p/8/1N5Q/8/8/1B6/6K1 w - - 0 1', side:'w',
+      solution:[{from:'h5', to:'f7'}], hint:'Offer the queen on a square the king is forced to capture, landing it in a knight fork.', difficulty:4,
+      reply:{from:'g8', to:'f7'},
+      payoff:'…the king is decoyed to f7, where Nd6+ will fork king and rook.',
+      concept:'A decoy lures an enemy piece — often the king — onto a fatal square. You give it something it must take; the square it lands on then falls victim to a fork or other blow.' },
+    { id:'AT03', chapter:'Advanced Tactics', title:'Punish the Overloaded Piece', desc:'White to play. The black queen is doing two jobs at once — make it choose by capturing one of them.',
+      fen:'3r2k1/3q1ppp/8/8/8/8/5PPP/3RR1K1 w - - 0 1', side:'w',
+      solution:[{from:'d1', to:'d7'}], hint:'The queen guards both the rook and the back rank. Take the rook and overload it.', difficulty:4,
+      reply:{from:'d8', to:'d7'},
+      payoff:'…the rook must recapture, abandoning the back rank to a mating rook.',
+      concept:'An overloaded piece is defending two things at once. Attack one of its duties: when it answers there, the other duty is abandoned and the second target falls.' },
+    { id:'AT04', chapter:'Advanced Tactics', title:'Interfere With the Defense', desc:'White to play. A black bishop defends c8 along the diagonal — plant a knight in the way to cut the line.',
+      fen:'2r3k1/5ppp/b7/2N5/8/8/5PPP/2R3K1 w - - 0 1', side:'w',
+      solution:[{from:'c5', to:'b7'}], hint:'Block the diagonal between the bishop and the square it guards by jumping a knight onto it.', difficulty:4,
+      reply:{from:'a6', to:'b7'},
+      payoff:'…the bishop captures, but the defensive line was broken — Rxc8 follows.',
+      concept:'Interference breaks the line a defender needs. Drop a piece between the defender and what it protects, and even though you may lose that piece, the defense collapses for a move.' },
+    { id:'AT05', chapter:'Advanced Tactics', title:'The In-Between Move (Zwischenzug)', desc:'White to play. Your knight is attacked — but instead of retreating, strike first with a forcing fork.',
+      fen:'4k3/5q2/8/1b6/2N5/8/8/6K1 w - - 0 1', side:'w',
+      solution:[{from:'c4', to:'d6'}], hint:'The bishop attacks your knight — but a knight check that also hits the queen comes first.', difficulty:4,
+      reply:{from:'e8', to:'d7'},
+      payoff:'…the in-between check is answered first; then the knight takes the queen.',
+      concept:'A zwischenzug, or in-between move, is an unexpected reply inserted before the \'expected\' one. When your piece is attacked, look for a more forcing move — a check or threat — to play first.' },
+    { id:'AT06', chapter:'Advanced Tactics', title:'Trap the Knight on the Rim', desc:'White to play. The black knight has strayed to the edge — push the pawn so every escape is cut off.',
+      fen:'k7/8/8/7n/3B4/4P3/5PP1/6K1 w - - 0 1', side:'w',
+      solution:[{from:'g2', to:'g4'}], hint:'Attack the knight with a pawn; its bishop and pawns already cover every flight square.', difficulty:3,
+      reply:{from:'h5', to:'f6'},
+      payoff:'…wherever the knight jumps it is covered — it cannot escape and will be won.',
+      concept:'Trapping a piece means attacking it where it has no safe square. A piece on the rim is especially vulnerable — fence off its escape squares first, then attack it and win it.' },
+    { id:'AT07', chapter:'Advanced Tactics', title:'Trap the Greedy Rook', desc:'White to play. The cornered black rook is boxed in by its own pieces — leap a knight at it.',
+      fen:'rb4k1/p4ppp/8/8/2N5/8/8/6K1 w - - 0 1', side:'w',
+      solution:[{from:'c4', to:'b6'}], hint:'The rook\'s own pawn blocks the file and its bishop blocks the rank — jump the knight to attack it.', difficulty:3,
+      reply:{from:'b8', to:'d6'},
+      payoff:'…the rook is hemmed in by its own pawn and bishop — there is no flight square.',
+      concept:'A piece can be trapped by its own army. When a rook\'s own pawns and pieces block its escape, a single attacker is enough — it has nowhere to run and is simply lost.' },
     // OPENING PRINCIPLES
     { id:'OP01', chapter:'Opening Principles', title:'Claim the Center', desc:'White to play the first move. Stake your flag in the center with a pawn.',
       fen:'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', side:'w',
@@ -333,7 +403,7 @@
   let acadCurrent = null; // {lesson, chess, stepIndex}
 
   function chaptersInOrder() {
-    const order = ['First Moves','Check & Escapes','Checkmate Basics','The Fork','Pins','Skewers & Discovered Attacks','Remove the Guard','Opening Principles','Endgame Essentials'];
+    const order = ['First Moves','Check & Escapes','Checkmate Basics','The Fork','Pins','Skewers & Discovered Attacks','Remove the Guard','Advanced Tactics','Opening Principles','Endgame Essentials'];
     const grouped = {};
     for (const l of LESSONS) (grouped[l.chapter] = grouped[l.chapter] || []).push(l);
     return order.filter(c => grouped[c]).map(c => ({ name: c, lessons: grouped[c] }));
@@ -452,6 +522,7 @@
       attempts: 0,
       solved: false,
       demoing: false,
+      hintStage: 0, // graduated hints: 0 = none shown yet, 1..3 escalating
     };
     document.getElementById('lesson-title').textContent = lesson.title;
     document.getElementById('lesson-chapter').textContent = lesson.chapter + ' · Difficulty ' + lesson.difficulty;
@@ -591,15 +662,51 @@
         db.users[u.id] = u;
         CT.saveDB(db);
         CT.toast('Lesson complete! 🎉', true);
+        if (window.CT_syncProgress) window.CT_syncProgress();
       }
       // Reveal Next button
       document.getElementById('lesson-next').style.display = '';
+      // Show the payoff: play the opponent's forced/typical reply so the point of
+      // the tactic (the queen actually falling, etc.) plays out on the board.
+      // Completion/credit above is unchanged — this is purely a visual follow-up.
+      maybePlayReply(cur, move);
     } else {
       cur.attempts++;
       // Undo the wrong move so they can try again
       cur.chess.undo();
       document.getElementById('lesson-feedback').innerHTML = `<span style="color:var(--danger);font-weight:700">Not quite.</span> <span class="muted small">Try again.</span>${cur.attempts >= 2 ? `<div class="muted small" style="margin-top:6px">Hint: ${escapeHTML(cur.lesson.hint)}</div>` : ''}`;
     }
+  }
+
+  // Animate the opponent's forced/typical reply (the "payoff") after a correct move.
+  // The reply is authored to be legal in the position after the lesson's solution[0];
+  // we still guard against the player having chosen a different accepted alternative
+  // by checking legality in the live position before playing it.
+  function maybePlayReply(cur, playerMove) {
+    const reply = cur.lesson && cur.lesson.reply;
+    if (!reply || !reply.from || !reply.to) return;
+    setTimeout(() => {
+      // Bail out if the lesson was reset / navigated away in the meantime.
+      if (acadCurrent !== cur || !cur.solved) return;
+      const chess = cur.chess;
+      const legal = chess.moves({ square: reply.from, verbose: true })
+        .some(m => m.to === reply.to && (!reply.promotion || m.promotion === reply.promotion));
+      if (!legal) return;
+      const cfg = { from: reply.from, to: reply.to };
+      if (reply.promotion) cfg.promotion = reply.promotion;
+      const done = chess.move(cfg);
+      if (!done) return;
+      // Briefly highlight the reply, then render it.
+      cur.selected = reply.to;
+      cur.legalTargets = [];
+      renderLessonBoard();
+      const caption = cur.lesson.payoff || '…and the point of the move is revealed.';
+      const fb = document.getElementById('lesson-feedback');
+      if (fb) {
+        fb.innerHTML = '<span style="color:var(--success);font-weight:700">✓ Correct!</span>' +
+          ' <span class="muted small">' + escapeHTML(caption) + '</span>';
+      }
+    }, 600);
   }
 
   // Lesson controls
@@ -613,18 +720,45 @@
   }
   function resetLesson() {
     if (!acadCurrent) return;
-    acadCurrent.chess = new window.Chess(acadCurrent.lesson.lesson || acadCurrent.lesson.fen);
+    acadCurrent.chess = new window.Chess(acadCurrent.lesson.fen);
     acadCurrent.solved = false;
     acadCurrent.attempts = 0;
     acadCurrent.selected = null;
     acadCurrent.legalTargets = [];
+    acadCurrent.hintStage = 0;
     document.getElementById('lesson-feedback').textContent = '';
     document.getElementById('lesson-next').style.display = 'none';
     renderLessonBoard();
   }
+  // Graduated hints: each press escalates.
+  //   1) conceptual nudge (theme line)   2) name the piece to move
+  //   3) reveal the from-square (never the destination)
   function hintLesson() {
-    if (!acadCurrent) return;
-    document.getElementById('lesson-feedback').innerHTML = `<span class="muted small">Hint: ${escapeHTML(acadCurrent.lesson.hint)}</span>`;
+    const cur = acadCurrent;
+    if (!cur) return;
+    cur.hintStage = Math.min((cur.hintStage || 0) + 1, 3);
+    const lesson = cur.lesson;
+    let msg;
+    if (cur.hintStage === 1) {
+      // Conceptual nudge: prefer the short hint theme, trimmed to one sentence.
+      const full = lesson.hint || getConcept(lesson) || '';
+      const m = full.match(/^[^.!?]*[.!?]/);
+      const theme = (m ? m[0] : full).trim();
+      msg = 'Think about the idea: ' + escapeHTML(theme);
+    } else if (cur.hintStage === 2) {
+      // Name the piece to move (derived from the solution's from-square).
+      const from = lesson.solution && lesson.solution[0] && lesson.solution[0].from;
+      const pc = from ? cur.chess.get(from) : null;
+      const names = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+      const name = pc ? (names[pc.type] || 'piece') : 'piece';
+      msg = 'Move your <b>' + name + '</b>.';
+    } else {
+      // Reveal the from-square only (never the destination).
+      const from = lesson.solution && lesson.solution[0] && lesson.solution[0].from;
+      msg = 'The piece to move is on <b>' + escapeHTML(from || '?') + '</b>. Now find its best square.';
+    }
+    document.getElementById('lesson-feedback').innerHTML =
+      '<span class="muted small">Hint (' + cur.hintStage + '/3): ' + msg + '</span>';
   }
   function showLessonSolution() {
     if (!acadCurrent) return;

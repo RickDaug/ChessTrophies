@@ -71,6 +71,10 @@ function hashToken(raw) {
 // whether an account exists; when none does we simply return { token: null }.
 export function requestPasswordReset(email) {
   const lowEmail = normalizeString(email, 'email', { min: 3, max: 254 }).toLowerCase();
+
+  // Cheap inline sweep of expired tokens (no cron needed).
+  db.prepare('DELETE FROM password_resets WHERE expires_at < ?').run(Date.now());
+
   const u = getUserByEmail(lowEmail);
   if (!u) return { token: null };
 

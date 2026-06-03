@@ -81,6 +81,28 @@ socket.on('game_over', ({ winnerId, reason, whiteDelta, blackDelta }) => { /* sh
 | `/api/friends` | GET | yes | — | `{ friends: [...] }` |
 | `/api/friends/add` | POST | yes | `{ username }` | `{ ok, friend }` |
 | `/api/games/recent` | GET | yes | — | `{ games: [...] }` |
+| `/api/auth/forgot` | POST | — | `{ email }` | `{ ok, devToken? }` |
+| `/api/auth/reset` | POST | — | `{ token, newPassword }` | `{ ok }` |
+| `/api/auth/change-password` | POST | yes | `{ currentPassword, newPassword }` | `{ ok }` |
+| `/api/progress` | GET | yes | — | `{ lessonsCompleted, puzzles }` |
+| `/api/progress` | POST | yes | `{ lessonsCompleted?, puzzles? }` | merged `{ lessonsCompleted, puzzles }` |
+
+### Learning-progress sync
+
+Per-user learning progress is persisted in `users.flags` JSON under a `progress`
+key, so it survives across devices (web vs Android). Clients should:
+
+- `GET /api/progress` on login to hydrate local state.
+- `POST /api/progress` after completing a lesson/puzzle. Posts MERGE server-side:
+  `lessonsCompleted` arrays are unioned (deduped) and `puzzles` are shallow-merged.
+
+### Password-reset email
+
+`POST /api/auth/forgot` issues a reset token. If `RESEND_API_KEY` is set, the
+token/link is emailed via [Resend](https://resend.com) (link built from
+`APP_URL`). When unset, sending is a no-op and the response includes a `devToken`
+(in non-production, or when `EXPOSE_RESET_TOKEN=1`) so the flow can be tested.
+Relevant env vars: `RESEND_API_KEY`, `RESEND_FROM`, `APP_URL`.
 
 ## WebSocket events
 

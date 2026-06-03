@@ -1705,9 +1705,75 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       window.CTNet.on('duoErr', (d) => toast('Duo error: ' + (d && d.error || 'unknown')));
       state._netHandlersRegistered = true;
     }
+    // Pull any learning progress saved on the server (other devices) and merge it in.
+    loadServerProgress();
   }
   // Expose for the login/signup flows.
   window.__connectGameSocket = connectGameSocketIfPossible;
+
+  // ---------------------------------------------------------------------------
+  // Learning-progress sync (lessons completed + puzzle progress) across devices.
+  // Local-first: everything still works offline / for guests; when the user has a
+  // server session we mirror progress to GET/POST /api/progress so switching
+  // between web and the Android app keeps the "zero to Grandmaster" journey.
+  // academy.js and puzzles.js call window.CT_syncProgress() after saving locally.
+  // ---------------------------------------------------------------------------
+  const PUZZLE_PROGRESS_KEY = 'ct_puzzle_progress_v1';
+
+  function readPuzzleProgress() {
+    try { return JSON.parse(localStorage.getItem(PUZZLE_PROGRESS_KEY) || '{}') || {}; }
+    catch (e) { return {}; }
+  }
+
+  function gatherLocalProgress() {
+    return {
+      lessonsCompleted: (state.user && state.user.lessonsCompleted) || [],
+      puzzles: readPuzzleProgress(),
+    };
+  }
+
+  // Merge the server's stored progress into local state (union lessons, merge puzzles).
+  function applyServerProgress(p) {
+    if (!p) return;
+    if (state.user && Array.isArray(p.lessonsCompleted) && p.lessonsCompleted.length) {
+      const seen = Object.create(null);
+      (state.user.lessonsCompleted || []).forEach((id) => { seen[id] = 1; });
+      p.lessonsCompleted.forEach((id) => { seen[id] = 1; });
+      state.user.lessonsCompleted = Object.keys(seen);
+      const db = loadDB();
+      if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
+    }
+    if (p.puzzles && typeof p.puzzles === 'object') {
+      const local = readPuzzleProgress();
+      const merged = Object.assign({}, local, p.puzzles);
+      merged.byId = Object.assign({}, local.byId || {}, p.puzzles.byId || {});
+      // Keep the most generous of the counters so a sync never erases progress.
+      merged.solved = Math.max(local.solved || 0, p.puzzles.solved || 0);
+      merged.best = Math.max(local.best || 0, p.puzzles.best || 0);
+      try { localStorage.setItem(PUZZLE_PROGRESS_KEY, JSON.stringify(merged)); } catch (e) {}
+    }
+    // Refresh any visible rank/academy UI now that counts may have grown.
+    try { if (window.CT_renderAcademy && document.getElementById('screen-academy').classList.contains('active')) window.CT_renderAcademy(); } catch (e) {}
+  }
+
+  function loadServerProgress() {
+    const sess = getSession();
+    if (!sess || !sess.token) return; // guests / offline stay purely local
+    api('/api/progress').then(applyServerProgress).catch(() => {});
+  }
+
+  // Debounced push of local progress to the server (called after a lesson/puzzle solve).
+  let _progressSyncTimer = null;
+  window.CT_syncProgress = function () {
+    const sess = getSession();
+    if (!sess || !sess.token) return; // local-only for guests / offline
+    if (_progressSyncTimer) clearTimeout(_progressSyncTimer);
+    _progressSyncTimer = setTimeout(() => {
+      api('/api/progress', { method: 'POST', body: JSON.stringify(gatherLocalProgress()) })
+        .then(applyServerProgress)
+        .catch(() => {}); // best-effort; local copy remains the source of truth offline
+    }, 400);
+  };
 
   // ---------------------------------------------------------------------------
   // 2v2 online matchmaking (3-minute queue with timeout)
