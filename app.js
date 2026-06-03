@@ -460,15 +460,14 @@
   }
 
   async function signup(email, username, password, region, startingElo) {
-    const db = loadDB();
     if (!email || !username || !password) throw new Error('Please fill in all fields.');
     if (!isValidEmail(email)) throw new Error('Enter a valid email address.');
     if (!isValidUsername(username)) throw new Error('Username must be 3–20 letters, numbers, or underscores.');
     if (password.length < 6) throw new Error('Password must be at least 6 characters.');
-    if (findUserByEmail(db, email)) throw new Error('An account with that email already exists.');
-    if (Object.values(db.users).some(u => u.username.toLowerCase() === username.toLowerCase()))
-      throw new Error('That username is taken.');
 
+    // The server is authoritative. Try it FIRST and let it decide uniqueness, so a
+    // stale local-only account in this browser can never block creating a real
+    // online account. Local duplicate checks apply only to the offline fallback.
     try {
       const params = new URLSearchParams(window.location.search);
       const invitedBy = params.get('invitedBy') || undefined;
@@ -479,12 +478,15 @@
       setSession({ userId: user.id, token });
       return user;
     } catch (serverErr) {
-      // A definitive 4xx (e.g. email/username already taken on the server) is
-      // surfaced rather than silently creating a divergent local-only account.
-      // Only a genuinely unreachable backend falls through to offline signup.
+      // Server reachable and said no (email/username taken, invalid): surface it.
+      // Only a genuinely unreachable backend falls through to an offline account.
       if (serverErr.status && serverErr.status < 500 && !serverErr.transient) throw serverErr;
     }
 
+    const db = loadDB();
+    if (findUserByEmail(db, email)) throw new Error('An account with that email already exists.');
+    if (Object.values(db.users).some(u => u.username.toLowerCase() === username.toLowerCase()))
+      throw new Error('That username is taken.');
     const salt = randomSalt();
     const pwHash = await hashPassword(password, salt);
     const user = newUser(email, username, region, startingElo);
@@ -504,7 +506,6 @@
     return user;
   }
   async function login(email, password) {
-    const db = loadDB();
     if (!isValidEmail(email)) throw new Error('Enter a valid email address.');
 
     try {
@@ -515,17 +516,27 @@
       setSession({ userId: user.id, token });
       return user;
     } catch (serverErr) {
-      // Only fall back to the local account store when the server was genuinely
-      // unreachable. A definitive rejection (wrong password, no such account) is
-      // surfaced -- but a matching local account may still log in offline so
-      // accounts created before/without the backend keep working.
-      const u = findUserByEmail(db, email);
-      if (!u) {
-        if (serverErr.transient) throw new Error('Cannot reach the server. Check your connection and try again.');
-        throw serverErr; // e.g. "No account with that email" / "Incorrect password"
+      // The server is authoritative. If it was REACHABLE and rejected the login,
+      // trust it -- never silently sign in to a stale local-only account, which is
+      // exactly what traps a user "offline" with no way to play online.
+      if (!serverErr.transient) {
+        const local = findUserByEmail(loadDB(), email);
+        // Only nudge to Sign Up when this really is a local-only account whose
+        // password matches here (not a server-synced cache or a wrong password).
+        if (local && local.pwHash) {
+          const h = await hashPassword(password, local.salt);
+          if (h === local.pwHash) {
+            throw new Error('This account was only saved on this device. Tap Sign Up to register it online and play.');
+          }
+        }
+        throw serverErr; // genuine wrong email / password
       }
+      // Server unreachable -> allow offline login to a local account if present.
+      const db = loadDB();
+      const u = findUserByEmail(db, email);
+      if (!u) throw new Error('Cannot reach the server. Check your connection and try again.');
       const h = await hashPassword(password, u.salt);
-      if (h !== u.pwHash) throw serverErr.transient ? new Error('Incorrect password.') : serverErr;
+      if (h !== u.pwHash) throw new Error('Incorrect password.');
       setSession({ userId: u.id, offline: true });
       return u;
     }
