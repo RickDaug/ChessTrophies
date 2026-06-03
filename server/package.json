@@ -10,16 +10,18 @@
     "migrate": "node db.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "cors": "^2.8.5",
-    "socket.io": "^4.7.5",
-    "better-sqlite3": "^11.1.2",
+    "@socket.io/redis-adapter": "^8.3.0",
     "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2",
+    "better-sqlite3": "^11.1.2",
     "chess.js": "^1.0.0-beta.6",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.0.0",
     "helmet": "^7.0.0",
-    "express-rate-limit": "^7.0.0"
+    "ioredis": "^5.11.0",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.7.5"
   },
   "engines": {
     "node": ">=18"

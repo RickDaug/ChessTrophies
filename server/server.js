@@ -5,6 +5,8 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import http from 'http';
 import { Server as IO } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { Redis } from 'ioredis';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
@@ -47,6 +49,25 @@ if (corsOrigins !== '*') {
   corsOrigins = Array.from(new Set([...corsOrigins, ...DEFAULT_WEB_ORIGINS]));
 }
 const io = new IO(httpServer, { cors: { origin: corsOrigins === '*' ? '*' : corsOrigins } });
+
+// Horizontal scaling (multi-instance), gated on REDIS_URL. With it UNSET the
+// server runs exactly as before: single instance, in-memory state. With it SET,
+// Socket.IO broadcasts fan out across instances via the Redis adapter (pub/sub)
+// and game/matchmaking state is shared in Redis (see game.js). This lets the
+// backend run as multiple replicas. NOTE: across replicas, Socket.IO needs the
+// websocket transport (or LB session affinity) so a connection stays on one
+// instance; the client prefers websocket already.
+let redisClient = null;
+if (process.env.REDIS_URL) {
+  const pub = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: null });
+  const sub = pub.duplicate();
+  for (const c of [pub, sub]) c.on('error', (e) => console.error('[redis]', e && e.message));
+  io.adapter(createAdapter(pub, sub));
+  redisClient = pub;
+  console.log('[scale] multi-instance mode: Redis adapter + shared state enabled');
+} else {
+  console.log('[scale] single-instance mode (REDIS_URL not set)');
+}
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many auth attempts. Please try again later.' } });
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Please slow down.' } });
@@ -289,7 +310,7 @@ app.use((err, req, res, next) => {
 });
 
 // WebSocket
-attachSocketHandlers(io, verifyToken);
+attachSocketHandlers(io, verifyToken, redisClient);
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
