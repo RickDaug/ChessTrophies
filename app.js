@@ -389,22 +389,21 @@
     gameId: null,         // server-issued game id when in an online match
     applyingRemoteMove: false, // guard so afterMove doesn't echo opponent moves back to server
     awaitingServerGameOver: false, // when online, defer local handleGameOver until server sends game_over
-    selectedTc: '5+0', // last-chosen time control for online matchmaking
+    selectedTc: '10+0', // last-chosen time control for online matchmaking
   };
 
   // ---------------------------------------------------------------------------
   // Time controls (game clocks). Key format "<minutes>+<incrementSeconds>".
   // The server pairs only players on the SAME tc key, so these strings matter.
   // ---------------------------------------------------------------------------
+  // Kept deliberately to TWO choices so the matchmaking pool isn't fragmented:
+  // a single standard timed control and an untimed (no-clock) game. With a small
+  // queue, more options would mean players unable to find a same-tc opponent.
   const TC_OPTIONS = [
-    { key: '1+0',    label: '1+0',   cat: 'Bullet' },
-    { key: '3+2',    label: '3+2',   cat: 'Blitz' },
-    { key: '5+0',    label: '5+0',   cat: 'Blitz' },
-    { key: '10+0',   label: '10+0',  cat: 'Rapid' },
-    { key: '15+10',  label: '15+10', cat: 'Rapid' },
-    { key: 'unlimited', label: '∞',  cat: 'Unlimited' },
+    { key: '10+0',      label: '10 min',  cat: 'Timed' },
+    { key: 'unlimited', label: 'No clock', cat: 'Untimed' },
   ];
-  const TC_DEFAULT = '5+0';
+  const TC_DEFAULT = '10+0';
   const TC_STORE_KEY = 'ct_selected_tc_v1';
 
   function tcDisplay(key) {

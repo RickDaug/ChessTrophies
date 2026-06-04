@@ -19,7 +19,8 @@ const DUO_INVITE_TTL_MS = 60000;
 const userRoom = (uid) => `u:${uid}`;
 
 // ---- pure helpers (duplicated, stable) ----
-const TC_ALLOWLIST = new Set(['1+0', '3+2', '5+0', '10+0', '15+10', 'unlimited']);
+// One timed control + unlimited (mirrors game.js / app.js) to avoid splitting the queue.
+const TC_ALLOWLIST = new Set(['10+0', 'unlimited']);
 function normalizeTc(tc) { return (typeof tc === 'string' && TC_ALLOWLIST.has(tc)) ? tc : 'unlimited'; }
 function parseTc(tc) { const k = normalizeTc(tc); if (k === 'unlimited') return null; const m = /^(\d+)\+(\d+)$/.exec(k); return m ? { initialMs: Number(m[1]) * 60000, incrementMs: Number(m[2]) * 1000 } : null; }
 function makeClock(parsed) { return parsed ? { w: parsed.initialMs, b: parsed.initialMs, incrementMs: parsed.incrementMs, running: 'w', turnStartedAt: Date.now() } : null; }

@@ -37,7 +37,8 @@ function emitGame(io, g, event, data) {
 
 // ---- pure helpers (duplicated from game.js on purpose to keep this module
 // decoupled; these are stable) ----
-const TC_ALLOWLIST = new Set(['1+0', '3+2', '5+0', '10+0', '15+10', 'unlimited']);
+// One timed control + unlimited (mirrors game.js / app.js) to avoid splitting the queue.
+const TC_ALLOWLIST = new Set(['10+0', 'unlimited']);
 function normalizeTc(tc) { return (typeof tc === 'string' && TC_ALLOWLIST.has(tc)) ? tc : 'unlimited'; }
 function parseTc(tc) {
   const key = normalizeTc(tc);

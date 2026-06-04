@@ -50,7 +50,10 @@ export function notifyUser(userId, event, data) {
 
 // --- Time controls (server-authoritative clocks) ---
 // Allowlisted keys; anything else is treated as 'unlimited' (no clock).
-const TC_ALLOWLIST = new Set(['1+0', '3+2', '5+0', '10+0', '15+10', 'unlimited']);
+// Kept to a single timed control + unlimited so the matchmaking pool stays one
+// timed bucket (mirrors the two-option client picker in app.js). Any legacy key
+// from older clients folds into 'unlimited' rather than spawning a stray bucket.
+const TC_ALLOWLIST = new Set(['10+0', 'unlimited']);
 
 // Normalise an incoming tc value to an allowlisted key (defaults to 'unlimited').
 function normalizeTc(tc) {
