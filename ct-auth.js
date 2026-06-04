@@ -142,6 +142,10 @@
       bestStreak: Number.isFinite(profile.bestStreak) ? profile.bestStreak : (existing.bestStreak || 0),
       invitesAccepted: Number.isFinite(profile.invitesAccepted) ? profile.invitesAccepted : (existing.invitesAccepted || 0),
       isPremium: Boolean(profile.isPremium ?? existing.isPremium),
+      // Avatar is server-authoritative (so it follows the user across devices and
+      // is the same value opponents see). Local changes are pushed up before this.
+      avatarStock: (profile.avatarStock != null) ? profile.avatarStock : (existing.avatarStock || 'av_knight'),
+      avatarDataUrl: (profile.avatarDataUrl != null) ? (profile.avatarDataUrl || null) : (existing.avatarDataUrl || null),
       friends: existing.friends || [],
       streakVictims: existing.streakVictims || [],
       streakTrophies: existing.streakTrophies || [],

@@ -11,7 +11,7 @@
 // The in-memory path in game.js is left untouched; this is a parallel impl.
 import { Chess } from 'chess.js';
 import crypto from 'crypto';
-import { db, getUserById } from './db.js';
+import { db, getUserById, areBlocked } from './db.js';
 
 // ---- keys ----
 const K = {
@@ -50,7 +50,7 @@ function makeClock(parsed) {
   return { w: parsed.initialMs, b: parsed.initialMs, incrementMs: parsed.incrementMs, running: 'w', turnStartedAt: Date.now() };
 }
 function eloDelta(a, b, score) { const K2 = 32; const exp = 1 / (1 + Math.pow(10, (b - a) / 400)); return Math.round(K2 * (score - exp)); }
-function publicUser(u) { return { id: u.id, username: u.username, elo: u.elo, wins: u.wins, losses: u.losses, isPremium: !!u.is_premium }; }
+function publicUser(u) { return { id: u.id, username: u.username, elo: u.elo, wins: u.wins, losses: u.losses, isPremium: !!u.is_premium, avatarStock: u.avatar_stock || 'av_knight', avatarDataUrl: u.avatar_data_url || '' }; }
 function newGameId() { return 'g_' + crypto.randomBytes(6).toString('hex'); }
 function colorHasMatingMaterial(chess, color) {
   try {
@@ -141,7 +141,7 @@ async function tryPair(io, R) {
     const entries = Object.values(all).map((s) => JSON.parse(s)).sort((a, b) => a.joinedAt - b.joinedAt);
     for (const a of entries) {
       const tol = Math.min(500, 50 + Math.floor((Date.now() - a.joinedAt) / 1000) * 25);
-      const b = entries.find((x) => x.uid !== a.uid && x.mode === a.mode && x.tc === a.tc && Math.abs(x.elo - a.elo) <= tol);
+      const b = entries.find((x) => x.uid !== a.uid && x.mode === a.mode && x.tc === a.tc && Math.abs(x.elo - a.elo) <= tol && !areBlocked(a.uid, x.uid));
       if (b) { await R.hdel(K.queue, a.uid, b.uid); pair = [a, b]; break; }
     }
   });

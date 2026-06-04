@@ -4,7 +4,7 @@
 // single-instance mode and for 2v2 (which stays single-instance for now).
 import { Chess } from 'chess.js';
 import crypto from 'crypto';
-import { db, getUserById } from './db.js';
+import { db, getUserById, areBlocked } from './db.js';
 import * as scale from './scale-store.js';
 import * as scaleTeam from './scale-team.js';
 
@@ -32,6 +32,21 @@ const duoInvites = new Map();      // inviteId -> { hostId, hostSocketId, guestI
 const activeTeamGames = new Map(); // gameId -> team game object (see startTeamGame)
 const userActiveTeamGame = new Map(); // uid -> gameId (so we can find which game on resign/move)
 const teamMmBuckets = new Map();   // uid -> token bucket
+
+// Module-level io handle so non-socket code (e.g. Express friend-request routes
+// via notifyUser) can push events to a specific connected user.
+let ioRef = null;
+// Emit `event` to a user IF they currently have a live socket. Returns whether a
+// socket was found. Used to deliver real-time friend requests/accepts.
+export function notifyUser(userId, event, data) {
+  if (!ioRef) return false;
+  const sid = userSocket.get(String(userId));
+  if (!sid) return false;
+  const sock = ioRef.sockets.sockets.get(sid);
+  if (!sock) return false;
+  sock.emit(event, data);
+  return true;
+}
 
 // --- Time controls (server-authoritative clocks) ---
 // Allowlisted keys; anything else is treated as 'unlimited' (no clock).
@@ -190,6 +205,7 @@ function startTimeoutSweep(io) {
 let scaleR = null;
 
 export function attachSocketHandlers(io, verifyToken, redisClient = null) {
+  ioRef = io; // expose io to notifyUser() for friend-request pushes
   scaleR = redisClient || null;
   startTimeoutSweep(io);            // covers in-memory games (1v1 single-instance + 2v2)
   if (scaleR) { scale.startSweep(io, scaleR); scaleTeam.startSweep(io, scaleR); } // redis-backed 1v1 + 2v2 sweeps
@@ -648,7 +664,12 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
 }
 
 function publicUser(u) {
-  return { id: u.id, username: u.username, elo: u.elo, wins: u.wins, losses: u.losses, isPremium: !!u.is_premium };
+  return {
+    id: u.id, username: u.username, elo: u.elo, wins: u.wins, losses: u.losses,
+    isPremium: !!u.is_premium,
+    avatarStock: u.avatar_stock || 'av_knight',
+    avatarDataUrl: u.avatar_data_url || '',
+  };
 }
 
 function tryMatchmake(io) {
@@ -662,7 +683,8 @@ function tryMatchmake(io) {
       b.uid !== a.uid && matchmakingQueue.has(b.uid) &&
       Math.abs(a.elo - b.elo) <= tolerance &&
       a.mode === b.mode &&
-      a.tc === b.tc
+      a.tc === b.tc &&
+      !areBlocked(a.uid, b.uid) // never pair players who have blocked each other
     );
     if (match) {
       matchmakingQueue.delete(a.uid);

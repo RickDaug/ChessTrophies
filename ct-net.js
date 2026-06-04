@@ -123,6 +123,9 @@
     socket.on('duo_cancelled', function (data) { emit('duoCancelled', data); });
     socket.on('duo_invite_expired', function (data) { emit('duoInviteExpired', data); });
     socket.on('duo_err', function (data) { emit('duoErr', data); });
+
+    socket.on('friend_request', function (data) { emit('friendRequest', data); });
+    socket.on('friend_accepted', function (data) { emit('friendAccepted', data); });
   }
 
   function disconnect() {

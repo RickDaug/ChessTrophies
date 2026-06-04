@@ -13,9 +13,9 @@ import 'dotenv/config';
 
 import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
-import { db, getUserById, topByMetric, getProgress, setProgress, searchUsersByUsername } from './db.js';
+import { db, getUserById, topByMetric, getProgress, setProgress, searchUsersByUsername, areBlocked } from './db.js';
 import { sendResetEmail } from './email.js';
-import { attachSocketHandlers } from './game.js';
+import { attachSocketHandlers, notifyUser } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -168,7 +168,22 @@ app.get('/api/me', requireAuth, (req, res) => {
     elo: u.elo, wins: u.wins, losses: u.losses, draws: u.draws,
     currentStreak: u.current_streak, bestStreak: u.best_streak,
     invitesAccepted: u.invites_accepted, isPremium: !!u.is_premium,
+    avatarStock: u.avatar_stock || 'av_knight', avatarDataUrl: u.avatar_data_url || '',
   });
+});
+
+// Persist the player's chosen avatar so opponents can see it in-game. Both fields
+// are optional; data URLs are size-capped to avoid bloating the row.
+app.post('/api/profile/avatar', requireAuth, (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const stock = typeof body.avatarStock === 'string' ? body.avatarStock.slice(0, 32) : null;
+    let dataUrl = typeof body.avatarDataUrl === 'string' ? body.avatarDataUrl : null;
+    if (dataUrl && dataUrl.length > 200000) return res.status(413).json({ error: 'Avatar image too large.' });
+    if (stock !== null) db.prepare('UPDATE users SET avatar_stock = ? WHERE id = ?').run(stock, req.userId);
+    if (dataUrl !== null) db.prepare('UPDATE users SET avatar_data_url = ? WHERE id = ?').run(dataUrl, req.userId);
+    res.json({ ok: true });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
 // Rankings (Top N by metric)
@@ -200,17 +215,113 @@ app.get('/api/friends', requireAuth, (req, res) => {
   `).all(req.userId);
   res.json({ friends: rows });
 });
+// Helper: make two users friends (both directions) and clear any pending requests
+// between them. Used by accept and by the auto-accept-on-mutual-request path.
+function makeFriends(aId, bId) {
+  const now = Date.now();
+  const insF = db.prepare('INSERT OR IGNORE INTO friendships (user_id, friend_id, created_at) VALUES (?, ?, ?)');
+  insF.run(aId, bId, now);
+  insF.run(bId, aId, now);
+  db.prepare('DELETE FROM friend_requests WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)')
+    .run(aId, bId, bId, aId);
+}
+
+// Send a friend REQUEST (not an instant add). The recipient must accept it.
+// If they had already requested you, this accepts that instead (mutual intent).
 app.post('/api/friends/add', requireAuth, (req, res, next) => {
   try {
     const username = requireStringField(req.body || {}, 'username', { min: 1, max: 40 });
     const friend = db.prepare('SELECT id, username FROM users WHERE LOWER(username) = LOWER(?)').get(username);
     if (!friend) return res.status(404).json({ error: 'No user with that username' });
     if (friend.id === req.userId) return res.status(400).json({ error: 'Cannot friend yourself' });
-    const ins = db.prepare('INSERT OR IGNORE INTO friendships (user_id, friend_id, created_at) VALUES (?, ?, ?)');
-    ins.run(req.userId, friend.id, Date.now());
-    ins.run(friend.id, req.userId, Date.now());
+    if (areBlocked(req.userId, friend.id)) return res.status(403).json({ error: 'Unable to add this user.' });
+    // Already friends?
+    const already = db.prepare('SELECT 1 FROM friendships WHERE user_id = ? AND friend_id = ?').get(req.userId, friend.id);
+    if (already) return res.json({ ok: true, alreadyFriends: true, friend });
+    // They already requested ME -> accept it now (becomes mutual).
+    const reverse = db.prepare('SELECT 1 FROM friend_requests WHERE from_id = ? AND to_id = ?').get(friend.id, req.userId);
+    if (reverse) {
+      makeFriends(req.userId, friend.id);
+      notifyUser(friend.id, 'friend_accepted', { by: req.userId });
+      return res.json({ ok: true, accepted: true, friend });
+    }
+    // Otherwise record a pending request and notify the recipient if online.
+    db.prepare('INSERT OR IGNORE INTO friend_requests (from_id, to_id, created_at) VALUES (?, ?, ?)')
+      .run(req.userId, friend.id, Date.now());
+    notifyUser(friend.id, 'friend_request', {
+      from: { id: req.userId, username: req.user.username, elo: req.user.elo },
+    });
+    res.json({ ok: true, requested: true, friend });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+// Incoming pending friend requests (people who asked to befriend me).
+app.get('/api/friends/requests', requireAuth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT u.id, u.username, u.elo, fr.created_at
+    FROM friend_requests fr JOIN users u ON u.id = fr.from_id
+    WHERE fr.to_id = ? ORDER BY fr.created_at DESC
+  `).all(req.userId);
+  res.json({ requests: rows });
+});
+
+// Accept a pending request from `fromId`.
+app.post('/api/friends/accept', requireAuth, (req, res, next) => {
+  try {
+    const fromId = requireStringField(req.body || {}, 'fromId', { min: 1, max: 64 });
+    const pending = db.prepare('SELECT 1 FROM friend_requests WHERE from_id = ? AND to_id = ?').get(fromId, req.userId);
+    if (!pending) return res.status(404).json({ error: 'No such request.' });
+    makeFriends(req.userId, fromId);
+    notifyUser(fromId, 'friend_accepted', { by: req.userId, username: req.user.username });
+    const friend = db.prepare('SELECT id, username, elo, wins, losses, region, is_premium FROM users WHERE id = ?').get(fromId);
     res.json({ ok: true, friend });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+// Decline / dismiss a pending request from `fromId`.
+app.post('/api/friends/decline', requireAuth, (req, res, next) => {
+  try {
+    const fromId = requireStringField(req.body || {}, 'fromId', { min: 1, max: 64 });
+    db.prepare('DELETE FROM friend_requests WHERE from_id = ? AND to_id = ?').run(fromId, req.userId);
+    res.json({ ok: true });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+// Block a user: removes any friendship + pending requests both ways, and records
+// the block. Blocked pairs are never matched and can't friend-request each other.
+app.post('/api/friends/block', requireAuth, (req, res, next) => {
+  try {
+    const body = req.body || {};
+    let target = null;
+    if (typeof body.userId === 'string' && body.userId) target = getUserById(body.userId);
+    else if (typeof body.username === 'string' && body.username)
+      target = db.prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?)').get(body.username);
+    if (!target) return res.status(404).json({ error: 'No such user.' });
+    if (target.id === req.userId) return res.status(400).json({ error: 'Cannot block yourself.' });
+    db.prepare('INSERT OR IGNORE INTO blocks (blocker_id, blocked_id, created_at) VALUES (?, ?, ?)')
+      .run(req.userId, target.id, Date.now());
+    db.prepare('DELETE FROM friendships WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)')
+      .run(req.userId, target.id, target.id, req.userId);
+    db.prepare('DELETE FROM friend_requests WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)')
+      .run(req.userId, target.id, target.id, req.userId);
+    res.json({ ok: true, blocked: { id: target.id, username: target.username } });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+app.post('/api/friends/unblock', requireAuth, (req, res, next) => {
+  try {
+    const userId = requireStringField(req.body || {}, 'userId', { min: 1, max: 64 });
+    db.prepare('DELETE FROM blocks WHERE blocker_id = ? AND blocked_id = ?').run(req.userId, userId);
+    res.json({ ok: true });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+app.get('/api/friends/blocked', requireAuth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT u.id, u.username, u.elo FROM blocks b JOIN users u ON u.id = b.blocked_id
+    WHERE b.blocker_id = ? ORDER BY u.username COLLATE NOCASE
+  `).all(req.userId);
+  res.json({ blocked: rows });
 });
 
 // Recent game history

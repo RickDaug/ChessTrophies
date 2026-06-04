@@ -174,6 +174,14 @@
     serverFriendsCache = (res && Array.isArray(res.friends)) ? res.friends : [];
     return serverFriendsCache;
   }
+  // Incoming pending friend requests (server-backed accept/reject model).
+  var serverRequestsCache = null;
+  async function refreshServerRequests() {
+    if (!isServerLoggedIn()) return null;
+    var res = await api('/api/friends/requests');
+    serverRequestsCache = (res && Array.isArray(res.requests)) ? res.requests : [];
+    return serverRequestsCache;
+  }
   function addFriendByUsername(me, username) {
     if (!username) throw new Error('Enter a username.');
     var db = loadDB();
@@ -668,7 +676,7 @@
     if (id === 'profile') renderProfile();
     if (id === 'rankings') renderRankings();
     if (id === 'trophies') renderTrophies();
-    if (id === 'friends') { renderFriendsList(); }
+    if (id === 'friends') { serverRequestsCache = null; renderFriendsList(); }
     // Academy lives in academy.js; it exposes window.CT_renderAcademy to populate #academy-content on demand.
     if (id === 'academy' && window.CT_renderAcademy) window.CT_renderAcademy();
   if (id === 'puzzles' && window.CT_renderPuzzles) window.CT_renderPuzzles();
@@ -1080,7 +1088,22 @@ function renderFriendsSummary() {
   // incoming-requests section here.
   function renderServerFriendsList(wrap) {
     var friends = serverFriendsCache || [];
-    var html = '<div class="muted small" style="text-transform:uppercase;letter-spacing:.6px;margin:10px 0 6px;">Your friends</div>';
+    var requests = serverRequestsCache || [];
+    var html = '';
+    // Incoming friend requests -> accept/reject (the consent flow).
+    if (requests.length) {
+      html += '<div class="muted small" style="text-transform:uppercase;letter-spacing:.6px;margin:4px 0 6px;">Friend requests</div>';
+      html += requests.map(function(u){
+        return '<div class="friend-row" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--panel-2);border-radius:10px;margin-bottom:8px;">' +
+          (typeof getAvatarHTML === 'function' ? getAvatarHTML(u, 34) : '') +
+          '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(u.username) + '</div>' +
+          '<div class="muted small">wants to be friends</div></div>' +
+          '<button class="btn-accept-req" data-id="' + escapeHTML(String(u.id)) + '" style="background:var(--accent);color:#1a1d24;border:none;border-radius:8px;padding:6px 12px;font-weight:600;cursor:pointer;">Accept</button>' +
+          '<button class="btn-decline-req" data-id="' + escapeHTML(String(u.id)) + '" style="background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;">Reject</button>' +
+          '</div>';
+      }).join('');
+    }
+    html += '<div class="muted small" style="text-transform:uppercase;letter-spacing:.6px;margin:10px 0 6px;">Your friends</div>';
     if (serverFriendsCache === null) {
       html += '<div class="muted small" style="padding:8px 2px;">Loading friends…</div>';
     } else if (!friends.length) {
@@ -1099,12 +1122,59 @@ function renderFriendsSummary() {
     $$('#friends-list [data-friend-id]').forEach(function(row){
       row.addEventListener('click', function(){ openFriendChallenge(row.dataset.friendId); });
     });
+    $$('#friends-list .btn-accept-req').forEach(function(b){
+      b.addEventListener('click', function(){ respondToFriendRequest(b.dataset.id, true); });
+    });
+    $$('#friends-list .btn-decline-req').forEach(function(b){
+      b.addEventListener('click', function(){ respondToFriendRequest(b.dataset.id, false); });
+    });
     if (serverFriendsCache === null) {
       refreshServerFriends().then(function(){ renderServerFriendsList(wrap); }).catch(function(){
         serverFriendsCache = serverFriendsCache || [];
         renderServerFriendsList(wrap);
       });
     }
+    if (serverRequestsCache === null) {
+      refreshServerRequests().then(function(){ renderServerFriendsList(wrap); }).catch(function(){
+        serverRequestsCache = serverRequestsCache || [];
+      });
+    }
+  }
+
+  // Accept or reject an incoming server friend request, then refresh the list.
+  function respondToFriendRequest(fromId, accept) {
+    var path = accept ? '/api/friends/accept' : '/api/friends/decline';
+    api(path, { method: 'POST', body: JSON.stringify({ fromId: fromId }) }).then(function(){
+      toast(accept ? 'Friend added 🤝' : 'Request dismissed');
+      serverFriendsCache = null; serverRequestsCache = null;
+      renderFriendsList();
+    }).catch(function(err){ toast((err && err.message) || 'Could not update request.'); });
+  }
+
+  // Block a player by id (server-enforced: no matching, no requests, hidden in search).
+  function blockPlayer(userId, username) {
+    if (!isServerLoggedIn()) { toast('Sign in to block players.'); return; }
+    if (!confirm('Block ' + (username || 'this player') + '?\n\nYou won’t be matched with them, they can’t friend-request you, and any existing friendship is removed.')) return;
+    api('/api/friends/block', { method: 'POST', body: JSON.stringify({ userId: userId }) }).then(function(){
+      toast('Blocked ' + (username || 'player'));
+      serverFriendsCache = null; serverRequestsCache = null;
+      if ($('#screen-friends') && $('#screen-friends').classList.contains('active')) renderFriendsList();
+    }).catch(function(err){ toast((err && err.message) || 'Could not block.'); });
+  }
+  window.CT_blockPlayer = blockPlayer;
+
+  // A friend request arrived in real time -> pop a window so the recipient can act
+  // on it (instead of being silently added). Accept immediately, or leave it in the
+  // Friends tab where it shows with explicit Accept / Reject buttons.
+  function handleFriendRequestPush(d) {
+    var from = d && d.from;
+    if (!from) return;
+    serverRequestsCache = null; // a new request arrived; refetch on next render
+    var onFriends = $('#screen-friends') && $('#screen-friends').classList.contains('active');
+    if (onFriends) renderFriendsList();
+    var accept = confirm((from.username || 'A player') + ' wants to be your friend.\n\nOK = Accept now\nCancel = decide later (Accept / Reject in the Friends tab)');
+    if (accept) respondToFriendRequest(from.id, true);
+    else { if (!onFriends) toast((from.username || 'Someone') + ' sent you a friend request — see the Friends tab.'); renderFriendsSummary(); }
   }
 
   $('#btn-new-match').addEventListener('click', () => {
@@ -1349,6 +1419,7 @@ function renderFriendsSummary() {
     }
     if (!friend) return;
     state.selectedFriendId = friendId;
+    state.selectedFriendName = friend.username;
     $('#fc-title').textContent = 'Challenge ' + friend.username;
     $('#fc-sub').textContent = 'ELO ' + friend.elo + ' · ' + (friend.region || 'no region') + ' · friend will be your 2v2 teammate';
     openModal('friend-challenge');
@@ -1379,6 +1450,10 @@ function renderFriendsSummary() {
     closeModal('friend-challenge');
     renderFriendsList();
     toast('Friend removed');
+  });
+  $('#btn-fc-block').addEventListener('click', () => {
+    closeModal('friend-challenge');
+    blockPlayer(state.selectedFriendId, state.selectedFriendName);
   });
   $('#btn-fc-cancel').addEventListener('click', () => closeModal('friend-challenge'));
 
@@ -1796,6 +1871,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       elo: (oppData && oppData.elo) || 1200,
       isAI: false,
       userId: (oppData && oppData.id) || null,
+      avatarStock: (oppData && oppData.avatarStock) || 'av_knight',
+      avatarDataUrl: (oppData && oppData.avatarDataUrl) || '',
     };
     state.isOnline = true;
     state.gameId = data.gameId;
@@ -2007,6 +2084,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       window.CTNet.on('duoCancelled', (d) => { toast('Duo invite cancelled.'); state._pendingDuoInvite = null; closeModal('duo-invite'); });
       window.CTNet.on('duoInviteExpired', (d) => { toast('Duo invite expired.'); state._pendingDuoInvite = null; closeModal('duo-invite'); });
       window.CTNet.on('duoErr', (d) => toast('Duo error: ' + (d && d.error || 'unknown')));
+
+      // Real-time friend requests: pop a window asking the recipient to accept/reject.
+      window.CTNet.on('friendRequest', handleFriendRequestPush);
+      window.CTNet.on('friendAccepted', (d) => {
+        toast(((d && d.username) ? d.username : 'Someone') + ' accepted your friend request 🤝');
+        serverFriendsCache = null;
+        if ($('#screen-friends') && $('#screen-friends').classList.contains('active')) renderFriendsList();
+      });
       state._netHandlersRegistered = true;
     }
     // Pull any learning progress saved on the server (other devices) and merge it in.
@@ -2353,12 +2438,21 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const me = state.user;
     const opp = state.opponent;
     const topIsOpp = state.orientation === state.userColor;
-    $('#pt-name').textContent = topIsOpp ? opp.username : me.username;
-    $('#pt-elo').textContent = 'ELO ' + (topIsOpp ? opp.elo : me.elo);
-    $('#pt-avatar').textContent = (topIsOpp ? opp.username : me.username)[0].toUpperCase();
-    $('#pb-name').textContent = topIsOpp ? me.username : opp.username;
-    $('#pb-elo').textContent = 'ELO ' + (topIsOpp ? me.elo : opp.elo);
-    $('#pb-avatar').textContent = (topIsOpp ? me.username : opp.username)[0].toUpperCase();
+    const topUser = topIsOpp ? opp : me;
+    const botUser = topIsOpp ? me : opp;
+    $('#pt-name').textContent = topUser.username;
+    $('#pt-elo').textContent = 'ELO ' + topUser.elo;
+    $('#pb-name').textContent = botUser.username;
+    $('#pb-elo').textContent = 'ELO ' + botUser.elo;
+    // Show each player's REAL avatar (stock emoji or uploaded image), so both
+    // parties see who they're playing -- not just a first initial.
+    if (typeof getAvatarHTML === 'function') {
+      $('#pt-avatar').innerHTML = getAvatarHTML(topUser, 40);
+      $('#pb-avatar').innerHTML = getAvatarHTML(botUser, 40);
+    } else {
+      $('#pt-avatar').textContent = (topUser.username || '?')[0].toUpperCase();
+      $('#pb-avatar').textContent = (botUser.username || '?')[0].toUpperCase();
+    }
     $('#pt-captured').innerHTML = '';
     $('#pb-captured').innerHTML = '';
   }
@@ -3026,6 +3120,13 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Rematch UI: only for online 1v1 games (eligible flag set at match start and
     // cleared for offline/2v2). Reset to its default "Rematch" state each time.
     resetRematchUI();
+    // Offer "Block opponent" only for a real online human opponent.
+    var _blkBtn = $('#btn-result-block');
+    if (_blkBtn) {
+      var _blkOpp = state.opponent;
+      var canBlock = !!(_blkOpp && _blkOpp.userId && !_blkOpp.isAI && !_blkOpp.isGuest && isServerLoggedIn());
+      _blkBtn.style.display = canBlock ? '' : 'none';
+    }
     openModal('result');
     // Celebrate trophy unlocks: confetti + title shine, timed with the fanfare.
     try {
@@ -3067,6 +3168,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     </div>`;
   }
 
+  $('#btn-result-block').addEventListener('click', () => {
+    var opp = state.opponent;
+    if (opp && opp.userId) { closeModal('result'); blockPlayer(opp.userId, opp.username); }
+  });
   $('#btn-result-close').addEventListener('click', () => {
     // Dismissing the result drops any pending rematch offer/eligibility.
     if (rematchState.phase === 'offered' && rematchState.gameId && window.CTNet && window.CTNet.isReady()) {
@@ -3548,6 +3653,19 @@ function getAvatarHTML(user, size = 48) {
   return `<span style="display:inline-flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:50%;background:${av.bg};font-size:${Math.round(size*0.5)}px;">${av.emoji}</span>`;
 }
 
+// Push the user's chosen avatar to the server so opponents can see it in-game.
+// No-op for guests/offline. Uses window.CT_Auth so it works at global scope.
+function ctSyncAvatar(u) {
+  try {
+    const A = window.CT_Auth;
+    if (!A || !A.isServerLoggedIn || !A.isServerLoggedIn() || !u) return;
+    A.api('/api/profile/avatar', { method: 'POST', body: JSON.stringify({
+      avatarStock: u.avatarStock || 'av_knight',
+      avatarDataUrl: u.avatarDataUrl || '',
+    }) }).catch(function () {});
+  } catch (e) {}
+}
+
 // ============================================================
 // FEATURE: CHAT SYSTEM (in-game + lobby)
 // ============================================================
@@ -3718,6 +3836,7 @@ function openAvatarEditor() {
     db.users[user.id].avatarDataUrl = null;
     state.user = db.users[user.id];
     saveDB(db);
+    ctSyncAvatar(state.user);
     document.getElementById('ct-avatar-preview').innerHTML = getAvatarHTML(state.user, 72);
     // Refresh stock grid borders
     document.querySelectorAll('#ct-avatar-modal button[onclick*="_selectStockAvatar"]').forEach(btn => {
@@ -3738,6 +3857,7 @@ function openAvatarEditor() {
       db.users[user.id].avatarDataUrl = e.target.result;
       state.user = db.users[user.id];
       saveDB(db);
+      ctSyncAvatar(state.user);
       document.getElementById('ct-avatar-preview').innerHTML = getAvatarHTML(state.user, 72);
       toast('Custom avatar set!', true);
       if (document.getElementById('profile-screen')) renderProfile();
@@ -3750,6 +3870,7 @@ function openAvatarEditor() {
     db.users[user.id].avatarDataUrl = null;
     state.user = db.users[user.id];
     saveDB(db);
+    ctSyncAvatar(state.user);
     document.getElementById('ct-avatar-preview').innerHTML = getAvatarHTML(state.user, 72);
     toast('Custom avatar removed.', true);
   };

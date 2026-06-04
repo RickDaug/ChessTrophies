@@ -123,6 +123,41 @@ ensureColumn('users', 'elo_2v2', 'INTEGER', '1200');
 ensureColumn('users', 'wins_2v2', 'INTEGER', '0');
 ensureColumn('users', 'losses_2v2', 'INTEGER', '0');
 ensureColumn('users', 'draws_2v2', 'INTEGER', '0');
+// Avatar (chosen on the client; mirrored here so opponents can see it in-game).
+ensureColumn('users', 'avatar_stock', 'TEXT', "'av_knight'");
+ensureColumn('users', 'avatar_data_url', 'TEXT', "''");
+
+// Pending friend requests (from_id asked to befriend to_id; awaiting consent).
+// Confirmed friendships still live in the `friendships` table.
+db.exec(`
+CREATE TABLE IF NOT EXISTS friend_requests (
+  from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (from_id, to_id),
+  FOREIGN KEY (from_id) REFERENCES users(id),
+  FOREIGN KEY (to_id) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS blocks (
+  blocker_id TEXT NOT NULL,
+  blocked_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (blocker_id, blocked_id),
+  FOREIGN KEY (blocker_id) REFERENCES users(id),
+  FOREIGN KEY (blocked_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_to ON friend_requests(to_id);
+CREATE INDEX IF NOT EXISTS idx_blocks_blocker ON blocks(blocker_id);
+`);
+
+// True if either user has blocked the other (block is symmetric for matchmaking
+// and friend-request purposes).
+export function areBlocked(a, b) {
+  const row = db.prepare(
+    `SELECT 1 FROM blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?) LIMIT 1`
+  ).get(a, b, b, a);
+  return !!row;
+}
 
 // Helpers
 export function getUserById(id) {
@@ -187,9 +222,11 @@ export function searchUsersByUsername(prefix, excludeId, limit = 8) {
     WHERE username LIKE ? ESCAPE '\\' COLLATE NOCASE
       AND id <> ?
       AND id NOT IN (SELECT friend_id FROM friendships WHERE user_id = ?)
+      AND id NOT IN (SELECT blocked_id FROM blocks WHERE blocker_id = ?)
+      AND id NOT IN (SELECT blocker_id FROM blocks WHERE blocked_id = ?)
     ORDER BY username COLLATE NOCASE
     LIMIT ?
-  `).all(pattern, excludeId, excludeId, lim);
+  `).all(pattern, excludeId, excludeId, excludeId, excludeId, lim);
 }
 
 export function topByMetric(metric, limit = 100) {
