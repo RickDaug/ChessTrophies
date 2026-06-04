@@ -633,6 +633,8 @@
     db.users[state.user.id] = state.user;
     saveDB(db);
     toast(value ? 'Premium activated 🎉 ads removed' : 'Premium cancelled', true);
+    // Show/hide the native AdMob banner to match the new premium state.
+    try { if (window.CT_Ads) window.CT_Ads.refresh(!!value); } catch (e) {}
     // Refresh whichever screen is visible
     if ($('#screen-lobby').classList.contains('active')) renderLobby();
     if ($('#screen-rankings').classList.contains('active') && typeof renderRankings === 'function') renderRankings();
@@ -3416,6 +3418,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   function enterApp() {
     showNav(true);
     showScreen('lobby');
+    // Native AdMob banner: shown for free users, suppressed for premium. No-op on web.
+    try { if (window.CT_Ads) window.CT_Ads.refresh(!!(state.user && state.user.isPremium)); } catch (e) {}
     const params = new URLSearchParams(window.location.search);
     const code = params.get('join');
     if (code) {
@@ -3934,6 +3938,7 @@ function signOut() {
   try { localStorage.removeItem('chesstrophies_session_v1'); } catch(e) {}
   state.user = null;
   state.userId = null;
+  try { if (window.CT_Ads) window.CT_Ads.hide(); } catch (e) {}
   showScreen('lobby');
   renderLobby();
   showNav(true);

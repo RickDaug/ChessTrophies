@@ -9,6 +9,15 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- AdMob application id. This is Google's official TEST app id — it is safe
+             in development and never bills or triggers policy strikes. REPLACE it
+             with your real AdMob app id (AdMob console > App settings) before a
+             production release. This meta-data is REQUIRED: with the Mobile Ads SDK
+             on the classpath, the app crashes on launch if it is missing. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713" />
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
