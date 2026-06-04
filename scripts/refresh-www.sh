@@ -15,7 +15,7 @@ cd "$SCRIPT_DIR/.."
 FILES=(
   index.html app.js academy.js sounds.js stockfish-ai.js
   chess.min.js chess960.js config.js ct-net.js ct-ai.js ct-ai-worker.js
-  puzzles-data.js puzzles.js
+  trophy-data.js puzzles-data.js puzzles.js
   review.js trophy-extras.js learn-library.js sw.js manifest.json
   terms.html privacy.html
   icon.svg icon-192.png icon-512.png icon-1024.png
