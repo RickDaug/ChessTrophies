@@ -1237,7 +1237,51 @@ function renderFriendsSummary() {
   }
 
   // Friends
+  // Shared add-friend submit, used by BOTH the Friends-tab "+ Add friend" button
+  // (reading the inline search box) and the modal's Add button. This is what fixes
+  // the "type a name, click Add, then get asked for the name AGAIN" double-prompt:
+  // the tab button now adds the typed name directly instead of opening the modal.
+  function submitAddFriend(uname, opts) {
+    opts = opts || {};
+    var setErr = opts.setError || function () {};
+    var u = (uname || '').trim();
+    if (!u) { setErr('Enter a username.'); if (opts.focusEl) opts.focusEl.focus(); return; }
+    if (isServerLoggedIn()) {
+      if (opts.btn) opts.btn.disabled = true;
+      serverAddFriend(u).then(function (friend) {
+        hideFriendSuggestions();
+        closeModal('add-friend');
+        toast((friend && friend.requested ? 'Friend request sent to ' : 'Added ') + ((friend && friend.username) || u) + ' 🤝');
+        if (opts.clearEl) opts.clearEl.value = '';
+        serverFriendsCache = null; // force a fresh pull
+        renderFriendsList();
+      }).catch(function (err) {
+        setErr((err && err.status === 404) ? 'No user with that username.'
+          : ((err && err.message) || 'Could not add friend. Try again.'));
+      }).then(function () { if (opts.btn) opts.btn.disabled = false; });
+      return;
+    }
+    // Guest / offline: local-DB request model.
+    try {
+      const friend = addFriendByUsername(state.user, u);
+      const db = loadDB();
+      state.user = db.users[state.user.id];
+      closeModal('add-friend');
+      toast((friend.requested ? 'Friend request sent to ' : 'Added ') + friend.username + ' 🤝');
+      if (opts.clearEl) opts.clearEl.value = '';
+      renderFriendsList();
+    } catch (err) { setErr(err.message); }
+  }
+
   $('#btn-add-friend').addEventListener('click', () => {
+    const si = $('#friend-search-input');
+    const typed = si ? si.value : '';
+    if (typed && typed.trim()) {
+      // Name already in the search box — add it directly, no second prompt.
+      submitAddFriend(typed, { btn: $('#btn-add-friend'), clearEl: si, focusEl: si, setError: (m) => toast(m) });
+      return;
+    }
+    // Nothing typed yet — fall back to the modal as a manual entry point.
     $('#friend-username').value = '';
     $('#friend-error').textContent = '';
     hideFriendSuggestions();
@@ -1290,38 +1334,10 @@ function renderFriendsSummary() {
   }
   $('#btn-friend-add').addEventListener('click', () => {
     $('#friend-error').textContent = '';
-    const uname = $('#friend-username').value;
-    if (!uname || !uname.trim()) { $('#friend-error').textContent = 'Enter a username.'; return; }
-    // Logged-in users go through the server so they can friend players who signed
-    // up on any device. Guests fall back to the local-DB matcher.
-    if (isServerLoggedIn()) {
-      const btn = $('#btn-friend-add');
-      btn.disabled = true;
-      serverAddFriend(uname).then(function(friend){
-        hideFriendSuggestions();
-        closeModal('add-friend');
-        toast('Added ' + ((friend && friend.username) || uname.trim()) + ' 🤝');
-        serverFriendsCache = null; // force a fresh pull
-        renderFriendsList();
-      }).catch(function(err){
-        // 404 from the server => "no user with that username".
-        $('#friend-error').textContent = (err && err.status === 404)
-          ? 'No user with that username.'
-          : ((err && err.message) || 'Could not add friend. Try again.');
-      }).then(function(){ btn.disabled = false; });
-      return;
-    }
-    try {
-      const friend = addFriendByUsername(state.user, uname);
-      // Refresh state.user from DB
-      const db = loadDB();
-      state.user = db.users[state.user.id];
-      closeModal('add-friend');
-      toast('Added ' + friend.username + ' 🤝');
-      renderFriendsList();
-    } catch (err) {
-      $('#friend-error').textContent = err.message;
-    }
+    submitAddFriend($('#friend-username').value, {
+      btn: $('#btn-friend-add'),
+      setError: (m) => { $('#friend-error').textContent = m; },
+    });
   });
 
   function openFriendChallenge(friendId) {
@@ -2941,8 +2957,12 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         if (me.recentGameDays.length > 35) me.recentGameDays.shift();
       }
       if (myWon) me.lastWinDate = Date.now();
-      if (me.lastWinDate) {
-        const daysSinceWin = (Date.now() - me.lastWinDate) / 86400000;
+      // Measure "days without a win" from the last win, or from account creation
+      // for players who have NEVER won -- otherwise these two trophies could never
+      // unlock for a winless player (the very person they describe).
+      const winRef = me.lastWinDate || me.createdAt || Date.now();
+      {
+        const daysSinceWin = (Date.now() - winRef) / 86400000;
         if (daysSinceWin >= 7) {
           const cutoff = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
           const recent = me.recentGameDays.filter(d => d >= cutoff);

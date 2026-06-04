@@ -238,10 +238,44 @@
     const youWon = winnerColor === duo.youColor;
     const me = state.user;
     let delta = 0;
-    if (me && data.perPlayerDelta) {
-      delta = data.perPlayerDelta[me.id] || 0;
-      me.elo2v2 = Math.max(100, Math.min(2800, (me.elo2v2 || 1200) + delta));
-      try { const _db = loadDB(); if (me && me.id) _db.users[me.id] = me; saveDB(_db); } catch (e) {}
+    if (me) {
+      // ELO is server-authoritative (per-player delta).
+      if (data.perPlayerDelta) {
+        delta = data.perPlayerDelta[me.id] || 0;
+        me.elo2v2 = Math.max(100, Math.min(2800, (me.elo2v2 || 1200) + delta));
+      }
+      // The server only sends ELO deltas, so the client-side 2v2 counters that the
+      // duo trophies read MUST be updated here for ONLINE games. Previously only the
+      // (now-disabled) offline path did this, which is why 9 of 10 duo trophies could
+      // never unlock. Mirror the offline accounting.
+      me.games2v2 = (me.games2v2 || 0) + 1;
+      if (youWon) {
+        me.wins2v2 = (me.wins2v2 || 0) + 1;
+        me.currentStreak2v2 = (me.currentStreak2v2 || 0) + 1;
+        me.bestStreak2v2 = Math.max(me.bestStreak2v2 || 0, me.currentStreak2v2);
+      } else if (isDraw) {
+        me.draws2v2 = (me.draws2v2 || 0) + 1;
+        me.currentStreak2v2 = 0;
+      } else {
+        me.losses2v2 = (me.losses2v2 || 0) + 1;
+        me.currentStreak2v2 = 0;
+      }
+      // Settle duo trophies. duo_first is awarded at match start (duoStart); the rest
+      // settle here. duo_synergy/duo_maverick are games-played milestones (their old
+      // AI-partner-suggestion conditions can't occur in online-only 2v2).
+      unlockAchievement(me, 'duo_first');
+      if ((me.games2v2 || 0) >= 10) unlockAchievement(me, 'duo_synergy');
+      if ((me.games2v2 || 0) >= 20) unlockAchievement(me, 'duo_maverick');
+      if (youWon) {
+        unlockAchievement(me, 'duo_win1');
+        if ((me.wins2v2 || 0) >= 10) unlockAchievement(me, 'duo_win10');
+        if ((me.wins2v2 || 0) >= 25) unlockAchievement(me, 'duo_win25');
+        if ((me.currentStreak2v2 || 0) >= 3) unlockAchievement(me, 'duo_streak3');
+        if ((me.currentStreak2v2 || 0) >= 5) unlockAchievement(me, 'duo_streak5');
+        if ((me.elo2v2 || 1200) >= 1600) unlockAchievement(me, 'duo_2400');
+        if (duo.sawQueenDown) unlockAchievement(me, 'duo_comeback');
+      }
+      try { const _db = loadDB(); if (me.id) _db.users[me.id] = me; saveDB(_db); } catch (e) {}
     }
     try { if (window.ChessSounds) { if (isDraw) window.ChessSounds.note && window.ChessSounds.note(523,0.4,'sine',0.18); else window.ChessSounds.gameOver(youWon); } } catch (e) {}
     if (youWon && typeof ctCelebrate === 'function') { try { ctCelebrate('big'); } catch (e) {} }

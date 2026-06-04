@@ -141,6 +141,13 @@
     // Prefer unsolved puzzles; fall back to any once all solved.
     var unsolved = list.filter(function (p) { return !prog.byId[p.id]; });
     var pool = unsolved.length ? unsolved : list;
+    // Never hand back the puzzle we're already on. Without this, random picking
+    // from a small pool (easy=7, hard=8) repeats the same puzzle several times in
+    // a row -- the bug a tester hit. Only skip the guard if it's the lone option.
+    if (current && pool.length > 1) {
+      var others = pool.filter(function (p) { return p.id !== current.id; });
+      if (others.length) pool = others;
+    }
     return pool[(Math.random() * pool.length) | 0];
   }
 
@@ -341,7 +348,9 @@
     el('screen-puzzles').addEventListener('click', function (e) {
       var m = e.target.closest ? e.target.closest('[data-mode]') : null;
       if (m) { setMode(m.getAttribute('data-mode')); return; }
-      if (e.target.id === 'btn-pz-next') loadPuzzle(null);
+      // In daily mode there is only ONE puzzle per day, so "Next" would re-serve
+      // the same daily forever -- switch to mixed for a fresh puzzle instead.
+      if (e.target.id === 'btn-pz-next') { if (mode === 'daily') setMode('mixed'); else loadPuzzle(null); }
       if (e.target.id === 'btn-pz-reset') { liveFen = current.fen; selected = null; solvedThis = false; renderBoard(); flash('Position reset.', true); var n = el('btn-pz-next'); if (n) n.style.display = 'none'; }
       if (e.target.id === 'btn-pz-hint') { giveHint(); }
     });

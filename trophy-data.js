@@ -82,8 +82,8 @@
     { id: 'duo_win25', family: 'Duo', type: 'duo', threshold: 25, tier: 3, icon: '⚔️', name: 'Battle Buddies', desc: 'Win 25 2v2 matches.' },
     { id: 'duo_streak3', family: 'Duo', type: 'duo', threshold: 3, tier: 2, icon: '🏃', name: 'In Sync', desc: 'Win 3 2v2 matches in a row.' },
     { id: 'duo_streak5', family: 'Duo', type: 'duo', threshold: 5, tier: 3, icon: '⚡', name: 'Unstoppable Duo', desc: 'Win 5 2v2 matches in a row.' },
-    { id: 'duo_synergy', family: 'Duo', type: 'duo', threshold: 10, tier: 2, icon: '🧠', name: 'Mind Meld', desc: 'Accept 10 partner-suggested moves.' },
-    { id: 'duo_maverick', family: 'Duo', type: 'duo', threshold: 20, tier: 2, icon: '🎸', name: 'Maverick', desc: 'Override your partner 20 times and still win.' },
+    { id: 'duo_synergy', family: 'Duo', type: 'duo', threshold: 10, tier: 2, icon: '🧠', name: 'Mind Meld', desc: 'Play 10 ranked 2v2 matches.' },
+    { id: 'duo_maverick', family: 'Duo', type: 'duo', threshold: 20, tier: 2, icon: '🎸', name: 'Maverick', desc: 'Play 20 ranked 2v2 matches.' },
     { id: 'duo_2400', family: 'Duo', type: 'duo', threshold: 1, tier: 3, icon: '👑', name: 'Duo Royalty', desc: 'Reach 1600 2v2 rating.' },
     { id: 'duo_comeback', family: 'Duo', type: 'duo', threshold: 1, tier: 3, icon: '🔄', name: 'Clutch Comeback', desc: 'Win a 2v2 after being down a queen.' },
   ];
