@@ -14,7 +14,7 @@ import 'dotenv/config';
 import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, verifyEmailToken, resendEmailVerification } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
 import { db, getUserById, topByMetric, getProgress, setProgress, searchUsersByUsername, areBlocked } from './db.js';
-import { sendResetEmail, sendVerifyEmail } from './email.js';
+import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
 import { attachSocketHandlers, notifyUser } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -456,4 +456,12 @@ attachSocketHandlers(io, verifyToken, redisClient);
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`ChessTrophies server listening on :${PORT}`);
+  // Make the email state obvious in the logs — the #1 "verification email never
+  // arrived" cause is simply not having an email provider configured.
+  if (isEmailConfigured()) {
+    const from = process.env.RESEND_FROM || 'ChessTrophies <onboarding@resend.dev>';
+    console.log(`[email] provider configured (Resend). From: ${from}. APP_URL: ${process.env.APP_URL || '(unset)'}`);
+  } else {
+    console.warn('[email] RESEND_API_KEY is NOT set — signup verification and password-reset emails will NOT be sent. Set RESEND_API_KEY, RESEND_FROM, and APP_URL to enable email.');
+  }
 });

@@ -7,6 +7,12 @@
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
+// True when an email provider is configured. Used for a startup diagnostic so
+// it's obvious in the logs whether verification/reset emails will actually send.
+export function isEmailConfigured() {
+  return !!process.env.RESEND_API_KEY;
+}
+
 // Low-level Resend send. Returns true on success, false if email is not
 // configured or sending failed. Never throws.
 async function sendEmail({ to, subject, text }) {
