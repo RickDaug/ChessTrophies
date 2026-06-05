@@ -7,7 +7,7 @@
  * Puzzle data is loaded from window.CT_PUZZLES (puzzles-data.js), which is
  * AUTO-GENERATED, engine-verified original compositions -- see tools/gen-puzzles.js.
  *
- * Progress (streak/best/daily) is device-local under PROGRESS_KEY. We deliberately
+ * Progress (streak/best) is device-local under PROGRESS_KEY. We deliberately
  * keep this out of the shared DB so it works for guests too and never desyncs.
  */
 (function () {
@@ -21,7 +21,7 @@
   // ---- progress persistence ----
   function loadProgress() {
     try { var p = JSON.parse(localStorage.getItem(PROGRESS_KEY)); if (p && typeof p === 'object') return p; } catch (e) {}
-    return { solved: 0, streak: 0, best: 0, byId: {}, dailyDate: null, dailySolved: false };
+    return { solved: 0, streak: 0, best: 0, byId: {} };
   }
   function saveProgress(p) { try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(p)); } catch (e) {} }
 
@@ -50,7 +50,7 @@
   var selected = null;  // selected from-square
   var solvedThis = false;
   var hintStage = 0;    // graduated hint escalation for the current puzzle
-  var mode = 'mixed';   // mixed | easy | medium | hard | daily
+  var mode = 'mixed';   // mixed | easy | medium | hard
 
   // Conceptual hint nudges keyed by puzzle theme (lowercased). Falls back per
   // objective, then to a generic prompt.
@@ -123,19 +123,9 @@
 
   function allPuzzles() { return (window.CT_PUZZLES || []).slice(); }
 
-  // Deterministic daily pick so everyone gets the same daily puzzle each day.
-  // UTC-based so every player worldwide gets the SAME puzzle on a given calendar day.
-  function dailyPuzzle() {
-    var list = allPuzzles(); if (!list.length) return null;
-    var d = new Date(); var key = d.getUTCFullYear() * 372 + d.getUTCMonth() * 31 + d.getUTCDate();
-    return list[key % list.length];
-  }
-  function todayStr() { var d = new Date(); return d.getUTCFullYear() + '-' + (d.getUTCMonth() + 1) + '-' + d.getUTCDate(); }
-
   function pickPuzzle() {
     var prog = loadProgress();
     var list = allPuzzles();
-    if (mode === 'daily') return dailyPuzzle();
     if (mode !== 'mixed') list = list.filter(function (p) { return p.difficulty === mode; });
     if (!list.length) list = allPuzzles();
     // Prefer unsolved puzzles; fall back to any once all solved.
@@ -259,7 +249,6 @@
     if (firstTime) prog.solved = (prog.solved || 0) + 1;
     prog.streak = (prog.streak || 0) + 1;
     if (prog.streak > (prog.best || 0)) prog.best = prog.streak;
-    if (mode === 'daily') { prog.dailyDate = todayStr(); prog.dailySolved = true; }
     saveProgress(prog);
     if (window.CT_syncProgress) window.CT_syncProgress();
     try { if (window.ChessSounds && window.ChessSounds.move) window.ChessSounds.move(); } catch (e) {}
@@ -291,8 +280,7 @@
     var meta = el('puzzle-meta');
     if (meta) {
       var label = (current.name ? current.name + '  ·  ' : '') + current.objective +
-        '  ·  ' + cap(current.difficulty) + (current.theme ? '  ·  ' + current.theme : '') +
-        (mode === 'daily' ? '  ·  Daily' : '');
+        '  ·  ' + cap(current.difficulty) + (current.theme ? '  ·  ' + current.theme : '');
       meta.textContent = label;
     }
     var turn = fenTurn(current.fen);
@@ -305,9 +293,9 @@
 
   function setMode(m) {
     mode = m;
-    var ids = ['mixed', 'easy', 'medium', 'hard', 'daily'];
+    var ids = ['mixed', 'easy', 'medium', 'hard'];
     ids.forEach(function (x) { var b = el('pz-mode-' + x); if (b) b.classList.toggle('active', x === m); });
-    loadPuzzle(mode === 'daily' ? dailyPuzzle() : null);
+    loadPuzzle(null);
   }
 
   // ---- screen scaffold (built once into #screen-puzzles) ----
@@ -328,7 +316,6 @@
       '    <button class="pz-mode" id="pz-mode-easy" data-mode="easy">Easy</button>',
       '    <button class="pz-mode" id="pz-mode-medium" data-mode="medium">Medium</button>',
       '    <button class="pz-mode" id="pz-mode-hard" data-mode="hard">Hard</button>',
-      '    <button class="pz-mode" id="pz-mode-daily" data-mode="daily">Daily</button>',
       '  </div>',
       '  <div class="pz-meta" id="puzzle-meta"></div>',
       '  <div class="pz-board" id="puzzle-board"></div>',
@@ -348,9 +335,7 @@
     el('screen-puzzles').addEventListener('click', function (e) {
       var m = e.target.closest ? e.target.closest('[data-mode]') : null;
       if (m) { setMode(m.getAttribute('data-mode')); return; }
-      // In daily mode there is only ONE puzzle per day, so "Next" would re-serve
-      // the same daily forever -- switch to mixed for a fresh puzzle instead.
-      if (e.target.id === 'btn-pz-next') { if (mode === 'daily') setMode('mixed'); else loadPuzzle(null); }
+      if (e.target.id === 'btn-pz-next') { loadPuzzle(null); }
       if (e.target.id === 'btn-pz-reset') { liveFen = current.fen; selected = null; solvedThis = false; renderBoard(); flash('Position reset.', true); var n = el('btn-pz-next'); if (n) n.style.display = 'none'; }
       if (e.target.id === 'btn-pz-hint') { giveHint(); }
     });

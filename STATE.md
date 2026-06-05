@@ -1,6 +1,6 @@
 # ChessTrophies — Project state (snapshot)
 
-**Last updated:** 2026-06-04 — added engine-backed game analysis/review (eval bar + eval graph + blunder detection with best-move hints; `npm run test:review` guards it in CI) and, earlier, soft email verification on signup (non-blocking nudge + verify link/code + resend; `npm run test:verify`). Earlier the same day: big push since 06-01: game clocks (now simplified to one timed + untimed), rematch/disconnect-reconnect UX, Redis-backed multi-instance scaling for online play, password reset + change password, progress sync to the server, server-backed friends with friend-request consent + block + in-game opponent avatars, AdMob banner scaffold, Android release signing, computer AI moved to a Web Worker, and a rebuilt academy curriculum. Client split into focused modules (`ct-ai.js`, `ct-auth.js`, `ct-duo.js`, `trophy-data.js`, `ct-ads.js`, `ct-ai-worker.js`).
+**Last updated:** 2026-06-04 — removed the Daily puzzle mode (practice puzzles stay); added engine-backed game analysis/review (eval bar + eval graph + blunder detection with best-move hints; `npm run test:review` guards it in CI) and, earlier, soft email verification on signup (non-blocking nudge + verify link/code + resend; `npm run test:verify`). Earlier the same day: big push since 06-01: game clocks (now simplified to one timed + untimed), rematch/disconnect-reconnect UX, Redis-backed multi-instance scaling for online play, password reset + change password, progress sync to the server, server-backed friends with friend-request consent + block + in-game opponent avatars, AdMob banner scaffold, Android release signing, computer AI moved to a Web Worker, and a rebuilt academy curriculum. Client split into focused modules (`ct-ai.js`, `ct-auth.js`, `ct-duo.js`, `trophy-data.js`, `ct-ads.js`, `ct-ai-worker.js`).
 
 This file is the canonical "where are we, what's next" document. Read it first when you come back.
 
@@ -80,7 +80,6 @@ The earlier "successful online 2v2 match" gap was closed by running the **real b
 |---|---|---|
 | Stripe checkout for Premium | `server/billing.js` + replace `setPremium(true)` | 2-4 hours |
 | Real AdSense / AdMob ad units | Swap Google test IDs in `ct-ads.js` + `renderAdSlot()` for real units | 1 hour after approval |
-| Daily puzzle | Pull from any free puzzle DB (lichess CSV) | 4-8 hours |
 | Tournaments | Schema in server already supports games — needs UI + matchmaking | 2-3 days |
 | Native iOS wrapper | Capacitor — mirror the Android setup; see docs/ANDROID_BUILD.md | 1-2 days |
 | Push notifications | Web Push API + service worker | 1 day |
@@ -108,7 +107,7 @@ Active working copy: `C:\Users\RickD\AndroidStudioProjects\ChessTrophies\` (GitH
 | `ct-net.js` | Socket.IO client — online matchmaking, move sync, clocks, rematch/reconnect, 2v2 invites |
 | `config.js` | Sets `CT_SERVER_URL` to the Railway backend in the native/Capacitor shell; web stays same-origin |
 | `chess960.js` | Fischer Random Chess mode |
-| `puzzles.js` / `puzzles-data.js` | Daily/practice puzzles + data |
+| `puzzles.js` / `puzzles-data.js` | Practice puzzles (Mixed/Easy/Medium/Hard) + data |
 | `review.js` | Game review / analysis UI — engine-backed eval bar, eval graph, accuracy %, blunder + best-move hints |
 | `learn-library.js` | Strategy Library content for the Learn section |
 | `trophy-extras.js` | Additional trophy/achievement definitions |

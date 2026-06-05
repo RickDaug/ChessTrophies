@@ -397,7 +397,7 @@ app.post('/api/progress', requireAuth, (req, res, next) => {
 
     // Merge puzzle progress robustly so syncing from another device never erases
     // solves: deep-union the solved map (byId), take the max of numeric counters,
-    // and let other scalar fields (e.g. dailyDate) take the incoming value.
+    // and let any other scalar fields take the incoming value.
     const puzzles = { ...existing.puzzles };
     if (body.puzzles !== undefined) {
       if (body.puzzles === null || typeof body.puzzles !== 'object' || Array.isArray(body.puzzles)) {
