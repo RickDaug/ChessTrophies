@@ -126,6 +126,9 @@ ensureColumn('users', 'draws_2v2', 'INTEGER', '0');
 // Avatar (chosen on the client; mirrored here so opponents can see it in-game).
 ensureColumn('users', 'avatar_stock', 'TEXT', "'av_knight'");
 ensureColumn('users', 'avatar_data_url', 'TEXT', "''");
+// Email verification (soft): 0 until the user confirms their email via the link
+// we send on signup. Unverified users can still play; the client just nudges them.
+ensureColumn('users', 'email_verified', 'INTEGER', '0');
 
 // Pending friend requests (from_id asked to befriend to_id; awaiting consent).
 // Confirmed friendships still live in the `friendships` table.
@@ -148,6 +151,17 @@ CREATE TABLE IF NOT EXISTS blocks (
 );
 CREATE INDEX IF NOT EXISTS idx_friend_requests_to ON friend_requests(to_id);
 CREATE INDEX IF NOT EXISTS idx_blocks_blocker ON blocks(blocker_id);
+
+-- Email-verification tokens (mirrors password_resets). We store only the
+-- sha256 of the token so the usable value never lives at rest.
+CREATE TABLE IF NOT EXISTS email_verifications (
+  token_hash TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_email_verifications_user ON email_verifications(user_id);
 `);
 
 // True if either user has blocked the other (block is symmetric for matchmaking

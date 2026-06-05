@@ -11,10 +11,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
-import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword } from './auth.js';
+import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, verifyEmailToken, resendEmailVerification } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
 import { db, getUserById, topByMetric, getProgress, setProgress, searchUsersByUsername, areBlocked } from './db.js';
-import { sendResetEmail } from './email.js';
+import { sendResetEmail, sendVerifyEmail } from './email.js';
 import { attachSocketHandlers, notifyUser } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -101,8 +101,37 @@ app.post('/api/auth/signup', authLimiter, async (req, res, next) => {
     const password = requireStringField(body, 'password', { min: 6, max: 128 });
     const region = typeof body.region === 'string' ? body.region.trim().slice(0, 64) : '';
     const invitedBy = typeof body.invitedBy === 'string' && body.invitedBy.trim() ? body.invitedBy.trim().slice(0, 64) : null;
-    const token = await signup({ email, username, password, region, invitedBy });
-    res.json({ token });
+    const { token, verification } = await signup({ email, username, password, region, invitedBy });
+    // Email the verification link (best-effort; no-op when RESEND isn't configured).
+    let emailVerificationSent = false;
+    if (verification) emailVerificationSent = await sendVerifyEmail(verification.email, verification.token);
+    const out = { token, emailVerificationSent };
+    // Same dev-fallback contract as password reset: only ever expose the raw token
+    // when EXPOSE_VERIFY_TOKEN=1 is explicitly set (never keyed off NODE_ENV).
+    if (process.env.EXPOSE_VERIFY_TOKEN === '1' && verification) out.devVerifyToken = verification.token;
+    res.json(out);
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+// Consume an email-verification token (from the link/code we emailed on signup).
+app.post('/api/auth/verify', authLimiter, async (req, res, next) => {
+  try {
+    const token = requireStringField(req.body || {}, 'token', { min: 1, max: 256 });
+    verifyEmailToken(token);
+    res.json({ ok: true });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+// Re-send the verification email for the signed-in user (no-op if already verified).
+app.post('/api/auth/resend-verification', authLimiter, requireAuth, async (req, res, next) => {
+  try {
+    const r = resendEmailVerification(req.userId);
+    if (r.alreadyVerified) return res.json({ ok: true, alreadyVerified: true });
+    let sent = false;
+    if (r.token) sent = await sendVerifyEmail(r.email, r.token);
+    const out = { ok: true, sent };
+    if (process.env.EXPOSE_VERIFY_TOKEN === '1' && r.token) out.devVerifyToken = r.token;
+    res.json(out);
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
@@ -169,6 +198,7 @@ app.get('/api/me', requireAuth, (req, res) => {
     currentStreak: u.current_streak, bestStreak: u.best_streak,
     invitesAccepted: u.invites_accepted, isPremium: !!u.is_premium,
     avatarStock: u.avatar_stock || 'av_knight', avatarDataUrl: u.avatar_data_url || '',
+    emailVerified: !!u.email_verified,
   });
 });
 

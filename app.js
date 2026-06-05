@@ -898,6 +898,104 @@
     });
   }
 
+  // Email verification (soft nudge) -----------------------------------
+  // Resend the verification email for the signed-in user. `noteEl` (optional)
+  // gets a dev-fallback hint when the server isn't configured to send email.
+  async function resendVerification(btn, noteEl) {
+    if (btn) btn.disabled = true;
+    try {
+      const r = await api('/api/auth/resend-verification', { method: 'POST', body: JSON.stringify({}) });
+      if (r && r.alreadyVerified) {
+        toast('Your email is already verified. ✓', true);
+        await refreshVerifiedStatus();
+        return;
+      }
+      // Dev convenience: when email isn't wired up, the server returns the code so
+      // the flow can still be completed via the "Enter code" modal.
+      if (r && r.devVerifyToken) {
+        const codeInput = $('#verify-code'); if (codeInput) codeInput.value = r.devVerifyToken;
+        if (noteEl) noteEl.textContent = 'Code prefilled for you (email isn’t set up in this build).';
+        toast('Verification code issued.', true);
+      } else if (r && r.sent) {
+        toast('Verification email sent — check your inbox.', true);
+      } else {
+        toast('Verification requested. If email is configured, check your inbox.');
+      }
+    } catch (err) {
+      toast(err.message || 'Could not resend verification.');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // Re-fetch the profile so the banner reflects a freshly verified email.
+  async function refreshVerifiedStatus() {
+    try {
+      if (!isServerLoggedIn()) return;
+      const profile = await fetchMe();
+      state.user = syncRemoteProfile(profile);
+      updateVerifyBanner();
+    } catch (e) {}
+  }
+
+  const verifyResendBtn = $('#btn-verify-resend');
+  if (verifyResendBtn) verifyResendBtn.addEventListener('click', () => resendVerification(verifyResendBtn, null));
+
+  const verifyCodeLink = $('#link-verify-code');
+  if (verifyCodeLink) verifyCodeLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    $('#verify-code').value = '';
+    $('#verify-error').textContent = '';
+    $('#verify-note').textContent = '';
+    openModal('verify-email');
+  });
+
+  const verifyCancel = $('#btn-verify-cancel');
+  if (verifyCancel) verifyCancel.addEventListener('click', () => closeModal('verify-email'));
+
+  const verifyResend2 = $('#btn-verify-resend2');
+  if (verifyResend2) verifyResend2.addEventListener('click', () => resendVerification(verifyResend2, $('#verify-note')));
+
+  const verifySubmit = $('#btn-verify-submit');
+  if (verifySubmit) verifySubmit.addEventListener('click', async () => {
+    $('#verify-error').textContent = '';
+    const token = ($('#verify-code').value || '').trim();
+    if (!token) { $('#verify-error').textContent = 'Enter your verification code.'; return; }
+    verifySubmit.disabled = true;
+    try {
+      await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ token }) });
+      closeModal('verify-email');
+      toast('Email verified — thank you! ✓', true);
+      await refreshVerifiedStatus();
+    } catch (err) {
+      $('#verify-error').textContent = err.message;
+    } finally {
+      verifySubmit.disabled = false;
+    }
+  });
+
+  // Auto-verify when the user arrives via the emailed link (/?verify=<token>).
+  // Consumes the token, strips it from the URL, and refreshes the banner.
+  async function consumeVerifyTokenFromUrl() {
+    let token = null;
+    try { token = new URLSearchParams(window.location.search).get('verify'); } catch (e) {}
+    if (!token) return;
+    try {
+      await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ token }) });
+      toast('Email verified — thank you! ✓', true);
+    } catch (err) {
+      toast(err.message || 'That verification link is invalid or has expired.');
+    } finally {
+      // Remove the token from the URL so a refresh doesn't re-submit it.
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('verify');
+        window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
+      } catch (e) {}
+      await refreshVerifiedStatus();
+    }
+  }
+
   // Continue as guest -------------------------------------------------
   // Asks the server for a goofy display name unique among active guests. The
   // guest session lives ONLY in sessionStorage, so it is gone when the tab
@@ -995,6 +1093,18 @@
     if (upWrap) upWrap.style.display = u.isPremium ? 'none' : '';
     const premiumBadge = $('#premium-badge');
     if (premiumBadge) premiumBadge.style.display = u.isPremium ? '' : 'none';
+    updateVerifyBanner();
+  }
+
+  // Soft email-verification nudge: shown only for server-logged-in users whose
+  // email isn't confirmed yet. Guests/offline accounts have no server email to
+  // verify, so they never see it.
+  function updateVerifyBanner() {
+    const banner = $('#verify-banner');
+    if (!banner) return;
+    const u = state.user;
+    const show = !!u && isServerLoggedIn() && u.emailVerified === false;
+    banner.style.display = show ? 'flex' : 'none';
   }
   function _addLobbyChatButton() {
   const user = state.user;
@@ -3559,6 +3669,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     }
   }
   async function init() {
+    // Consume an emailed verification link (/?verify=<token>) before we fetch the
+    // profile, so a freshly verified status is reflected on first render.
+    await consumeVerifyTokenFromUrl();
     const session = getSession();
     const db = loadDB();
     if (session && session.userId) {

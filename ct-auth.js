@@ -142,6 +142,8 @@
       bestStreak: Number.isFinite(profile.bestStreak) ? profile.bestStreak : (existing.bestStreak || 0),
       invitesAccepted: Number.isFinite(profile.invitesAccepted) ? profile.invitesAccepted : (existing.invitesAccepted || 0),
       isPremium: Boolean(profile.isPremium ?? existing.isPremium),
+      // Email verification is server-authoritative (soft nudge only).
+      emailVerified: Boolean(profile.emailVerified ?? existing.emailVerified),
       // Avatar is server-authoritative (so it follows the user across devices and
       // is the same value opponents see). Local changes are pushed up before this.
       avatarStock: (profile.avatarStock != null) ? profile.avatarStock : (existing.avatarStock || 'av_knight'),

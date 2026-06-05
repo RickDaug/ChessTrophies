@@ -42,7 +42,11 @@ export async function signup({ email, username, password, region, invitedBy }) {
   if (safeInvitedBy && getUserById(safeInvitedBy)) {
     db.prepare('UPDATE users SET invites_accepted = invites_accepted + 1 WHERE id = ?').run(safeInvitedBy);
   }
-  return makeToken(id);
+  // Issue a verification token so the caller can email a confirm link. Returns
+  // both the JWT (for immediate sign-in — verification is soft, non-blocking)
+  // and the raw verification token to send.
+  const verification = issueEmailVerification(id, lowEmail);
+  return { token: makeToken(id), verification };
 }
 
 export async function login({ email, password }) {
@@ -108,6 +112,51 @@ export async function resetPassword(token, newPassword) {
   // Mark used and remove the row so the token can never be replayed.
   db.prepare('DELETE FROM password_resets WHERE token_hash = ?').run(tokenHash);
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Email verification (soft — unverified users can still play; see server.js)
+// ---------------------------------------------------------------------------
+
+const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // verification links are valid for 24h
+
+// Issue a fresh verification token for a user, invalidating any prior one so
+// only the latest link works. Returns { email, token, userId } (raw token).
+export function issueEmailVerification(userId, email) {
+  // Cheap inline sweep of expired tokens (no cron needed).
+  db.prepare('DELETE FROM email_verifications WHERE expires_at < ?').run(Date.now());
+  // Only one live token per user.
+  db.prepare('DELETE FROM email_verifications WHERE user_id = ?').run(userId);
+
+  const raw = crypto.randomBytes(32).toString('hex');
+  const now = Date.now();
+  db.prepare(`INSERT INTO email_verifications (token_hash, user_id, expires_at, created_at)
+              VALUES (?, ?, ?, ?)`)
+    .run(hashToken(raw), userId, now + VERIFY_TTL_MS, now);
+  return { email, token: raw, userId };
+}
+
+// Consume a verification token and mark the user's email verified. Throws on an
+// invalid/expired token. Idempotent-ish: a used token is deleted so it can't replay.
+export function verifyEmailToken(token) {
+  const safeToken = typeof token === 'string' ? token.trim() : '';
+  const tokenHash = hashToken(safeToken);
+  const row = db.prepare(`SELECT * FROM email_verifications
+                          WHERE token_hash = ? AND expires_at > ?`)
+    .get(tokenHash, Date.now());
+  if (!row) throw new Error('This verification link is invalid or has expired.');
+  db.prepare('UPDATE users SET email_verified = 1 WHERE id = ?').run(row.user_id);
+  db.prepare('DELETE FROM email_verifications WHERE token_hash = ?').run(tokenHash);
+  return { userId: row.user_id };
+}
+
+// Re-issue verification for an authenticated user who hasn't confirmed yet.
+// Returns { alreadyVerified: true } when there's nothing to do, else { email, token }.
+export function resendEmailVerification(userId) {
+  const u = getUserById(userId);
+  if (!u) throw new Error('User not found.');
+  if (u.email_verified) return { alreadyVerified: true };
+  return issueEmailVerification(u.id, u.email);
 }
 
 // Change the password for an authenticated user after verifying the current one.

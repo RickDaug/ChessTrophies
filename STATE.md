@@ -1,6 +1,6 @@
 # ChessTrophies — Project state (snapshot)
 
-**Last updated:** 2026-06-04 — big push since 06-01: game clocks (now simplified to one timed + untimed), rematch/disconnect-reconnect UX, Redis-backed multi-instance scaling for online play, password reset + change password, progress sync to the server, server-backed friends with friend-request consent + block + in-game opponent avatars, AdMob banner scaffold, Android release signing, computer AI moved to a Web Worker, and a rebuilt academy curriculum. Client split into focused modules (`ct-ai.js`, `ct-auth.js`, `ct-duo.js`, `trophy-data.js`, `ct-ads.js`, `ct-ai-worker.js`).
+**Last updated:** 2026-06-04 — added soft email verification on signup (non-blocking nudge + verify link/code + resend; `npm run test:verify` guards it in CI). Earlier the same day: big push since 06-01: game clocks (now simplified to one timed + untimed), rematch/disconnect-reconnect UX, Redis-backed multi-instance scaling for online play, password reset + change password, progress sync to the server, server-backed friends with friend-request consent + block + in-game opponent avatars, AdMob banner scaffold, Android release signing, computer AI moved to a Web Worker, and a rebuilt academy curriculum. Client split into focused modules (`ct-ai.js`, `ct-auth.js`, `ct-duo.js`, `trophy-data.js`, `ct-ads.js`, `ct-ai-worker.js`).
 
 This file is the canonical "where are we, what's next" document. Read it first when you come back.
 
@@ -14,6 +14,7 @@ This file is the canonical "where are we, what's next" document. Read it first w
 |---|---|
 | Email/password auth | ✓ Done — local + server endpoints |
 | Password reset + change password | ✓ Done — `/api/auth` reset flow with email delivery (`server/email.js`) + in-app change password |
+| Email verification on signup | ✓ Done — **soft (non-blocking)**: signup emails a verify link (`/?verify=<token>`), `/api/me` exposes `emailVerified`, client shows a dismiss-on-verify nudge banner + "Enter code" modal + resend. Unverified users can still play. Tested by `npm run test:verify` (in CI) |
 | Cross-device progress sync | ✓ Done — `/api/progress` deep-merges puzzle/lesson state + max counters so progress follows the account, not the browser |
 | Player profiles with stats | ✓ Done |
 | Pass-and-play PvP (same device) | ✓ Done |
@@ -82,7 +83,6 @@ The earlier "successful online 2v2 match" gap was closed by running the **real b
 | Daily puzzle | Pull from any free puzzle DB (lichess CSV) | 4-8 hours |
 | Tournaments | Schema in server already supports games — needs UI + matchmaking | 2-3 days |
 | Native iOS wrapper | Capacitor — mirror the Android setup; see docs/ANDROID_BUILD.md | 1-2 days |
-| Email verification on signup | Add to server `/api/auth/signup` | 4 hours |
 | Push notifications | Web Push API + service worker | 1 day |
 | Avatar uploads | S3 + file picker in profile | 1 day |
 
@@ -125,8 +125,8 @@ Active working copy: `C:\Users\RickD\AndroidStudioProjects\ChessTrophies\` (GitH
 |---|---|
 | `server/server.js` | Express app + WebSocket bootstrap |
 | `server/db.js` | SQLite schema + helpers |
-| `server/auth.js` | JWT + signup/login + password reset/change |
-| `server/email.js` | Transactional email delivery (password reset) |
+| `server/auth.js` | JWT + signup/login + password reset/change + email-verification tokens |
+| `server/email.js` | Transactional email delivery (password reset + email verification) |
 | `server/game.js` | Matchmaking + real-time games (1v1 + 2v2 teams) + clocks; single-instance path |
 | `server/scale-store.js` | Redis-backed shared state for 1v1 matchmaking/games across instances (gated on `REDIS_URL`) |
 | `server/scale-team.js` | Redis-backed shared state for 2v2 + duo invites across instances |
@@ -199,7 +199,7 @@ Just say: "Read STATE.md and let's continue with X" — where X is whatever phas
 
 - **localStorage is per-origin** — accounts created at `file://` won't appear at `https://yoursite.com`. Users start fresh when you migrate to the real domain. (Acceptable for soft launch since you have no real users yet.)
 - **Chess.js CDN dependency** — if cdnjs is ever down or you go fully offline, the app shows a fallback error. Self-host `chess.js` from your own domain if you want zero CDN reliance.
-- **No email verification on signup** — anyone can sign up with `fake@email.com`. Worth adding when revenue is involved.
+- **~~No email verification on signup~~** — DONE: soft verification. Signups still succeed and can play without confirming (so a missing email provider never blocks anyone); the client nudges them to verify. To actually deliver the emails set `RESEND_API_KEY` + `APP_URL` in prod. If you later want to *require* verification before ranked play, gate it behind a new env flag — intentionally not enforced yet.
 - **~~No password reset~~** — DONE (06-02): reset + change-password flow with email delivery (`server/email.js`). Make sure the email provider/env is configured in production.
 - **Trophy/puzzle progress now syncs server-side** for logged-in accounts via `/api/progress`. Guests/offline still keep progress per-browser, so clearing browser data wipes a guest's progress — mention in the launch FAQ.
 - **Redis is optional but recommended at scale** — online play falls back to single-instance in-memory state when `REDIS_URL` is unset. Set it in production before running more than one server instance, or cross-instance matches/reconnects won't share state.
