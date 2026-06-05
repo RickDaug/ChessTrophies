@@ -37,18 +37,14 @@ async function sendEmail({ to, subject, text }) {
   }
 }
 
-// Send an email-verification email. Best-effort; never throws.
-export async function sendVerifyEmail(email, token) {
+// Send an email-verification email with the 6-digit code. Best-effort; never throws.
+export async function sendVerifyEmail(email, code) {
   if (!process.env.RESEND_API_KEY) return false;
-  const appUrl = (process.env.APP_URL || '').replace(/\/+$/, '');
-  const verifyLine = appUrl
-    ? `Verify your email: ${appUrl}/?verify=${encodeURIComponent(token)}`
-    : `Your verification code is: ${token}`;
   const text =
-    `Welcome to ChessTrophies! Please confirm your email to secure your account.\n\n` +
-    `${verifyLine}\n\n` +
-    `This link/code expires in 24 hours. If you didn't create this account, you can ignore this email.`;
-  return sendEmail({ to: email, subject: 'Verify your ChessTrophies email', text });
+    `Welcome to ChessTrophies! Enter this code in the app to verify your email:\n\n` +
+    `    ${code}\n\n` +
+    `This code expires in 1 hour. If you didn't create this account, you can ignore this email.`;
+  return sendEmail({ to: email, subject: `Your ChessTrophies code: ${code}`, text });
 }
 
 // Send a password-reset email via Resend. Returns true if an email was sent,

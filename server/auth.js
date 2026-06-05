@@ -118,40 +118,65 @@ export async function resetPassword(token, newPassword) {
 // Email verification (soft — unverified users can still play; see server.js)
 // ---------------------------------------------------------------------------
 
-const VERIFY_TTL_MS = 24 * 60 * 60 * 1000; // verification links are valid for 24h
+const VERIFY_TTL_MS = 60 * 60 * 1000; // verification codes are valid for 1 hour
+const VERIFY_MAX_ATTEMPTS = 5;        // wrong tries before the code is burned
 
-// Issue a fresh verification token for a user, invalidating any prior one so
-// only the latest link works. Returns { email, token, userId } (raw token).
+// A cryptographically-random, zero-padded 6-digit code (000000–999999).
+function generateCode() {
+  return String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+}
+
+// Issue a fresh 6-digit verification code for a user, replacing any prior one so
+// only the latest code works. Returns { email, code, userId } (raw code).
 export function issueEmailVerification(userId, email) {
-  // Cheap inline sweep of expired tokens (no cron needed).
+  // Cheap inline sweep of expired codes (no cron needed).
   db.prepare('DELETE FROM email_verifications WHERE expires_at < ?').run(Date.now());
-  // Only one live token per user.
-  db.prepare('DELETE FROM email_verifications WHERE user_id = ?').run(userId);
 
-  const raw = crypto.randomBytes(32).toString('hex');
+  const code = generateCode();
   const now = Date.now();
-  db.prepare(`INSERT INTO email_verifications (token_hash, user_id, expires_at, created_at)
-              VALUES (?, ?, ?, ?)`)
-    .run(hashToken(raw), userId, now + VERIFY_TTL_MS, now);
-  return { email, token: raw, userId };
+  // One row per user (user_id is the PK) — upsert replaces any existing code.
+  db.prepare(`INSERT INTO email_verifications (user_id, code_hash, expires_at, attempts, created_at)
+              VALUES (?, ?, ?, 0, ?)
+              ON CONFLICT(user_id) DO UPDATE SET
+                code_hash = excluded.code_hash,
+                expires_at = excluded.expires_at,
+                attempts = 0,
+                created_at = excluded.created_at`)
+    .run(userId, hashToken(code), now + VERIFY_TTL_MS, now);
+  return { email, code, userId };
 }
 
-// Consume a verification token and mark the user's email verified. Throws on an
-// invalid/expired token. Idempotent-ish: a used token is deleted so it can't replay.
-export function verifyEmailToken(token) {
-  const safeToken = typeof token === 'string' ? token.trim() : '';
-  const tokenHash = hashToken(safeToken);
-  const row = db.prepare(`SELECT * FROM email_verifications
-                          WHERE token_hash = ? AND expires_at > ?`)
-    .get(tokenHash, Date.now());
-  if (!row) throw new Error('This verification link is invalid or has expired.');
-  db.prepare('UPDATE users SET email_verified = 1 WHERE id = ?').run(row.user_id);
-  db.prepare('DELETE FROM email_verifications WHERE token_hash = ?').run(tokenHash);
-  return { userId: row.user_id };
+// Check a 6-digit code for a specific (authenticated) user and mark them verified.
+// User-scoped because a 6-digit code isn't globally unique. Throttled: after
+// VERIFY_MAX_ATTEMPTS wrong tries the code is burned and a new one is required.
+// Throws a friendly Error on any failure.
+export function verifyEmailCode(userId, code) {
+  const safeCode = (typeof code === 'string' ? code : '').replace(/\s+/g, '');
+  const row = db.prepare('SELECT * FROM email_verifications WHERE user_id = ?').get(userId);
+  if (!row || row.expires_at <= Date.now()) {
+    if (row) db.prepare('DELETE FROM email_verifications WHERE user_id = ?').run(userId);
+    throw new Error('Your code has expired. Tap Resend to get a new one.');
+  }
+  if (row.attempts >= VERIFY_MAX_ATTEMPTS) {
+    db.prepare('DELETE FROM email_verifications WHERE user_id = ?').run(userId);
+    throw new Error('Too many incorrect tries. Tap Resend to get a new code.');
+  }
+  const a = Buffer.from(hashToken(safeCode), 'hex');
+  const b = Buffer.from(row.code_hash, 'hex');
+  const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+  if (!ok) {
+    db.prepare('UPDATE email_verifications SET attempts = attempts + 1 WHERE user_id = ?').run(userId);
+    const left = VERIFY_MAX_ATTEMPTS - (row.attempts + 1);
+    throw new Error(left > 0 ? `That code is incorrect. ${left} ${left === 1 ? 'try' : 'tries'} left.`
+                             : 'That code is incorrect. Tap Resend to get a new code.');
+  }
+  db.prepare('UPDATE users SET email_verified = 1 WHERE id = ?').run(userId);
+  db.prepare('DELETE FROM email_verifications WHERE user_id = ?').run(userId);
+  return { userId };
 }
 
-// Re-issue verification for an authenticated user who hasn't confirmed yet.
-// Returns { alreadyVerified: true } when there's nothing to do, else { email, token }.
+// Re-issue a verification code for an authenticated user who hasn't confirmed yet.
+// Returns { alreadyVerified: true } when there's nothing to do, else { email, code }.
 export function resendEmailVerification(userId) {
   const u = getUserById(userId);
   if (!u) throw new Error('User not found.');

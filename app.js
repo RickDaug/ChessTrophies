@@ -911,12 +911,12 @@
       }
       // Dev convenience: when email isn't wired up, the server returns the code so
       // the flow can still be completed via the "Enter code" modal.
-      if (r && r.devVerifyToken) {
-        const codeInput = $('#verify-code'); if (codeInput) codeInput.value = r.devVerifyToken;
+      if (r && r.devVerifyCode) {
+        const codeInput = $('#verify-code'); if (codeInput) codeInput.value = r.devVerifyCode;
         if (noteEl) noteEl.textContent = 'Code prefilled for you (email isn’t set up in this build).';
         toast('Verification code issued.', true);
       } else if (r && r.sent) {
-        toast('Verification email sent — check your inbox.', true);
+        toast('Verification email sent — check your inbox for your 6-digit code.', true);
       } else {
         toast('Verification requested. If email is configured, check your inbox.');
       }
@@ -958,11 +958,11 @@
   const verifySubmit = $('#btn-verify-submit');
   if (verifySubmit) verifySubmit.addEventListener('click', async () => {
     $('#verify-error').textContent = '';
-    const token = ($('#verify-code').value || '').trim();
-    if (!token) { $('#verify-error').textContent = 'Enter your verification code.'; return; }
+    const code = ($('#verify-code').value || '').replace(/\s+/g, '');
+    if (!code) { $('#verify-error').textContent = 'Enter the 6-digit code from your email.'; return; }
     verifySubmit.disabled = true;
     try {
-      await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ token }) });
+      await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ code }) });
       closeModal('verify-email');
       toast('Email verified — thank you! ✓', true);
       await refreshVerifiedStatus();
@@ -972,28 +972,6 @@
       verifySubmit.disabled = false;
     }
   });
-
-  // Auto-verify when the user arrives via the emailed link (/?verify=<token>).
-  // Consumes the token, strips it from the URL, and refreshes the banner.
-  async function consumeVerifyTokenFromUrl() {
-    let token = null;
-    try { token = new URLSearchParams(window.location.search).get('verify'); } catch (e) {}
-    if (!token) return;
-    try {
-      await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ token }) });
-      toast('Email verified — thank you! ✓', true);
-    } catch (err) {
-      toast(err.message || 'That verification link is invalid or has expired.');
-    } finally {
-      // Remove the token from the URL so a refresh doesn't re-submit it.
-      try {
-        const url = new URL(window.location.href);
-        url.searchParams.delete('verify');
-        window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
-      } catch (e) {}
-      await refreshVerifiedStatus();
-    }
-  }
 
   // Continue as guest -------------------------------------------------
   // Asks the server for a goofy display name unique among active guests. The
@@ -3707,9 +3685,6 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     }
   }
   async function init() {
-    // Consume an emailed verification link (/?verify=<token>) before we fetch the
-    // profile, so a freshly verified status is reflected on first render.
-    await consumeVerifyTokenFromUrl();
     const session = getSession();
     const db = loadDB();
     if (session && session.userId) {

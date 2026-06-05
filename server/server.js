@@ -11,7 +11,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
-import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, verifyEmailToken, resendEmailVerification } from './auth.js';
+import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, verifyEmailCode, resendEmailVerification } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
 import { db, getUserById, topByMetric, getProgress, setProgress, searchUsersByUsername, areBlocked } from './db.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
@@ -102,35 +102,36 @@ app.post('/api/auth/signup', authLimiter, async (req, res, next) => {
     const region = typeof body.region === 'string' ? body.region.trim().slice(0, 64) : '';
     const invitedBy = typeof body.invitedBy === 'string' && body.invitedBy.trim() ? body.invitedBy.trim().slice(0, 64) : null;
     const { token, verification } = await signup({ email, username, password, region, invitedBy });
-    // Email the verification link (best-effort; no-op when RESEND isn't configured).
+    // Email the 6-digit code (best-effort; no-op when RESEND isn't configured).
     let emailVerificationSent = false;
-    if (verification) emailVerificationSent = await sendVerifyEmail(verification.email, verification.token);
+    if (verification) emailVerificationSent = await sendVerifyEmail(verification.email, verification.code);
     const out = { token, emailVerificationSent };
-    // Same dev-fallback contract as password reset: only ever expose the raw token
+    // Same dev-fallback contract as password reset: only ever expose the code
     // when EXPOSE_VERIFY_TOKEN=1 is explicitly set (never keyed off NODE_ENV).
-    if (process.env.EXPOSE_VERIFY_TOKEN === '1' && verification) out.devVerifyToken = verification.token;
+    if (process.env.EXPOSE_VERIFY_TOKEN === '1' && verification) out.devVerifyCode = verification.code;
     res.json(out);
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
-// Consume an email-verification token (from the link/code we emailed on signup).
-app.post('/api/auth/verify', authLimiter, async (req, res, next) => {
+// Verify the signed-in user's email with the 6-digit code we emailed. Scoped to
+// the authenticated user (a 6-digit code isn't globally unique) and throttled.
+app.post('/api/auth/verify', authLimiter, requireAuth, async (req, res, next) => {
   try {
-    const token = requireStringField(req.body || {}, 'token', { min: 1, max: 256 });
-    verifyEmailToken(token);
+    const code = requireStringField(req.body || {}, 'code', { min: 4, max: 12 });
+    verifyEmailCode(req.userId, code);
     res.json({ ok: true });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
-// Re-send the verification email for the signed-in user (no-op if already verified).
+// Re-send the verification code for the signed-in user (no-op if already verified).
 app.post('/api/auth/resend-verification', authLimiter, requireAuth, async (req, res, next) => {
   try {
     const r = resendEmailVerification(req.userId);
     if (r.alreadyVerified) return res.json({ ok: true, alreadyVerified: true });
     let sent = false;
-    if (r.token) sent = await sendVerifyEmail(r.email, r.token);
+    if (r.code) sent = await sendVerifyEmail(r.email, r.code);
     const out = { ok: true, sent };
-    if (process.env.EXPOSE_VERIFY_TOKEN === '1' && r.token) out.devVerifyToken = r.token;
+    if (process.env.EXPOSE_VERIFY_TOKEN === '1' && r.code) out.devVerifyCode = r.code;
     res.json(out);
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });

@@ -151,17 +151,28 @@ CREATE TABLE IF NOT EXISTS blocks (
 );
 CREATE INDEX IF NOT EXISTS idx_friend_requests_to ON friend_requests(to_id);
 CREATE INDEX IF NOT EXISTS idx_blocks_blocker ON blocks(blocker_id);
+`);
 
--- Email-verification tokens (mirrors password_resets). We store only the
--- sha256 of the token so the usable value never lives at rest.
+// Email verification: a per-user 6-digit code (one live code per user) with an
+// attempt counter to throttle guessing. We store only the sha256 of the code.
+// Migration: an earlier version keyed this table by a long link token
+// (token_hash PK); drop that shape and recreate. The data is transient (users
+// can just request a new code), so dropping is safe.
+{
+  const cols = db.prepare('PRAGMA table_info(email_verifications)').all();
+  if (cols.length && cols.some((c) => c.name === 'token_hash')) {
+    db.exec('DROP TABLE email_verifications');
+  }
+}
+db.exec(`
 CREATE TABLE IF NOT EXISTS email_verifications (
-  token_hash TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL,
+  user_id TEXT PRIMARY KEY,
+  code_hash TEXT NOT NULL,
   expires_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
-CREATE INDEX IF NOT EXISTS idx_email_verifications_user ON email_verifications(user_id);
 `);
 
 // True if either user has blocked the other (block is symmetric for matchmaking
