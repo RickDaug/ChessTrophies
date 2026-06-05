@@ -409,7 +409,19 @@
     .rv-acc-item { flex: 1; text-align: center; background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
     .rv-acc-item label { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; }
     .rv-acc-item span { font-size: 20px; font-weight: 700; color: var(--accent); }
-    .rv-board { display: grid; grid-template-columns: repeat(8, minmax(0,1fr)); grid-template-rows: repeat(8, minmax(0,1fr)); aspect-ratio: 1/1; width: 100%; border-radius: 10px; overflow: hidden; }
+    .rv-status { text-align: center; font-size: 12px; color: var(--muted); min-height: 14px; margin-bottom: 6px; }
+    .rv-boardwrap { display: flex; gap: 8px; align-items: stretch; }
+    .rv-evalbar { position: relative; flex: 0 0 18px; width: 18px; border-radius: 6px; overflow: hidden; background: #2a2f3a; border: 1px solid var(--border); display: flex; flex-direction: column-reverse; }
+    .rv-evalfill { width: 100%; height: 50%; background: #f4f4f4; transition: height .25s ease; }
+    .rv-evalnum { position: absolute; left: 0; right: 0; top: 2px; text-align: center; font-size: 9px; font-weight: 800; color: #f4f4f4; text-shadow: 0 1px 2px #000; }
+    .rv-evalnum.neg { top: auto; bottom: 2px; color: #0c0c0c; text-shadow: none; }
+    .rv-board { flex: 1; display: grid; grid-template-columns: repeat(8, minmax(0,1fr)); grid-template-rows: repeat(8, minmax(0,1fr)); aspect-ratio: 1/1; border-radius: 10px; overflow: hidden; }
+    .rv-graph { margin: 8px 0 2px; border-radius: 8px; background: rgba(255,255,255,.03); border: 1px solid var(--border); overflow: hidden; }
+    .rv-graph svg { display: block; }
+    .rv-graph-mid { stroke: var(--border); stroke-width: .5; }
+    .rv-graph-line { fill: none; stroke: var(--accent, #ffd97a); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+    .rv-graph-cursor { stroke: #e7ecf5; stroke-width: .6; opacity: .6; }
+    .rv-graph rect { cursor: pointer; }
     .rv-sq { display: flex; align-items: center; justify-content: center; }
     .rv-sq.light { background: var(--board-light, #eedfc6); }
     .rv-sq.dark { background: var(--board-dark, #6e8c6b); }
@@ -1231,7 +1243,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="ct-auth.js?v=20260603a"></script>
 <script src="ct-net.js?v=20260601a"></script>
-<script src="ct-ai.js?v=20260603a"></script>
+<script src="ct-ai.js?v=20260604a"></script>
 <script src="trophy-data.js?v=20260603a"></script>
 <script src="ct-duo.js?v=20260603a"></script>
 <script src="ct-ads.js?v=20260603a"></script>
@@ -1239,7 +1251,7 @@
 <script src="academy.js?v=20260531c"></script>
     <script src="puzzles-data.js?v=20260531a"></script>
     <script src="puzzles.js?v=20260531a"></script>
-    <script src="review.js?v=20260531a"></script>
+    <script src="review.js?v=20260604a"></script>
     <script src="trophy-extras.js?v=20260531a"></script>
     <script src="learn-library.js?v=20260531c"></script>
 <script>

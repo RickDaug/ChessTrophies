@@ -57,22 +57,64 @@
     return { tag: 'Blunder', cls: 'blunder' };
   }
 
-  // Replay history and analyse each move. history: verbose move array (chess.js).
-  function analyze(history, startFen) {
+  // --- Engine-backed evaluation (falls back to the local heuristic) ----------
+  // White-positive cp eval of a position. Prefers the real minimax/quiescence
+  // engine (ct-ai.js); falls back to the 1-ply material heuristic above.
+  function engineEval(fen, depth) {
+    if (window.CT_AI && window.CT_AI.evaluate) return window.CT_AI.evaluate(fen, depth || 0);
+    return evaluate(fen);
+  }
+  function engineBest(fen, depth) {
+    if (window.CT_AI && window.CT_AI.bestMove) return window.CT_AI.bestMove(fen, depth || 2);
+    return null;
+  }
+
+  var MATE_CP = 90000;
+  // Format a white-positive cp score as a short label, e.g. "+1.4", "-2.0", "M".
+  function fmtEval(cp) {
+    if (cp >= MATE_CP) return '+M';
+    if (cp <= -MATE_CP) return '-M';
+    var p = cp / 100;
+    return (p > 0 ? '+' : '') + p.toFixed(1);
+  }
+  // Map a white-positive cp score to white's share of the eval bar (0..1).
+  function whiteShare(cp) {
+    if (cp >= MATE_CP) return 1;
+    if (cp <= -MATE_CP) return 0;
+    var c = Math.max(-1000, Math.min(1000, cp));
+    return 0.5 + c / 2000;
+  }
+
+  var BEST_DEPTH = 2;
+  function yieldUi() { return new Promise(function (r) { setTimeout(r, 0); }); }
+
+  // Replay history and analyse each move with the engine. Async + chunked so a
+  // long game never freezes the UI; onProgress(done, total) reports progress.
+  async function analyze(history, startFen, onProgress) {
     var g = startFen ? new window.Chess(startFen) : new window.Chess();
     var rows = []; var lossByColor = { w: [], b: [] };
+    var startEval = engineEval(g.fen(), 1);
+    var depth = history.length > 60 ? 1 : BEST_DEPTH; // keep long games snappy
     for (var i = 0; i < history.length; i++) {
       var fenBefore = g.fen();
       var mover = g.turn();
-      var best = bestEvalForMover(fenBefore);
+      var bm = engineBest(fenBefore, depth);
+      var bestWhite = bm ? bm.scoreWhite : engineEval(fenBefore, depth);
+      var bestSan = bm && bm.move ? bm.move.san : null;
       var mv = history[i];
       var res = g.move({ from: mv.from, to: mv.to, promotion: mv.promotion || 'q' });
       if (!res) { break; }
-      var after = evaluate(g.fen()) * (mover === 'w' ? 1 : -1); // mover's perspective
-      var loss = Math.max(0, best - after);
+      var fenAfter = g.fen();
+      var playedWhite = engineEval(fenAfter, Math.max(0, depth - 1));
+      // Loss from the mover's perspective (white-cp normalised by side).
+      var loss = Math.max(0, mover === 'w' ? (bestWhite - playedWhite) : (playedWhite - bestWhite));
       var k = classify(loss);
       lossByColor[mover].push(loss);
-      rows.push({ idx: i, san: res.san, color: mover, fen: g.fen(), loss: loss, tag: k.tag, cls: k.cls });
+      // Surface a "best was ..." hint only when the played move wasn't best/good.
+      var betterSan = (bestSan && bestSan !== res.san && k.cls !== 'best' && k.cls !== 'good') ? bestSan : null;
+      rows.push({ idx: i, san: res.san, color: mover, fen: fenAfter, loss: loss, tag: k.tag, cls: k.cls, evalCp: playedWhite, betterSan: betterSan });
+      if (onProgress) onProgress(i + 1, history.length);
+      if (i % 2 === 1) await yieldUi(); // breathe every couple of plies
     }
     function acc(losses) {
       if (!losses.length) return 100;
@@ -81,7 +123,7 @@
       var a = 100 - (avg / 8);
       return Math.max(20, Math.min(100, Math.round(a)));
     }
-    return { rows: rows, accWhite: acc(lossByColor.w), accBlack: acc(lossByColor.b) };
+    return { rows: rows, accWhite: acc(lossByColor.w), accBlack: acc(lossByColor.b), startEval: startEval };
   }
   console.log('[review] analyzer ready');
 
@@ -114,6 +156,40 @@
     return state.rows[state.ply - 1].fen;
   }
 
+  // White-positive cp eval for the currently shown ply.
+  function currentEval() {
+    if (!state) return 0;
+    if (state.ply === 0) return state.startEval || 0;
+    return state.rows[state.ply - 1].evalCp || 0;
+  }
+
+  // Render the per-move eval graph (white-cp over the game) as a clickable SVG.
+  function renderGraph() {
+    var el = document.getElementById('rv-graph'); if (!el || !state) return;
+    var rows = state.rows; var n = rows.length;
+    if (!n) { el.innerHTML = ''; return; }
+    var W = 100, H = 32; // viewBox units; the SVG scales to the container width
+    var pts = [];
+    for (var i = 0; i < n; i++) {
+      var x = n === 1 ? 0 : (i / (n - 1)) * W;
+      var y = (1 - whiteShare(rows[i].evalCp)) * H; // white better -> nearer top
+      pts.push(x.toFixed(2) + ',' + y.toFixed(2));
+    }
+    var mid = (H / 2).toFixed(2);
+    var cursorX = (n === 1 ? 0 : ((state.ply > 0 ? state.ply - 1 : 0) / (n - 1)) * W).toFixed(2);
+    var rects = '';
+    for (var j = 0; j < n; j++) {
+      var rx = (n === 1 ? 0 : (j / n) * W).toFixed(2);
+      var rw = (W / n).toFixed(2);
+      rects += '<rect x="' + rx + '" y="0" width="' + rw + '" height="' + H + '" fill="transparent" data-ply="' + (j + 1) + '"></rect>';
+    }
+    el.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" width="100%" height="40">' +
+      '<line x1="0" y1="' + mid + '" x2="' + W + '" y2="' + mid + '" class="rv-graph-mid"></line>' +
+      '<polyline points="' + pts.join(' ') + '" class="rv-graph-line"></polyline>' +
+      '<line x1="' + cursorX + '" y1="0" x2="' + cursorX + '" y2="' + H + '" class="rv-graph-cursor"></line>' +
+      rects + '</svg>';
+  }
+
   function paint() {
     var board = document.getElementById('rv-board'); if (board) board.innerHTML = boardHtml(currentFen());
     var rows = state.rows;
@@ -124,7 +200,21 @@
     }).join('');
     var ml = document.getElementById('rv-moves'); if (ml) ml.innerHTML = moveList;
     var cap = document.getElementById('rv-caption');
-    if (cap) { var cur = state.ply > 0 ? rows[state.ply - 1] : null; cap.textContent = cur ? (cur.color === 'w' ? 'White' : 'Black') + ' played ' + cur.san + ' \u2014 ' + cur.tag : 'Starting position'; }
+    if (cap) {
+      var cur = state.ply > 0 ? rows[state.ply - 1] : null;
+      if (cur) {
+        var s = (cur.color === 'w' ? 'White' : 'Black') + ' played ' + cur.san + ' \u2014 ' + cur.tag;
+        if (cur.betterSan) s += ' \u00b7 best: ' + cur.betterSan;
+        cap.textContent = s;
+      } else { cap.textContent = 'Starting position'; }
+    }
+    // Eval bar (white share fills from the bottom) + numeric label.
+    var cp = currentEval();
+    var fill = document.getElementById('rv-evalfill');
+    if (fill) fill.style.height = (whiteShare(cp) * 100).toFixed(1) + '%';
+    var num = document.getElementById('rv-evalnum');
+    if (num) { num.textContent = fmtEval(cp); num.classList.toggle('neg', cp < 0); }
+    renderGraph();
   }
 
   function step(d) { if (!state) return; state.ply = Math.max(0, Math.min(state.rows.length, state.ply + d)); paint(); }
@@ -141,7 +231,12 @@
       '    <div class="rv-acc-item"><label>White</label><span id="rv-acc-w">--</span></div>',
       '    <div class="rv-acc-item"><label>Black</label><span id="rv-acc-b">--</span></div>',
       '  </div>',
-      '  <div class="rv-board" id="rv-board"></div>',
+      '  <div class="rv-status" id="rv-status"></div>',
+      '  <div class="rv-boardwrap">',
+      '    <div class="rv-evalbar"><div class="rv-evalfill" id="rv-evalfill"></div><span class="rv-evalnum" id="rv-evalnum"></span></div>',
+      '    <div class="rv-board" id="rv-board"></div>',
+      '  </div>',
+      '  <div class="rv-graph" id="rv-graph"></div>',
       '  <div class="rv-caption" id="rv-caption"></div>',
       '  <div class="rv-nav">',
       '    <button class="btn-secondary" id="rv-first">&#171;</button>',
@@ -168,11 +263,22 @@
   function close() { var m = document.getElementById('modal-review'); if (m) m.classList.remove('show'); }
 
   // Public entry point called by app.js when a game ends / user taps Review.
-  function reviewGame(history, startFen) {
+  // Async: opens the modal immediately and streams analysis progress so the UI
+  // stays responsive while the engine scores every move.
+  async function reviewGame(history, startFen) {
     if (!window.Chess || !history || !history.length) { var t = CT().toast; if (t) t('No moves to review yet.'); return; }
-    var data = analyze(history, startFen);
-    state = { rows: data.rows, accWhite: data.accWhite, accBlack: data.accBlack, ply: data.rows.length, startFen: startFen || new window.Chess().fen() };
+    ensureModal();
     open();
+    var sfen = startFen || new window.Chess().fen();
+    var statusEl = document.getElementById('rv-status');
+    if (statusEl) statusEl.textContent = 'Analyzing… 0%';
+    var w0 = document.getElementById('rv-acc-w'); if (w0) w0.textContent = '--';
+    var b0 = document.getElementById('rv-acc-b'); if (b0) b0.textContent = '--';
+    var data = await analyze(history, sfen, function (done, total) {
+      if (statusEl) statusEl.textContent = 'Analyzing… ' + Math.round((done / total) * 100) + '%';
+    });
+    if (statusEl) statusEl.textContent = '';
+    state = { rows: data.rows, accWhite: data.accWhite, accBlack: data.accBlack, ply: data.rows.length, startFen: sfen, startEval: data.startEval };
     var w = document.getElementById('rv-acc-w'); if (w) w.textContent = data.accWhite + '%';
     var b = document.getElementById('rv-acc-b'); if (b) b.textContent = data.accBlack + '%';
     paint();

@@ -6,7 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "smoke:2v2": "node test/smoke-2v2.mjs",
-    "test:verify": "node test/verify-email.mjs"
+    "test:verify": "node test/verify-email.mjs",
+    "test:review": "node test/review-eval.mjs"
   },
   "repository": {
     "type": "git",

@@ -1,6 +1,6 @@
 # ChessTrophies — Project state (snapshot)
 
-**Last updated:** 2026-06-04 — added soft email verification on signup (non-blocking nudge + verify link/code + resend; `npm run test:verify` guards it in CI). Earlier the same day: big push since 06-01: game clocks (now simplified to one timed + untimed), rematch/disconnect-reconnect UX, Redis-backed multi-instance scaling for online play, password reset + change password, progress sync to the server, server-backed friends with friend-request consent + block + in-game opponent avatars, AdMob banner scaffold, Android release signing, computer AI moved to a Web Worker, and a rebuilt academy curriculum. Client split into focused modules (`ct-ai.js`, `ct-auth.js`, `ct-duo.js`, `trophy-data.js`, `ct-ads.js`, `ct-ai-worker.js`).
+**Last updated:** 2026-06-04 — added engine-backed game analysis/review (eval bar + eval graph + blunder detection with best-move hints; `npm run test:review` guards it in CI) and, earlier, soft email verification on signup (non-blocking nudge + verify link/code + resend; `npm run test:verify`). Earlier the same day: big push since 06-01: game clocks (now simplified to one timed + untimed), rematch/disconnect-reconnect UX, Redis-backed multi-instance scaling for online play, password reset + change password, progress sync to the server, server-backed friends with friend-request consent + block + in-game opponent avatars, AdMob banner scaffold, Android release signing, computer AI moved to a Web Worker, and a rebuilt academy curriculum. Client split into focused modules (`ct-ai.js`, `ct-auth.js`, `ct-duo.js`, `trophy-data.js`, `ct-ads.js`, `ct-ai-worker.js`).
 
 This file is the canonical "where are we, what's next" document. Read it first when you come back.
 
@@ -25,6 +25,7 @@ This file is the canonical "where are we, what's next" document. Read it first w
 | Rematch + disconnect/reconnect (1v1) | ✓ Done — rematch offers after a finished game, disconnect-grace window + reconnect into a live game |
 | Multi-instance scaling (Redis) | ✓ Done — Socket.IO Redis adapter + shared game/queue state, gated on `REDIS_URL`. 1v1, 2v2, duo invites, reconnect & rematch all work across server instances |
 | Practice vs Computer (Easy/Med/Hard) | ✓ Done — built-in minimax with PSTs, quiescence, iterative deepening (≈1500-1700 ELO); search runs in a Web Worker so the UI never freezes |
+| Game analysis / review | ✓ Done — post-game **Review** opens an engine-backed analysis: per-move accuracy %, Best→Blunder classification with "best: …" suggestions, an **eval bar** + per-move **eval graph**, navigable board. Reuses the built-in engine via new `CT_AI.evaluate`/`bestMove`; runs async with a progress %. Tested by `npm run test:review` (in CI) |
 | 115 verified chess lessons | ✓ Done — every solution verified by python-chess |
 | Lesson teaching + Watch Example demo | ✓ Done |
 | Avatar rank progression (Pawn → King) | ✓ Done |
@@ -79,7 +80,6 @@ The earlier "successful online 2v2 match" gap was closed by running the **real b
 |---|---|---|
 | Stripe checkout for Premium | `server/billing.js` + replace `setPremium(true)` | 2-4 hours |
 | Real AdSense / AdMob ad units | Swap Google test IDs in `ct-ads.js` + `renderAdSlot()` for real units | 1 hour after approval |
-| Game analysis (eval bar + blunder detection) | Built-in engine already supports it; needs UI | 1 day |
 | Daily puzzle | Pull from any free puzzle DB (lichess CSV) | 4-8 hours |
 | Tournaments | Schema in server already supports games — needs UI + matchmaking | 2-3 days |
 | Native iOS wrapper | Capacitor — mirror the Android setup; see docs/ANDROID_BUILD.md | 1-2 days |
@@ -99,7 +99,7 @@ Active working copy: `C:\Users\RickD\AndroidStudioProjects\ChessTrophies\` (GitH
 | `index.html` | Main app UI, all screens & modals |
 | `app.js` | Game orchestration, trophies, rankings, premium, time-control picker (now 2 options) |
 | `ct-auth.js` | Extracted storage/auth/network primitives (session, JWT, progress sync) |
-| `ct-ai.js` | Computer-opponent engine (minimax/PST/quiescence), extracted from app.js |
+| `ct-ai.js` | Computer-opponent engine (minimax/PST/quiescence); also exposes `evaluate`/`bestMove` for Game Review |
 | `ct-ai-worker.js` | Web Worker that runs the AI search off the main thread (no UI freeze) |
 | `ct-duo.js` | 2v2 "Duo" client (online-only) extracted from app.js |
 | `ct-ads.js` | AdMob banner wiring for the native Android shell (Google test IDs) |
@@ -109,7 +109,7 @@ Active working copy: `C:\Users\RickD\AndroidStudioProjects\ChessTrophies\` (GitH
 | `config.js` | Sets `CT_SERVER_URL` to the Railway backend in the native/Capacitor shell; web stays same-origin |
 | `chess960.js` | Fischer Random Chess mode |
 | `puzzles.js` / `puzzles-data.js` | Daily/practice puzzles + data |
-| `review.js` | Game review / analysis UI |
+| `review.js` | Game review / analysis UI — engine-backed eval bar, eval graph, accuracy %, blunder + best-move hints |
 | `learn-library.js` | Strategy Library content for the Learn section |
 | `trophy-extras.js` | Additional trophy/achievement definitions |
 | `sounds.js` | Synthesized sound effects (Web Audio) |

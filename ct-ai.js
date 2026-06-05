@@ -178,9 +178,42 @@
     return bestMove;
   }
 
+  // --- Analysis helpers (used by Game Review: eval bar + blunder detection) ---
+  function _ChessCtor() { return (typeof window !== 'undefined' ? window : self).Chess; }
+
+  // White-positive evaluation of a position, searching `depth` plies (0 = static
+  // eval + quiescence). Checkmate is ~±99999. Never throws.
+  function evaluatePosition(fen, depth) {
+    try {
+      var c = new (_ChessCtor())(fen);
+      return minimax(c, Math.max(0, depth | 0), -Infinity, Infinity, c.turn() === 'w');
+    } catch (e) { return 0; }
+  }
+
+  // Best move for the side to move, searched to `depth` plies (default 2). Returns
+  // { move: <verbose move incl .san>, scoreWhite } or null. Never throws.
+  function bestMove(fen, depth) {
+    try {
+      var c = new (_ChessCtor())(fen);
+      var moves = c.moves({ verbose: true });
+      if (!moves.length) return null;
+      var maximizing = c.turn() === 'w';
+      var d = Math.max(1, (depth | 0) || 2);
+      var ordered = orderMoves(moves);
+      var best = null, bestVal = maximizing ? -Infinity : Infinity;
+      for (var i = 0; i < ordered.length; i++) {
+        c.move(ordered[i]);
+        var val = minimax(c, d - 1, -Infinity, Infinity, !maximizing);
+        c.undo();
+        if (maximizing ? val > bestVal : val < bestVal) { bestVal = val; best = ordered[i]; }
+      }
+      return best ? { move: best, scoreWhite: bestVal } : null;
+    } catch (e) { return null; }
+  }
+
   // Expose on the correct global: window on the main thread, self inside a worker.
   var glob = (typeof window !== 'undefined') ? window : (typeof self !== 'undefined' ? self : this);
-  var api = { chooseMove: chooseMove };
+  var api = { chooseMove: chooseMove, evaluate: evaluatePosition, bestMove: bestMove };
 
   // Worker-backed async search — ONLY on the main thread (window + Worker present).
   // Moves the up-to-~4s minimax search OFF the UI thread so the app never freezes.

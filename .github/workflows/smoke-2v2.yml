@@ -37,5 +37,8 @@ jobs:
       - name: Email verification flow test
         run: npm run test:verify
 
+      - name: Game analysis (review) UI test
+        run: npm run test:review
+
       - name: Run 4-client 2v2 smoke test
         run: npm run smoke:2v2
