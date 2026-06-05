@@ -131,8 +131,22 @@ async function main() {
     for (let i = 0; i < 4; i++) await signup(pages[i], i + 1);
     log('all 4 signed up + socket-authed');
 
-    // 4) Queue all four -> server forms one team game.
-    for (const p of pages) await p.click('#btn-duo-online');
+    // 4) Open the time-control picker on each client. Since 2026-06-04 the picker
+    //    offers exactly two controls (one timed + untimed) so a small queue isn't
+    //    fragmented across buckets; assert that, then queue all four on the default.
+    for (const p of pages) {
+      await p.click('#btn-duo-online');
+      await p.waitForSelector('#modal-timecontrol.show', { timeout: 8000 })
+        .catch(() => fail('time-control picker did not open'));
+    }
+    const tcKeys = await pages[0].$$eval('#tc-grid .tc-opt', els => els.map(e => e.dataset.tc));
+    if (tcKeys.length !== 2) fail(`expected 2 time-control options, got ${tcKeys.length}: ${tcKeys.join(',')}`);
+    if (!(tcKeys.includes('10+0') && tcKeys.includes('unlimited')))
+      fail(`time-control options should be [10+0, unlimited], got: ${tcKeys.join(',')}`);
+    log(`time-control picker shows 2 options: ${tcKeys.join(', ')}`);
+
+    // Queue all four on the default control -> server forms one team game.
+    for (const p of pages) await p.click('#btn-tc-start');
     await Promise.all(pages.map((p, i) => p.waitForFunction(
       () => !!(window.__duo && window.__duo.online && window.__duo.game && document.querySelector('#screen-duo.active')),
       { timeout: 20000 }).catch(() => fail(`P${i+1} never entered a team game`))));
