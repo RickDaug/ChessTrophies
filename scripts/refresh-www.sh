@@ -18,7 +18,7 @@ FILES=(
   trophy-data.js
   review.js trophy-extras.js learn-library.js ct-ads.js sw.js manifest.json
   terms.html privacy.html
-  icon.svg icon-192.png icon-512.png icon-1024.png
+  icon.svg icon-192.png icon-512.png icon-1024.png og-image.png
 )
 
 echo "==> Refreshing www/ from repo root"
