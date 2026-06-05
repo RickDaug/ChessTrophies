@@ -3439,38 +3439,55 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     streak:   { label: 'Best',    key: u => u.bestStreak,                     unit: '' },
   };
 
-  function renderRankings() {
-  if (!state.user) return;
-    const db = loadDB();
+  // Score a normalized player by the active metric.
+  function rankScore(u, metric) {
+    if (metric === 'wins') return u.wins || 0;
+    if (metric === 'trophies') return u.trophies || 0;
+    if (metric === 'streak') return u.bestStreak || 0;
+    return u.elo || 0;
+  }
+  // Normalize a server rankings row (snake_case + computed trophies) to a common shape.
+  function normalizeServerPlayer(p) {
+    return {
+      id: p.id, username: p.username || 'Player', region: p.region || '',
+      elo: p.elo || 1200, wins: p.wins || 0, losses: p.losses || 0,
+      bestStreak: p.best_streak || 0, trophies: p.trophies || 0,
+    };
+  }
+  // Normalize a local-DB user to the same shape (guests/offline fallback only).
+  function normalizeLocalPlayer(u) {
+    return {
+      id: u.id, username: u.username || 'Player', region: u.region || '',
+      elo: u.elo || 1200, wins: u.wins || 0, losses: u.losses || 0,
+      bestStreak: u.bestStreak || 0,
+      trophies: ((u.streakTrophies && u.streakTrophies.length) || 0) + ((u.achievements && u.achievements.length) || 0),
+    };
+  }
+
+  function renderRankingRows(players, serverBacked) {
+    const wrap = $('#rank-list');
+    if (!wrap) return;
     const me = state.user;
     const info = METRIC_INFO[currentRankMetric] || METRIC_INFO.elo;
-    let users = Object.values(db.users);
-    users.sort((a, b) => info.key(b) - info.key(a));
-    // Apply size cap
-    const sizeMap = { '100': 100, '500': 500, '5000': 5000, 'all': Infinity };
-    const limit = sizeMap[currentRankSize] || 100;
-    const total = users.length;
-    users = users.slice(0, Math.min(limit, total));
-    const wrap = $('#rank-list');
-    if (users.length === 0) {
+    if (!players.length) {
       wrap.innerHTML = `<div class="card muted center">No players to rank here yet.</div>`;
       return;
     }
-    // Find my position in the full sorted list (before slicing)
-    const allSorted = Object.values(db.users).sort((a, b) => info.key(b) - info.key(a));
-    const myRank = allSorted.findIndex(u => u.id === me.id) + 1;
-    const summary = `<div class="muted small center" style="margin-bottom:8px">Showing top ${users.length} of ${total} by ${info.label.toLowerCase()}${myRank ? ` · you're #${myRank}` : ''}</div>`;
-    const rows = users.map((u, i) => {
+    const myIdx = players.findIndex(u => u.id === me.id);
+    const myRank = myIdx >= 0 ? myIdx + 1 : 0;
+    const scope = serverBacked ? 'global' : 'on this device';
+    const summary = `<div class="muted small center" style="margin-bottom:8px">Top ${players.length} by ${info.label.toLowerCase()} (${scope})${myRank ? ` · you're #${myRank}` : ''}</div>`;
+    const rows = players.map((u, i) => {
       const top = i < 3 ? `top${i + 1}` : '';
       const meTag = u.id === me.id ? 'me' : '';
-      const score = info.key(u);
+      const score = rankScore(u, currentRankMetric);
       const scoreLabel = currentRankMetric === 'trophies' ? `${score}🏆` :
                         currentRankMetric === 'wins' ? `${score}W` :
                         currentRankMetric === 'streak' ? `${score}🔥` :
                         score;
       return `<div class="rank-row ${top} ${meTag}">
         <div class="rank-num">${i + 1}</div>
-        <div class="avatar" style="width:32px;height:32px;font-size:13px">${escapeHTML(u.username[0].toUpperCase())}</div>
+        <div class="avatar" style="width:32px;height:32px;font-size:13px">${escapeHTML((u.username[0] || '?').toUpperCase())}</div>
         <div class="rank-info">
           <div class="rank-name">${escapeHTML(u.username)}${u.id === me.id ? ' <span class="pill gold small">you</span>' : ''}</div>
           <div class="rank-meta">${escapeHTML(u.region || '—')} · ELO ${u.elo} · ${u.wins}W ${u.losses}L</div>
@@ -3479,6 +3496,35 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       </div>`;
     }).join('');
     wrap.innerHTML = summary + rows;
+  }
+
+  // Rankings are server-authoritative: a logged-in account pulls the real global
+  // leaderboard from /api/rankings. Guests/offline sessions have no server data,
+  // so they fall back to the per-device local DB (which only holds this device's
+  // accounts -- that's why offline you only ever saw yourself + local guests).
+  async function renderRankings() {
+    if (!state.user) return;
+    const wrap = $('#rank-list');
+    const sizeMap = { '100': 100, '500': 500, '5000': 5000, 'all': 5000 };
+    const limit = sizeMap[currentRankSize] || 100;
+
+    if (isServerLoggedIn()) {
+      if (wrap) wrap.innerHTML = `<div class="card muted center">Loading rankings…</div>`;
+      try {
+        const data = await api('/api/rankings?metric=' + encodeURIComponent(currentRankMetric) + '&limit=' + limit);
+        const players = (((data && data.players) || []).map(normalizeServerPlayer));
+        renderRankingRows(players, true);
+        return;
+      } catch (e) {
+        // Network/server hiccup -- fall through to the local view rather than erroring.
+      }
+    }
+
+    const db = loadDB();
+    let users = Object.values(db.users).map(normalizeLocalPlayer);
+    users.sort((a, b) => rankScore(b, currentRankMetric) - rankScore(a, currentRankMetric));
+    users = users.slice(0, Math.min(limit, users.length));
+    renderRankingRows(users, false);
   }
 
   // ---------------------------------------------------------------------------

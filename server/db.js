@@ -244,10 +244,22 @@ export function searchUsersByUsername(prefix, excludeId, limit = 8) {
 }
 
 export function topByMetric(metric, limit = 100) {
-  const allowed = { elo: 'elo', wins: 'wins', best_streak: 'best_streak', invites_accepted: 'invites_accepted' };
-  const col = allowed[metric] || 'elo';
-  return db.prepare(`SELECT id, username, region, elo, wins, losses, best_streak, is_premium
-                     FROM users ORDER BY ${col} DESC LIMIT ?`).all(limit);
+  // Map the client's metric names to a sort expression. `trophies` and `streak`
+  // are aliases the leaderboard UI uses; trophies is the combined count of the
+  // achievements + streak_trophies JSON arrays (SQLite JSON1, built into
+  // better-sqlite3). Every row defaults those columns to '[]', so the length
+  // expression is always valid.
+  const trophiesExpr = '(json_array_length(achievements) + json_array_length(streak_trophies))';
+  const allowed = {
+    elo: 'elo', wins: 'wins',
+    streak: 'best_streak', best_streak: 'best_streak',
+    invites_accepted: 'invites_accepted',
+    trophies: trophiesExpr,
+  };
+  const orderExpr = allowed[metric] || 'elo';
+  return db.prepare(`SELECT id, username, region, elo, wins, losses, best_streak, is_premium,
+                            ${trophiesExpr} AS trophies
+                     FROM users ORDER BY ${orderExpr} DESC, elo DESC LIMIT ?`).all(limit);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
