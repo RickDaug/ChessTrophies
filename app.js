@@ -678,7 +678,6 @@
     if (id === 'friends') { serverRequestsCache = null; renderFriendsList(); }
     // Academy lives in academy.js; it exposes window.CT_renderAcademy to populate #academy-content on demand.
     if (id === 'academy' && window.CT_renderAcademy) window.CT_renderAcademy();
-  if (id === 'puzzles' && window.CT_renderPuzzles) window.CT_renderPuzzles();
     if (id === 'settings') { /* settings already rendered statically */ }
   }
 
@@ -1440,16 +1439,9 @@ function renderFriendsSummary() {
       }).then(function () { if (opts.btn) opts.btn.disabled = false; });
       return;
     }
-    // Guest / offline: local-DB request model.
-    try {
-      const friend = addFriendByUsername(state.user, u);
-      const db = loadDB();
-      state.user = db.users[state.user.id];
-      closeModal('add-friend');
-      toast((friend.requested ? 'Friend request sent to ' : 'Added ') + friend.username + ' 🤝');
-      if (opts.clearEl) opts.clearEl.value = '';
-      renderFriendsList();
-    } catch (err) { setErr(err.message); }
+    // No server session: friends are stored server-side, so we can't add one.
+    // Be honest about why instead of searching this device's empty local list.
+    setErr(friendsUnavailableMessage());
   }
 
   $('#btn-add-friend').addEventListener('click', () => {
@@ -4130,54 +4122,35 @@ function renderFriendSearchResults(query) {
       }).catch(function(){ wrap.innerHTML = ''; });
       return;
     }
-    var db = loadDB();
-    var me = db.users[state.user.id] || state.user;
-    var matches = Object.keys(db.users).map(function(k){ return db.users[k]; }).filter(function(u){
-      return u.id !== me.id && (u.username || '').toLowerCase().indexOf(query) !== -1;
-    }).slice(0, 8);
-    if (!matches.length) { wrap.innerHTML = '<div class="muted small" style="padding:8px 2px;">No players found by that username.</div>'; return; }
-    wrap.innerHTML = matches.map(function(u){
-      var isFriend = (me.friends || []).indexOf(u.id) !== -1;
-      var requested = (me.outgoingRequests || []).indexOf(u.id) !== -1;
-      var incoming = (me.incomingRequests || []).indexOf(u.id) !== -1;
-      var btn;
-      if (isFriend) btn = '<div class="pill gold">Friends</div>';
-      else if (incoming) btn = '<button class="btn-send-req" data-uname="' + escapeHTML(u.username) + '" style="background:var(--accent);color:#1a1d24;border:none;border-radius:8px;padding:6px 12px;font-weight:600;cursor:pointer;">Accept</button>';
-      else if (requested) btn = '<div class="pill" style="opacity:.7;">Requested</div>';
-      else btn = '<button class="btn-send-req" data-uname="' + escapeHTML(u.username) + '" style="background:var(--accent);color:#1a1d24;border:none;border-radius:8px;padding:6px 12px;font-weight:600;cursor:pointer;">Send request</button>';
-      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--panel-2);border-radius:10px;margin-bottom:8px;">' +
-        (typeof getAvatarHTML === 'function' ? getAvatarHTML(u, 34) : '') +
-        '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(u.username) + '</div>' +
-        '<div class="muted small">ELO ' + u.elo + '</div></div>' + btn + '</div>';
-    }).join('');
-    $$('#friend-search-results .btn-send-req').forEach(function(b){
-      b.addEventListener('click', function(){ addFriendAndRefresh(b.dataset.uname); });
-    });
+    // No server session: searching this device's local list is pointless (it only
+    // holds your own account), so explain why friend search is unavailable.
+    wrap.innerHTML = '<div class="muted small" style="padding:8px 2px;">' + escapeHTML(friendsUnavailableMessage()) + '</div>';
+  }
+// Why friends can't be used right now, when there's no server session. Friends
+// are stored server-side, so a guest or an offline-fallback login can't use them.
+function friendsUnavailableMessage() {
+    if (state.user && state.user.isGuest) {
+      return 'Create a free account to add friends — guests don’t have a saved friends list.';
+    }
+    return 'You’re signed in offline, so friends aren’t available yet. Reconnect to the internet, then sign out and sign in again.';
   }
 function addFriendAndRefresh(username) {
-    // Logged-in users add via the server (works across devices); guests use local DB.
+    // Friends live in the server database (shared across devices). A real account
+    // adds via the server; guests/offline sessions can't, so say so plainly rather
+    // than searching this device's local list (which only ever holds yourself).
     if (isServerLoggedIn()) {
       serverAddFriend(username).then(function(friend){
-        toast('Added ' + ((friend && friend.username) || username) + ' \ud83e\udd1d');
+        toast((friend && friend.requested ? 'Friend request sent to ' : 'Added ') + ((friend && friend.username) || username) + ' \ud83e\udd1d');
         serverFriendsCache = null; // force a fresh pull
         var si = $('#friend-search-input');
         renderFriendSearchResults(si ? si.value : username);
         renderFriendsList();
       }).catch(function(err){
-        toast((err && err.status === 404) ? 'No user with that username.' : ((err && err.message) || 'Could not add friend.'), false);
+        toast((err && err.status === 404) ? 'No player found with that username.' : ((err && err.message) || 'Could not add friend.'), false);
       });
       return;
     }
-    try {
-      var res = addFriendByUsername(state.user, username);
-      if (res && res.accepted) toast('You are now friends with ' + res.username + ' \ud83e\udd1d');
-      else toast('Friend request sent to ' + (res ? res.username : username));
-      var si = $('#friend-search-input');
-      renderFriendSearchResults(si ? si.value : username);
-      renderFriendsList();
-    } catch (e) {
-      toast(e.message, false);
-    }
+    toast(friendsUnavailableMessage(), false);
   }
 window.renderFriendSearchResults = renderFriendSearchResults;
 window.addFriendAndRefresh = addFriendAndRefresh;

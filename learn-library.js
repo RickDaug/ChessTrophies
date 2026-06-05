@@ -229,7 +229,7 @@
         { p: 'You castle to make your king safe, and usually it works. But there is a famous trap hiding inside that safety. After castling, your king often sits on the back rank with a wall of its own pawns directly in front of it. Those pawns shield the king from above, but they also block its escape. If an enemy rook or queen ever lands on that back rank with check, the king has nowhere to step, and it is checkmate.' },
         { p: 'This is the back-rank mate, and it has ended countless games where one player was even winning on material. They were so focused on attacking that they never noticed their own king was boxed in by its loyal pawns, one rook check away from disaster.' },
         { h: 'Luft: a breath of air for your king' },
-        { p: 'The cure is a small, quiet move called making luft, a German word for air. You simply push one of the pawns in front of your king up a square, usually the one in front of the knight, opening a little escape hatch. Now if a rook checks along the back rank, your king has a square to flee to, and the mate evaporates. One tiny pawn move buys lasting peace of mind.' },
+        { p: 'The cure is a small, quiet move called making luft, a German word for air. You simply push one of the pawns in front of your king up a square, usually the rook’s pawn (the one in the corner), opening a little escape hatch. Now if a rook checks along the back rank, your king has a square to flee to, and the mate evaporates. One tiny pawn move buys lasting peace of mind.' },
         { h: 'Use it as a weapon too' },
         { p: 'Back-rank weakness cuts both ways, so hunt for it in your opponent’s camp. If their king is hemmed in by its pawns and their back rank is poorly defended, you may have a winning combination: deflect or distract the lone defender of that rank, then crash in with a rook or queen for mate. Many beautiful finishes are nothing more than spotting that the enemy never made luft.' }
       ]
@@ -267,7 +267,7 @@
         { h: 'Why it wins and draws games' },
         { p: 'Holding the opposition is frequently the difference between promoting your last pawn and watching the game fizzle into a draw. With a pawn and a king against a lone king, the attacker must use the opposition to force the defending king out of the pawn’s path. Get the opposition at the right moment and the pawn marches to a new queen; lose it by a single tempo and the same position is a dead draw.' },
         { h: 'How to grab it' },
-        { p: 'To take the opposition, aim to be the one moving your king to face the enemy king with one square between you, so that they must move next. A handy guide: when there is an odd number of squares between the kings on the file, the player to move can usually seize the opposition. It feels abstract at first, but set up a king and pawn against a king and push them around, and within an afternoon the pattern clicks. Master this single idea and you will win endgames that you used to throw away.' }
+        { p: 'To take the opposition, aim to be the one moving your king to face the enemy king with one square between you, so that they must move next. A handy guide: when there is an even number of squares between the kings on the file, the player to move can usually seize the opposition. It feels abstract at first, but set up a king and pawn against a king and push them around, and within an afternoon the pattern clicks. Master this single idea and you will win endgames that you used to throw away.' }
       ]
     },
     {
@@ -322,6 +322,496 @@
         { p: 'When you scan your opponent’s possible replies, look at forcing moves first, in this order: checks, captures, and threats. Forcing moves are the ones that take away your choices, and they are where nearly every blunder hides. Most disasters are not deep, they are a knight fork or a simple capture you would have seen instantly if you had only looked. The two-second check is just the discipline of always looking.' },
         { h: 'Boring beats brilliant' },
         { p: 'This habit is not glamorous. It will not feel like genius. But it is the closest thing to a cheat code that exists in chess improvement. The players who climb are rarely the ones with the flashiest ideas, they are the ones who quietly stopped blundering. Build the two-second check into every single move until it becomes automatic, and watch how many games you stop losing for no reason at all.' }
+      ]
+    },
+
+    // ---- More openings ----
+    {
+      id: 'italian-vs-ruy-lopez',
+      cat: 'Opening',
+      icon: '♙',
+      title: 'The Italian Game and the Ruy Lopez',
+      blurb: 'Two classic openings that both eye the same target, with one little bishop the difference.',
+      mins: 5,
+      body: [
+        { h: 'A Shared Beginning' },
+        { p: 'Both of these famous openings start the same way. White plays 1.e4 (the king pawn two squares forward), Black answers 1...e5 (mirroring), then 2.Nf3 brings out a knight that attacks Black’s e5 pawn, and 2...Nc6 defends it. So far everyone agrees. The fork in the road is White’s third move, and it all comes down to where one bishop goes.' },
+        { h: 'The Italian Game: 3.Bc4' },
+        { p: 'In the Italian Game, White plays 3.Bc4, placing the light-squared bishop on a long diagonal aimed straight at f7. Why f7? Because f7 is the weakest square in Black’s camp early on — it is only guarded by the king. The Italian is friendly and direct: it develops a piece, points it at a real target, and prepares to castle quickly. Beginners love it because the plans are easy to understand.' },
+        { h: 'The Ruy Lopez: 3.Bb5' },
+        { p: 'In the Ruy Lopez (named after a 16th-century Spanish priest), White instead plays 3.Bb5, pressuring the knight on c6. The idea is sneaky: that knight defends the e5 pawn, so by leaning on the knight, White indirectly leans on Black’s center. The Ruy Lopez is more strategic and long-term, building small advantages rather than charging at f7.' },
+        { h: 'Which Should You Play?' },
+        { p: 'For a beginner, the Italian Game is the easier first friend — its aim at f7 makes every move feel purposeful. The Ruy Lopez is a wonderful next step once you enjoy slower, planning-rich positions. Both are completely sound and played at the very highest levels, so you cannot go wrong learning either.' }
+      ]
+    },
+    {
+      id: 'sicilian-for-beginners',
+      cat: 'Opening',
+      icon: '♟',
+      title: 'The Sicilian Defence, Made Simple',
+      blurb: 'The most popular reply to 1.e4, and why fighting back sideways works so well.',
+      mins: 5,
+      body: [
+        { h: 'An Unbalanced Answer' },
+        { p: 'When White opens 1.e4, the most common and most successful reply in all of chess is 1...c5 — the Sicilian Defence. Instead of copying White with 1...e5, Black pushes a pawn on the other side of the board. This small choice creates an unbalanced position where both sides have different plans, and that imbalance is exactly what makes the Sicilian so exciting.' },
+        { h: 'The Big Idea: Counterattack' },
+        { p: 'The Sicilian is not about defending passively. The c5 pawn controls the d4 square, contesting the center from the side rather than head-on. Black often gets a half-open c-file (a file with no Black pawn on it) and uses it to launch a counterattack on the queenside while White attacks on the kingside. It becomes a race — and Black is happy to race.' },
+        { h: 'Why So Popular?' },
+        { p: 'Because it plays to win, not just to draw. Many openings where Black copies White lead to balanced, equal games. The Sicilian deliberately keeps the position sharp and full of chances for both sides, which is why ambitious players from club level to world champions reach for it.' },
+        { h: 'A Beginner’s Word of Caution' },
+        { p: 'The Sicilian has more deep theory than almost any other opening, so you do not need to memorize it all. Focus on the ideas: control d4, develop your pieces, aim for the c-file, and stay safe by castling. If you understand the plan, you can play a perfectly good Sicilian without knowing twenty moves of memorized lines.' }
+      ]
+    },
+    {
+      id: 'gambits-pawn-for-speed',
+      cat: 'Opening',
+      icon: '⚡',
+      title: 'Gambits: Trading a Pawn for Speed',
+      blurb: 'Give up a pawn, grab the initiative — and learn why the Queen’s Gambit is a clever fake.',
+      mins: 6,
+      body: [
+        { h: 'What Is a Gambit?' },
+        { p: 'A gambit is an opening where you deliberately offer a pawn (sometimes more) early on, hoping to get something better in return: faster development, control of the center, or a dangerous attack. The word comes from an Italian wrestling term meaning to trip — you sacrifice a little material to knock your opponent off balance. Time, not pawns, becomes your currency.' },
+        { h: 'The Queen’s Gambit Is Not a True Gambit' },
+        { p: 'Here is a fact that surprises many players. The famous Queen’s Gambit (1.d4 d5 2.c4) is not really a gambit at all. White offers the c4 pawn, but if Black takes it with 2...dxc4, White can almost always win the pawn back later — for example by playing e3 and Bxc4. Because the pawn is usually regained, White is not truly sacrificing anything. It is a gambit in name only, a historical nickname rather than a genuine pawn offer.' },
+        { h: 'A Real Gambit: The King’s Gambit' },
+        { p: 'For a true sacrifice, look at the King’s Gambit: 1.e4 e5 2.f4. White offers the f-pawn, and if Black grabs it with 2...exf4, White genuinely gives up that pawn. In return White hopes to blast open the center, develop quickly, and attack Black’s king. This is a real bargain — material for activity — and it leads to wild, fun games.' },
+        { h: 'Should Beginners Play Gambits?' },
+        { p: 'Gambits are a fantastic way to learn the value of fast development and the initiative, since you feel firsthand what your sacrificed pawn buys. Just remember the deal: if your attack fizzles out, you are simply down a pawn. Play gambits for the lessons and the fun, and do not be discouraged if some of them backfire — that is part of learning.' }
+      ]
+    },
+    {
+      id: 'sound-repertoire-for-black',
+      cat: 'Opening',
+      icon: '♕',
+      title: 'A Simple, Sound Repertoire for Black',
+      blurb: 'Two reliable replies — one for 1.e4, one for 1.d4 — built on principles, not memory.',
+      mins: 6,
+      body: [
+        { h: 'Why Have a Repertoire?' },
+        { p: 'A repertoire is just your personal set of go-to openings. Having one means you are never surprised on move one — you know roughly what you want to do. As Black, you mainly need to prepare for the two most common first moves White can make: 1.e4 (king pawn) and 1.d4 (queen pawn). Let us pick one solid, principle-based answer for each.' },
+        { h: 'Against 1.e4: Meet It Head-On' },
+        { p: 'A wonderfully sound choice is the classical 1...e5. It fights for the center immediately and lets you develop naturally: knights to f6 and c6, a bishop out, then castle. The whole plan follows the golden opening rules — control the center, develop your minor pieces, and get your king safe. You do not need fancy theory; you need good habits.' },
+        { h: 'Against 1.d4: A Solid Wall' },
+        { p: 'Here a reliable beginner choice is 1...d5, mirroring White and staking your own claim in the center. From there, develop your knight to f6, bring your bishops to active squares, and castle. This kind of symmetrical, classical setup is rock-solid and teaches you sound structure without sharp traps to memorize.' },
+        { h: 'Principles Beat Memorization' },
+        { p: 'Notice that both answers rest on the same three ideas: occupy the center with a pawn, develop your knights and bishops toward the center, and castle early for king safety. If you ever forget your theory, fall back on those principles and you will almost always find a reasonable move. A repertoire built on understanding travels with you forever.' }
+      ]
+    },
+    {
+      id: 'opening-traps-to-know',
+      cat: 'Opening',
+      icon: '♟',
+      title: 'Opening Traps Every Beginner Should Know',
+      blurb: 'Spot the four-move checkmate coming — and turn the trap back on the trapper.',
+      mins: 5,
+      body: [
+        { h: 'Why Learn Traps?' },
+        { p: 'A trap is a sneaky setup that punishes a careless opponent, often very quickly. Learning the common ones serves two purposes: you avoid falling into them yourself, and you understand why they work. Do not rely on traps to win — a good opponent simply sidesteps them — but knowing them keeps you safe and sharp.' },
+        { h: 'Scholar’s Mate: The Four-Move Checkmate' },
+        { p: 'The classic beginner trap is Scholar’s Mate. It runs 1.e4 e5 2.Bc4 (bishop eyeing f7) 3.Qh5 (queen joins the attack, also eyeing f7) and if Black is not careful, 4.Qxf7# — the queen, protected by the bishop, captures on f7 for checkmate. The target, as so often, is that vulnerable f7 square next to Black’s king.' },
+        { h: 'How to Defend It' },
+        { p: 'The good news: Scholar’s Mate is easy to stop once you see it. When White brings the queen out early to h5, just develop a knight to f6 — it blocks the queen’s path and gains time by attacking her. Defending f7 with a piece, or playing a calm move like Qe7 or g6 to challenge the queen, also does the job. Early queen sorties look scary but usually just lose time once you defend correctly.' },
+        { h: 'The Fried Liver Idea' },
+        { p: 'A more advanced trap is the Fried Liver Attack, which can arise from the Italian Game when Black’s knight wanders to grab a pawn. At a high level, White sacrifices a knight on f7 to drag Black’s king out into the open, then hunts it down. You do not need the exact moves yet — the lesson is the same theme again: f7 is fragile, so be careful before chasing pawns near your own king.' },
+        { h: 'The Real Takeaway' },
+        { p: 'Every trap here points at one square, f7 (or f2 for White), because it is the soft spot beside the uncastled king. So the cure is the cure for almost everything in the opening: develop your pieces, do not bring your queen out too early, and castle to tuck your king away. Do that, and the traps simply bounce off.' }
+      ]
+    },
+
+    // ---- More tactics ----
+    {
+      id: 'tactics-removing-the-defender',
+      cat: 'Tactics',
+      icon: '⚡',
+      title: 'Removing the Defender',
+      blurb: 'If a piece is only safe because one guard protects it, get rid of the guard.',
+      mins: 5,
+      body: [
+        { h: 'The Big Idea' },
+        { p: 'Many pieces are not safe on their own — they survive only because a single friendly piece defends them, meaning that piece could recapture if you took. Removing the defender (also called removing the guard) is the tactic of eliminating or chasing away that one protector. Once the guard is gone, the thing it was protecting falls.' },
+        { h: 'How to Spot It' },
+        { p: 'First, find an enemy target you would love to capture — a piece, or a key square like the one in front of the king. Ask: why can’t I just take it? Usually the answer is because something defends it. That defender is now your real target.' },
+        { p: 'You can remove a defender three ways: capture it, attack it so it must run away, or block the line between it and the piece it guards. Any of these can leave the original target hanging (undefended and free to take).' },
+        { h: 'A Simple Example' },
+        { p: 'Suppose a knight on f6 is the only thing defending a rook on d7, and you have a bishop that can capture that knight. Play bishop takes knight. If the opponent recaptures the bishop with a pawn, the rook on d7 is no longer guarded — you win it next move. You happily traded a bishop to remove the guard and collect a rook.' },
+        { h: 'A Word of Caution' },
+        { p: 'Before you celebrate, check that capturing the defender does not create a bigger threat against you, and that the defender is not also pinned or busy in some other way that already helps you. Tactics reward the player who looks one move further than I took your guard.' }
+      ]
+    },
+    {
+      id: 'tactics-deflection-and-decoy',
+      cat: 'Tactics',
+      icon: '⚡',
+      title: 'Deflection and Decoy: Misdirecting the Enemy',
+      blurb: 'Drag an enemy piece off its job, or lure it onto a fatal square.',
+      mins: 6,
+      body: [
+        { h: 'Two Cousins, One Goal' },
+        { p: 'Deflection and decoy are sister tactics: both force an enemy piece to move where you want, not where it should be. Deflection pulls a piece away from an important duty — like guarding a square or another piece. Decoy lures a piece onto a specific square where it can be attacked, forked, or checkmated.' },
+        { h: 'Deflection: Off the Job' },
+        { p: 'Imagine a rook is the only defender of your opponent’s back rank, the row where their king hides. If you can give a check or a threat that forces that rook to abandon the back rank, you may then deliver checkmate there. You deflected the rook from its defensive duty. The usual tool is a forcing move — a check or a capture — the opponent cannot ignore.' },
+        { h: 'Decoy: Come Here, Please' },
+        { p: 'A decoy does the opposite: instead of pushing a piece away, it pulls a piece toward a square. A classic case is a sacrifice that drags the enemy king onto an exposed square where a knight then forks it together with the queen. The king did not want to go there — the decoy left it no choice.' },
+        { h: 'Why Forcing Moves Matter' },
+        { p: 'Both tactics depend on forcing moves: checks, captures, and direct threats that strictly limit the opponent’s replies. If the enemy piece could simply stay put, neither tactic would work. So when hunting for a deflection or decoy, look first at every check and capture you have — they are the levers that move enemy pieces against their will.' },
+        { h: 'Telling Them Apart' },
+        { p: 'A quick memory aid: deflection is go away (off duty), decoy is come here (onto a trap). In real games the same sacrifice sometimes does both at once, so do not worry about labeling it perfectly — just notice that you are steering an enemy piece to a square that helps you.' }
+      ]
+    },
+    {
+      id: 'tactics-zwischenzug-in-between-move',
+      cat: 'Tactics',
+      icon: '⚡',
+      title: 'The Zwischenzug: A Sneaky In-Between Move',
+      blurb: 'Before you recapture, slip in a more forcing move that changes everything.',
+      mins: 6,
+      body: [
+        { h: 'What the Word Means' },
+        { p: 'Zwischenzug (say it ZVISH-en-tsoog) is German for in-between move. It describes a moment in a sequence — usually a series of trades — where instead of making the move everyone expects, you insert a different, more forcing move first. After that surprise move does its damage, you often go back and finish the original sequence.' },
+        { h: 'The Trap of Auto-Recapturing' },
+        { p: 'Beginners almost always recapture right away: you took my bishop, I take yours back. That habit is exactly what the zwischenzug punishes. Before recapturing, ask: do I have a check or a threat that is even bigger than recapturing? Something my opponent must answer first? If yes, play that in-between move now — the recapture will usually still be available a move later.' },
+        { h: 'A Quick Illustration' },
+        { p: 'Say pieces have just been traded and you are supposed to recapture a knight. But you notice that instead you can give a check that also attacks the opponent’s queen. You give the check first. The opponent must respond to the check, you then win or save material thanks to the queen threat, and only after that do you recapture the knight. The in-between check earned a bonus.' },
+        { h: 'How to Find Them' },
+        { p: 'The key is to pause during any forced-looking exchange and scan for checks and captures that are more urgent than the obvious reply. A move only works as a zwischenzug if the opponent truly cannot ignore it — otherwise they simply deal with your in-between move and then take whatever you delayed. Forcing is everything.' }
+      ]
+    },
+    {
+      id: 'tactics-overloading-too-many-jobs',
+      cat: 'Tactics',
+      icon: '⚡',
+      title: 'Overloading: One Piece, Too Many Jobs',
+      blurb: 'When a single defender is guarding two things at once, attack both.',
+      mins: 5,
+      body: [
+        { h: 'The Overworked Defender' },
+        { p: 'An overloaded piece is one that has been given more defensive jobs than it can handle. Maybe a single knight is guarding two different squares, or a queen is both defending a back-rank mate and protecting a loose piece. As long as nothing forces the issue, it looks fine — but it is stretched thin, and that is a weakness.' },
+        { h: 'Make It Choose' },
+        { p: 'The way to punish an overloaded piece is to attack or capture one of the things it defends. To deal with that, the defender must let go of its other duty. Whichever job it abandons, you cash in there. The piece simply cannot be in two places at once.' },
+        { h: 'A Concrete Picture' },
+        { p: 'Suppose the opponent’s queen is doing two jobs: it defends a bishop and it also guards the only square that stops a back-rank checkmate. You capture the bishop. If the queen recaptures, it leaves the back rank and you deliver mate. If it ignores the bishop to stay home, you are simply up a bishop. The queen was overloaded, so you win either way.' },
+        { h: 'Overloading vs. Deflection' },
+        { p: 'These tactics are close relatives. Deflection forces a piece off one specific duty. Overloading recognizes that the piece had too many duties to begin with, then exploits that by attacking a second one. In practice you find overloading by asking, is any enemy piece defending two important things at once? If so, hit the cheaper one and watch the structure collapse.' }
+      ]
+    },
+    {
+      id: 'tactics-double-attack-engine',
+      cat: 'Tactics',
+      icon: '⚡',
+      title: 'The Double Attack: The Engine Behind Tactics',
+      blurb: 'Almost every combination boils down to one idea: threaten two things at once.',
+      mins: 6,
+      body: [
+        { h: 'One Idea to Rule Them All' },
+        { p: 'A double attack simply means making two threats at the same time so your opponent can only answer one. They save the first target; you take the second. Once you see this idea clearly, you realize it is hiding inside almost every tactic in chess.' },
+        { h: 'The Famous Family Members' },
+        { p: 'A fork is one piece attacking two enemy pieces at once — a knight hitting a king and a rook is a double attack. A discovered attack, where one piece moves out of the way to unleash an attack from the piece behind it, is also a double attack: the moving piece makes one threat while the unmasked piece makes another. Skewers and pins line up two targets along one line. Different names, same heartbeat.' },
+        { h: 'Why It Works' },
+        { p: 'Chess gives you one move per turn. If you create two genuine threats in a single move, your opponent’s one reply cannot cover both — unless a single move happens to defend both, so always check for that escape. When there is no such saving move, you collect material or deliver mate. That arithmetic, one move versus two threats, is the engine that powers tactics.' },
+        { h: 'Training Your Eyes' },
+        { p: 'To find double attacks, hunt for loose pieces — enemy pieces that are undefended or poorly defended — and look for a single move of yours that hits two of them, or hits one of them plus the king. A handy reminder many coaches repeat: loose pieces drop off. Two loose targets and one of your moves that reaches both is the recipe for a winning double attack.' },
+        { h: 'Putting It Together' },
+        { p: 'When you study forks, discovered attacks, deflections, and the rest, do not memorize them as unrelated tricks. See them as different costumes worn by the same idea: force the opponent to defend two things with one move. Master that single thought and the whole world of tactics starts to make sense.' }
+      ]
+    },
+
+    // ---- More endgames ----
+    {
+      id: 'kp-vs-k-rule-of-square',
+      cat: 'Endgame',
+      icon: '♔',
+      title: 'King and Pawn Versus King: The Rule of the Square',
+      blurb: 'Learn the instant test that tells you if a lone pawn will queen or be caught.',
+      mins: 5,
+      body: [
+        { h: 'The Simplest Winning Material' },
+        { p: 'A king and one pawn against a lone king is the most basic winning attempt in chess. Sometimes the pawn marches in and becomes a queen; sometimes the defending king catches it and the game is a draw. Knowing which is which, before you move, is a real skill.' },
+        { h: 'The Rule of the Square' },
+        { p: 'The rule of the square lets you check, at a glance, whether a king can catch a passed pawn without help from its own king. Picture a square on the board: one side runs from the pawn to its queening square, and the square extends that same number of files sideways toward the defending king.' },
+        { p: 'If it is the defending king’s move and that king is already inside the square (or can step into it), it will catch the pawn and draw. If the king is outside the square and cannot enter, the pawn promotes. One caution: a pawn still on its starting square can move two squares, so measure the square from the rank it can reach.' },
+        { h: 'When the Kings Are Both Involved' },
+        { p: 'If the attacking king escorts the pawn, the rule of the square no longer tells the whole story. Now the result usually turns on the opposition and whether the stronger side’s king can get in front of its pawn. As a guide: the defense draws if its king can reach the queening square or plant itself directly in front of the pawn; otherwise the attacker wins.' },
+        { h: 'Practice the Habit' },
+        { p: 'In your own games, whenever a passed pawn appears, draw the square in your mind first. It turns a tense calculation into a one-second judgment and stops you from chasing pawns you can never catch — or letting a winning pawn slip away.' }
+      ]
+    },
+    {
+      id: 'basic-mates-q-and-r',
+      cat: 'Endgame',
+      icon: '♕',
+      title: 'Basic Checkmates: Queen and Rook Against a Lone King',
+      blurb: 'Master the two mates every player needs, and dodge the dreaded stalemate.',
+      mins: 6,
+      body: [
+        { h: 'Two Mates You Must Know' },
+        { p: 'King and queen versus king, and king and rook versus king, are won for the stronger side every time. But the pieces cannot do it alone — your king must help. The shared idea is to herd the enemy king to the edge of the board and deliver mate there.' },
+        { h: 'Building the Wall' },
+        { p: 'Use your queen or rook to draw an invisible wall the enemy king cannot cross, shrinking the box it lives in. Each move, make the box smaller by a rank or file. Bring your own king up to support the final blow, because the lone piece needs the king’s help to checkmate, not just to check.' },
+        { h: 'King and Queen: Beware Stalemate' },
+        { p: 'The queen is so powerful that the real danger is stalemate — leaving the enemy king with no legal move while it is not in check, which is an instant draw. A safe method is to keep your queen a knight’s-move away from the enemy king as you push it back; this mirrors the king toward a corner without ever taking away its last square too early.' },
+        { h: 'King and Rook: The March to the Edge' },
+        { p: 'The rook is weaker, so both your king and rook must cooperate. Place your king directly opposite the enemy king with one rank between them (the opposition), then check with the rook to force the enemy king back a rank. Repeat until it reaches the edge, then deliver mate along that final rank.' },
+        { h: 'Slow Is Fast' },
+        { p: 'Both mates are easy once you stop rushing. Confine first, bring the king, and only then go for mate. Watch for stalemate with the queen on every move, and you will never let a winning endgame slip into a draw.' }
+      ]
+    },
+    {
+      id: 'lucena-and-philidor',
+      cat: 'Endgame',
+      icon: '♖',
+      title: 'Lucena and Philidor: The Two Rook Endings to Memorize',
+      blurb: 'One position wins, one draws — and they decide countless rook endgames.',
+      mins: 6,
+      body: [
+        { h: 'Why These Two Names Matter' },
+        { p: 'Rook endgames are the most common endgames in chess, and two classic positions sit at their heart. The Lucena position is a winning method for the side with an extra pawn; the Philidor position is a drawing method for the defender. Learn both and you will know which way countless rook endings are heading.' },
+        { h: 'The Lucena Position (A Win)' },
+        { p: 'In the Lucena position the stronger side has a pawn one step from promoting, with their own king sheltering on the queening square in front of the pawn. The only problem is that checks from the enemy rook keep driving the king away. The winning idea is called building a bridge.' },
+        { p: 'You place your rook a few ranks up to create a shield, then walk your king out toward the enemy rook. When the checks come, your rook interposes — the bridge — blocking the check and letting the pawn promote safely. The exact squares take practice, but the idea is simply: use the rook as a screen so the king can escape the checks.' },
+        { h: 'The Philidor Position (A Draw)' },
+        { p: 'The Philidor position is the defender’s lifeline. The key idea is to keep your rook on your third rank (the third rank from your side), preventing the enemy king from advancing in front of its pawn. You hold that rank patiently. The moment the pawn finally advances to that rank, your rook swings to the far end of the board and gives checks from behind.' },
+        { p: 'Because the enemy king has no shelter from these long-distance checks, it can never make progress, and the game is drawn. Rook on the third rank first, then checks from behind — that is the whole defense.' },
+        { h: 'Know Which Side You Are' },
+        { p: 'When a rook endgame with one extra pawn arises, ask whether you are the attacker aiming for Lucena or the defender aiming for Philidor. Steering toward the right one of these two positions is often the difference between a win, a draw, and a heartbreaking loss.' }
+      ]
+    },
+    {
+      id: 'passed-pawns-outside-passer',
+      cat: 'Endgame',
+      icon: '♙',
+      title: 'Passed Pawns and the Power of the Outside Passer',
+      blurb: 'A pawn no enemy pawn can stop becomes a giant as the board empties.',
+      mins: 5,
+      body: [
+        { h: 'What Makes a Pawn Passed' },
+        { p: 'A passed pawn is one with no enemy pawns ahead of it on its own file or on either neighboring file. Nothing can block it the way one pawn blocks another, so its only obstacle is the enemy pieces — and as pieces come off the board, that obstacle shrinks. In the endgame, a passed pawn is a constant threat to promote.' },
+        { h: 'The Outside Passed Pawn' },
+        { p: 'An outside passed pawn is a passer far away from the other pawns, usually on the opposite wing from where the main action and the kings are. Its power is decoy power: the enemy king must rush over to stop it from queening, and while that king is busy on the edge, your king feasts on the pawns it left behind.' },
+        { h: 'Why It So Often Wins' },
+        { p: 'A king can only be in one place. The outside passer pulls the defending king to one side of the board, then your own king mops up on the other side. This far-flung pawn does not even need to promote — it just needs to distract. That is why a single outside passed pawn often decides an otherwise equal endgame.' },
+        { h: 'Creating and Using One' },
+        { p: 'Look for chances to create an outside passer through pawn trades, especially when you have a pawn majority on one wing. Once you have one, push it just far enough to force the enemy king to commit, then turn your own king loose. Respect for the passed pawn is one of the surest signs of a strong endgame player.' }
+      ]
+    },
+    {
+      id: 'activate-your-king-endgame',
+      cat: 'Endgame',
+      icon: '♔',
+      title: 'Activate Your King: Your Hidden Endgame Fighter',
+      blurb: 'The piece you hid all game becomes a powerhouse once the queens come off.',
+      mins: 5,
+      body: [
+        { h: 'A New Job for the King' },
+        { p: 'In the opening and middlegame you tuck your king away behind a wall of pawns, because enemy pieces can hunt it down. But in the endgame, with most pieces traded off, those dangers fade. The king transforms from a fragile target into one of your strongest fighting pieces.' },
+        { h: 'How Strong Is It?' },
+        { p: 'An active endgame king is roughly as valuable as a minor piece in fighting strength. It can attack pawns, shoulder the enemy king aside, escort your own passed pawns up the board, and defend its own weaknesses. Leaving it idle in the corner in an endgame is like playing a piece down.' },
+        { h: 'Centralize and Advance' },
+        { p: 'The guiding rule is simple: bring your king toward the center and the action. A centralized king can reach both wings quickly, supporting pawns and contesting key squares. Often the side whose king reaches the important squares first — winning the race to be active — wins the endgame.' },
+        { h: 'Make the Switch in Time' },
+        { p: 'The hardest part is changing gears. Once you sense the position is simplifying into an endgame, consciously decide that your king should march forward. Players who keep their king cowering out of old habit hand a free advantage to opponents who confidently send their king into battle.' }
+      ]
+    },
+
+    // ---- More strategy ----
+    {
+      id: 'open-files-and-seventh-rank',
+      cat: 'Strategy',
+      icon: '♖',
+      title: 'Open Files and the Mighty Seventh Rank',
+      blurb: 'Rooks crave open roads — and dream of landing on the enemy’s seventh rank.',
+      mins: 5,
+      body: [
+        { h: 'What Is an Open File?' },
+        { p: 'A file is one of the vertical columns on the board, labeled a through h. An open file is a file with no pawns on it at all — not yours and not your opponent’s. A half-open file has no pawns of your own, but still has an enemy pawn somewhere on it.' },
+        { p: 'Open files matter because rooks move in straight lines. A rook stuck behind its own pawns sees nothing. Place that same rook on an open file and it suddenly controls the whole column, ready to charge deep into enemy territory.' },
+        { h: 'Grab the File First' },
+        { p: 'When a file opens up, both players usually want it. The side that puts a rook there first — and backs it up with a second rook behind the first (called doubling rooks) — normally wins control. Whoever owns the open file owns a highway into the opponent’s position.' },
+        { h: 'Why the Seventh Rank Is Gold' },
+        { p: 'A rank is a horizontal row. Your seventh rank is your opponent’s second rank — the row where their pawns started the game. A rook that reaches the seventh rank attacks those pawns from the side, where they cannot defend each other, and traps the enemy king on the back row.' },
+        { p: 'This rook is often called a pig by strong players because it greedily gobbles undefended pawns. Two rooks on the seventh rank can be devastating, raking the enemy’s base and frequently forcing checkmate or winning material.' },
+        { h: 'How to Make It Happen' },
+        { p: 'Aim to trade off the pawns blocking a file so it opens for your rooks. Look for half-open files created when you capture toward the center — they point your rook straight at an enemy pawn you can pressure. Then maneuver a rook to the seventh rank, ideally where it also cuts off the enemy king.' }
+      ]
+    },
+    {
+      id: 'good-knight-bad-bishop',
+      cat: 'Strategy',
+      icon: '♘',
+      title: 'Good Knight, Bad Bishop',
+      blurb: 'A bishop boxed in by its own pawns can be weaker than a well-placed knight.',
+      mins: 6,
+      body: [
+        { h: 'Bishops and Their Color' },
+        { p: 'Each bishop travels only on squares of one color — a light-squared bishop never touches a dark square, and the reverse for the dark-squared bishop. A bishop is happiest on long, clear diagonals where it can reach across the whole board.' },
+        { h: 'What Makes a Bishop Bad' },
+        { p: 'A bad bishop is one whose own pawns sit on the same color squares it travels on. Those pawns block its diagonals, so it can barely move. It ends up defending pawns instead of attacking, peering at its own roadblocks like a prisoner behind bars.' },
+        { p: 'Crucially, a bishop is not bad just because it is hemmed in for a moment. It is bad when your fixed pawn chain permanently locks it in. If you can free those pawns or trade the bishop off, the problem disappears.' },
+        { h: 'Why a Knight Can Be Better' },
+        { p: 'Knights do not care about open diagonals — they hop. In a closed position full of locked pawns, a nimble knight can route to strong squares while the bad bishop sits useless. A good knight versus bad bishop imbalance is one of the most reliable long-term edges in chess.' },
+        { h: 'Using or Avoiding the Imbalance' },
+        { p: 'If you have the good knight, keep the position closed so the bishop stays buried, and steer your knight toward a secure square in the enemy camp. If you are saddled with the bad bishop, try to trade it for an enemy piece, or push the pawns that block it onto the opposite color.' },
+        { p: 'A simple guideline: place your pawns on the opposite color of your own bishop. That keeps your diagonals open for the bishop and leaves the other color squares guarded by the bishop itself.' }
+      ]
+    },
+    {
+      id: 'knight-outposts',
+      cat: 'Strategy',
+      icon: '♞',
+      title: 'Outposts: Where a Knight Becomes a Monster',
+      blurb: 'Plant a knight on a square no enemy pawn can hit, and it dominates the board.',
+      mins: 5,
+      body: [
+        { h: 'What Is an Outpost?' },
+        { p: 'An outpost is a square deep in your opponent’s half that their pawns can no longer attack — because the pawns that would have guarded it are gone or have already moved past. Ideally it is also a square you can defend, usually with one of your own pawns.' },
+        { p: 'Because no enemy pawn can ever challenge it, a piece parked on an outpost cannot be cheaply chased away. The opponent must spend a whole piece to remove it, and trading a piece for your outposted knight often just hands you another lasting advantage.' },
+        { h: 'Why Knights Love Outposts' },
+        { p: 'A knight reaches its full power from a stable, advanced square in the center or near the enemy king. From an outpost on, say, the fifth or sixth rank, a single knight can attack several key squares and pieces at once, cramping the whole enemy position.' },
+        { h: 'How Outposts Are Created' },
+        { p: 'Outposts usually appear next to enemy pawn weaknesses. When an opponent has a backward pawn or an isolated pawn, the square in front of it can become a permanent home for your knight, since no neighboring pawn exists to drive the knight off.' },
+        { h: 'Putting It to Work' },
+        { p: 'Spot the holes in the enemy camp — advanced squares their pawns can never cover — then route a knight there step by step and support it with a pawn. Once your knight is anchored, build your plans around it; it becomes the cornerstone of your attack.' }
+      ]
+    },
+    {
+      id: 'space-advantage',
+      cat: 'Strategy',
+      icon: '♗',
+      title: 'Space Advantage: Room to Maneuver',
+      blurb: 'More space gives your pieces freedom — but overextend and it can crack.',
+      mins: 6,
+      body: [
+        { h: 'What Space Means' },
+        { p: 'Space is simply the amount of the board your pawns control. When your pawns are pushed further up the board than your opponent’s, you control more squares, and your pieces have more safe places to stand and travel through. The opponent gets squeezed into a smaller, more cramped zone.' },
+        { h: 'Why Space Helps' },
+        { p: 'With more room, you can shift pieces from one side of the board to the other faster than your opponent can. A cramped defender often has pieces tripping over each other, unable to coordinate. Space lets you maneuver freely and switch your attack to wherever the enemy is weakest.' },
+        { p: 'A classic plan with a space advantage is to avoid trading pieces. The cramped side wants exchanges to get breathing room, so keeping pieces on the board keeps them uncomfortable.' },
+        { h: 'The Risk of Overextension' },
+        { p: 'Space comes from advanced pawns — but a pawn that moves forward can never move back. Push too far, too fast, and those pawns can become overextended: stretched out and hard to defend. The opponent may strike at the base of your pawn chain and turn your space into a collection of weaknesses.' },
+        { h: 'Balancing the Two' },
+        { p: 'Gain space when you can support it with pieces, and make sure your gains do not leave weak squares behind your pawns. Think of space as territory you must be able to hold — grabbing land you cannot defend simply invites a counterattack.' }
+      ]
+    },
+    {
+      id: 'weak-squares-weak-pawns',
+      cat: 'Strategy',
+      icon: '♟',
+      title: 'Weak Squares and Weak Pawns',
+      blurb: 'Isolated, doubled, and backward pawns become targets — learn to spot them.',
+      mins: 6,
+      body: [
+        { h: 'What Makes a Pawn Weak' },
+        { p: 'A pawn is weak when it cannot be defended by another pawn and must instead be guarded by your pieces. Pawns are best at defending each other in chains; a pawn cut off from that support becomes a long-term target your opponent can pile up against.' },
+        { h: 'The Isolated Pawn' },
+        { p: 'An isolated pawn has no friendly pawns on either of the files next to it. Because no pawn can ever defend it, it must be protected by pieces, and the square directly in front of it makes a perfect outpost for the enemy. Note that an isolated pawn can still be strong in the middlegame if it grants you active, well-placed pieces.' },
+        { h: 'Doubled Pawns' },
+        { p: 'Doubled pawns are two of your own pawns stacked on the same file, one in front of the other. They cannot defend each other, the rear pawn is often hard to advance, and together they control fewer squares than two pawns side by side would. They do, however, open a half-open file for your rook as compensation.' },
+        { h: 'The Backward Pawn' },
+        { p: 'A backward pawn has fallen behind the pawns next to it and can no longer be safely pushed forward, because an enemy pawn or piece guards the square ahead of it. It typically sits on a half-open file, where enemy rooks can stack up and hammer it, while the square in front becomes another enemy outpost.' },
+        { h: 'Targeting and Avoiding Weaknesses' },
+        { p: 'To attack a weak pawn, fix it in place so it cannot advance, then attack it with more pieces than can defend it — and occupy the weak square in front of it with a knight. To avoid weaknesses of your own, keep your pawns connected and think twice before making a pawn move you can never take back.' }
+      ]
+    },
+
+    // ---- Improvement & more fundamentals ----
+    {
+      id: 'beginner-study-plan',
+      cat: 'Improvement',
+      icon: '♘',
+      title: 'A Simple Study Plan That Actually Works',
+      blurb: 'Skip the chaos: a daily routine of tactics, reviews, and a few endgames.',
+      mins: 6,
+      body: [
+        { h: 'Stop Collecting, Start Doing' },
+        { p: 'Most beginners study by watching random videos and feeling busy. Real improvement comes from a small routine you repeat. You do not need fancy tools, just twenty to thirty minutes most days and a willingness to look at your own mistakes.' },
+        { h: 'Tactics Every Day' },
+        { p: 'Spend ten to fifteen minutes a day solving tactics. Tactics are the short forced sequences that win material or deliver checkmate, and they decide the vast majority of games between beginners. Daily reps train your eyes to spot forks, pins, and loose pieces automatically.' },
+        { h: 'Review Your Own Losses' },
+        { p: 'After a loss, play through the game once and find the single move where things went wrong. Ask: did I hang a piece, miss a threat, or have no plan? You learn far more from one honest look at your own game than from an hour of someone else’s.' },
+        { h: 'Learn a Few Endgames' },
+        { p: 'Memorize how to checkmate with king and queen, then king and rook, then how to push a passed pawn to promotion. These come up constantly and turn drawn or lost positions into wins. A handful of endgame skills pays off in real points.' },
+        { h: 'Do Not Memorize Openings' },
+        { p: 'Avoid memorizing long opening lines. Instead learn the principles: control the center, develop your knights and bishops, and castle your king to safety. Understanding why beats memorizing what, because opponents rarely play the moves in the book anyway.' }
+      ]
+    },
+    {
+      id: 'clock-management-basics',
+      cat: 'Improvement',
+      icon: '♘',
+      title: 'Beat the Clock, Not Just the Board',
+      blurb: 'Avoid time trouble by knowing when to think hard and when to just move.',
+      mins: 5,
+      body: [
+        { h: 'Time Is a Resource' },
+        { p: 'Your clock is just as real as your pieces. Many beginners lose winning positions simply because they run out of time and start blundering in a panic. Treating your time as something to spend wisely is one of the fastest ways to gain rating.' },
+        { h: 'Move Quickly When It Is Easy' },
+        { p: 'In familiar opening positions, obvious recaptures, and forced moves where you have only one sensible reply, play fast. There is no prize for thinking three minutes about a move you were always going to make. Bank that time for harder moments.' },
+        { h: 'Think Hard at Turning Points' },
+        { p: 'Spend your time where the position changes character: before a capture or trade, when your opponent makes a threat, or when you must choose a plan. These critical moments deserve a real think, because a single mistake here can decide the game.' },
+        { h: 'Watch for Time Trouble' },
+        { p: 'Glance at your clock regularly, not just your opponent’s. A good habit is to check after every few moves. If you fall behind on time, deliberately speed up on quiet moves so you keep a cushion for the sharp positions still to come.' },
+        { h: 'Always Run a Quick Check' },
+        { p: 'Even when moving fast, take one second to ask whether your move leaves a piece hanging or walks into a check. A two-second safety glance prevents the kind of one-move disaster that no amount of clock time can undo.' }
+      ]
+    },
+    {
+      id: 'learn-from-losses',
+      cat: 'Improvement',
+      icon: '♘',
+      title: 'Turn Every Loss Into a Lesson',
+      blurb: 'Your defeats are free coaching once you learn to read them.',
+      mins: 6,
+      body: [
+        { h: 'Losses Are Data' },
+        { p: 'A loss stings, but it is also the clearest signal of what you need to fix. Strong players are not people who never lose; they are people who learn quickly from losing. Treat each defeat as a message about your weakest habit.' },
+        { h: 'Find the Blunder' },
+        { p: 'Replay the game and look for the moment things swung against you, the move where you went from fine to lost. Usually it is one specific mistake: a hung piece, a missed capture, or a threat you did not see. Name it out loud.' },
+        { h: 'Ask Why You Missed It' },
+        { p: 'Once you find the blunder, dig into the cause. Were you moving too fast? Did you only look at your own plan and ignore your opponent’s threat? Understanding the reason behind the mistake is what stops you from repeating it.' },
+        { h: 'Spot Your Patterns' },
+        { p: 'Review several losses together and you will notice the same mistakes appearing again and again, maybe you always hang back-rank pieces, or rush in the opening. These recurring patterns are your real opponents. Fixing one pattern can lift many games at once.' },
+        { h: 'Keep It Short and Honest' },
+        { p: 'You do not need a deep engine analysis of every move. A five-minute, honest look that finds your one big mistake is more useful than a long study you never finish. Consistency beats depth when it comes to reviewing your games.' }
+      ]
+    },
+    {
+      id: 'reading-chess-notation',
+      cat: 'Fundamentals',
+      icon: '♘',
+      title: 'How to Read and Write Chess Moves',
+      blurb: 'Crack the code of algebraic notation and follow any game ever played.',
+      mins: 7,
+      body: [
+        { h: 'The Board Is a Grid' },
+        { p: 'Every square has a name made of a letter and a number. The columns, called files, are lettered a through h from left to right from White’s side. The rows, called ranks, are numbered 1 through 8 starting from White’s side. So the square e4 means file e, rank 4.' },
+        { h: 'Naming the Pieces' },
+        { p: 'Each piece has a capital letter: K for king, Q for queen, R for rook, B for bishop, and N for knight (N is used so it is not confused with the king). Pawns have no letter at all. A move is written as the piece letter plus the destination square, so Nf3 means a knight moves to f3, and e4 means a pawn moves to e4.' },
+        { h: 'Captures, Check, and Mate' },
+        { p: 'An x marks a capture: Bxe5 means a bishop captures whatever sits on e5. When a pawn captures, you write its starting file first, like exd5. A plus sign after a move means check, as in Qh5+. A hash mark means checkmate, the end of the game, as in Qxf7#.' },
+        { h: 'Castling and Promotion' },
+        { p: 'Castling has its own symbols: O-O means castling kingside (the short side), and O-O-O means castling queenside (the long side), written with the capital letter O joined by hyphens. When a pawn reaches the far end and promotes, you write the new piece with an equals sign, such as e8=Q for a pawn reaching e8 and becoming a queen.' },
+        { h: 'A Few Extra Marks' },
+        { p: 'En passant, the special pawn capture, is sometimes noted with e.p. after the move, as in exd6 e.p. If two identical pieces could reach the same square, you add the starting file or rank to clarify, like Nbd2 or R1e2. With these symbols you can read or record any game move by move.' }
+      ]
+    },
+    {
+      id: 'three-phases-of-the-game',
+      cat: 'Fundamentals',
+      icon: '♘',
+      title: 'The Three Phases of a Chess Game',
+      blurb: 'Opening, middlegame, endgame: know your job in each stage.',
+      mins: 6,
+      body: [
+        { h: 'Every Game Has Three Acts' },
+        { p: 'A chess game naturally flows through three phases: the opening, the middlegame, and the endgame. Each has a different goal, and knowing what you are supposed to be doing in each one keeps you from drifting without a plan.' },
+        { h: 'The Opening: Get Ready' },
+        { p: 'The opening is the first handful of moves, and your job is setup. Fight for the center with your pawns, develop your knights and bishops off the back rank, and castle to tuck your king into safety. Think of it as bringing your whole team onto the field before the real fight.' },
+        { h: 'The Middlegame: The Real Fight' },
+        { p: 'Once your pieces are developed, the middlegame begins, and this is where plans and tactics collide. You look for ways to attack weak points, win material with tactics like forks and pins, or build pressure against the enemy king. Always check your opponent’s threats before pushing your own.' },
+        { h: 'The Endgame: Fewer Pieces, Higher Stakes' },
+        { p: 'When most pieces have been traded off, you reach the endgame. Now the king becomes a fighting piece and should march toward the center, and passed pawns racing to promote often decide the result. Precise technique matters more than flashy attacks here.' },
+        { h: 'Phases Blend Together' },
+        { p: 'These phases do not have hard borders; one melts into the next. The lesson is to keep asking what the position needs right now, develop and get safe early, fight with purpose in the middle, and convert carefully at the end.' }
       ]
     }
   ];

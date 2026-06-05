@@ -69,7 +69,11 @@
     else localStorage.removeItem(SESSION_KEY);
   }
 
-  const API_TIMEOUT_MS = 10000; // abort hung requests so offline fallback can kick in
+  // Abort hung requests so the offline fallback can kick in -- but give the
+  // backend room to answer a cold start (e.g. Railway free-tier wake-up can take
+  // 10-20s). Too short here is what wrongly dumped freshly-signed-up users into a
+  // tokenless offline account, which then breaks friends + online play.
+  const API_TIMEOUT_MS = 20000;
   async function api(path, options = {}) {
     const session = getSession();
     const headers = Object.assign({}, options.headers || {});
@@ -107,14 +111,17 @@
   // connectivity/5xx failure (so callers can fall back to offline mode).
   async function serverAuth(path, body) {
     let lastErr = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    // Up to 3 attempts with growing backoff so a cold-starting backend doesn't
+    // trip the offline fallback on the very first signup/login.
+    const backoffs = [800, 2000];
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         return await api(path, { method: 'POST', body: JSON.stringify(body) });
       } catch (e) {
         lastErr = e;
         const transient = !e.status || e.status >= 500;
         if (!transient) throw e;                 // definitive rejection -- don't retry
-        if (attempt === 0) await new Promise(r => setTimeout(r, 600));
+        if (attempt < backoffs.length) await new Promise(r => setTimeout(r, backoffs[attempt]));
       }
     }
     lastErr = lastErr || new Error('Server unreachable');

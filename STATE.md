@@ -1,6 +1,6 @@
 # ChessTrophies — Project state (snapshot)
 
-**Last updated:** 2026-06-04 — removed the Daily puzzle mode (practice puzzles stay); added engine-backed game analysis/review (eval bar + eval graph + blunder detection with best-move hints; `npm run test:review` guards it in CI) and, earlier, soft email verification on signup (non-blocking nudge + verify link/code + resend; `npm run test:verify`). Earlier the same day: big push since 06-01: game clocks (now simplified to one timed + untimed), rematch/disconnect-reconnect UX, Redis-backed multi-instance scaling for online play, password reset + change password, progress sync to the server, server-backed friends with friend-request consent + block + in-game opponent avatars, AdMob banner scaffold, Android release signing, computer AI moved to a Web Worker, and a rebuilt academy curriculum. Client split into focused modules (`ct-ai.js`, `ct-auth.js`, `ct-duo.js`, `trophy-data.js`, `ct-ads.js`, `ct-ai-worker.js`).
+**Last updated:** 2026-06-04 — removed the **entire Puzzles tab** (puzzles were inaccurate; files + CI step deleted, nav/UI cleaned up); expanded the **Learn library to 43 articles** (25 new, all fact-checked — fixed 2 errors in existing ones: opposition odd→even, luft = rook's pawn); fixed the **friend-add "no user on this device" bug** (longer auth timeout so Railway cold starts don't strand users in a tokenless offline session; honest offline/guest messaging instead of a useless local lookup). Earlier: removed the Daily puzzle mode; added engine-backed game analysis/review (eval bar + eval graph + blunder detection with best-move hints; `npm run test:review` guards it in CI) and, earlier, soft email verification on signup (non-blocking nudge + verify link/code + resend; `npm run test:verify`). Earlier the same day: big push since 06-01: game clocks (now simplified to one timed + untimed), rematch/disconnect-reconnect UX, Redis-backed multi-instance scaling for online play, password reset + change password, progress sync to the server, server-backed friends with friend-request consent + block + in-game opponent avatars, AdMob banner scaffold, Android release signing, computer AI moved to a Web Worker, and a rebuilt academy curriculum. Client split into focused modules (`ct-ai.js`, `ct-auth.js`, `ct-duo.js`, `trophy-data.js`, `ct-ads.js`, `ct-ai-worker.js`).
 
 This file is the canonical "where are we, what's next" document. Read it first when you come back.
 
@@ -107,9 +107,8 @@ Active working copy: `C:\Users\RickD\AndroidStudioProjects\ChessTrophies\` (GitH
 | `ct-net.js` | Socket.IO client — online matchmaking, move sync, clocks, rematch/reconnect, 2v2 invites |
 | `config.js` | Sets `CT_SERVER_URL` to the Railway backend in the native/Capacitor shell; web stays same-origin |
 | `chess960.js` | Fischer Random Chess mode |
-| `puzzles.js` / `puzzles-data.js` | Practice puzzles (Mixed/Easy/Medium/Hard) + data |
 | `review.js` | Game review / analysis UI — engine-backed eval bar, eval graph, accuracy %, blunder + best-move hints |
-| `learn-library.js` | Strategy Library content for the Learn section |
+| `learn-library.js` | Strategy Library for the Learn section — 43 fact-checked articles across 7 categories (Opening, Fundamentals, Tactics, Strategy, Endgame, Mindset, Improvement) |
 | `trophy-extras.js` | Additional trophy/achievement definitions |
 | `sounds.js` | Synthesized sound effects (Web Audio) |
 | `stockfish-ai.js` | Stub (Stockfish disabled — keeps app MIT-clean) |
@@ -140,7 +139,7 @@ Active working copy: `C:\Users\RickD\AndroidStudioProjects\ChessTrophies\` (GitH
 | `www/` | Gitignored Capacitor web bundle — regenerate with `bash scripts/refresh-www.sh` |
 | `scripts/` | Build helpers (`refresh-www.sh`) |
 | `docs/` | `ANDROID_BUILD.md` runbook and other docs |
-| `.github/workflows/` | CI — `smoke-2v2.yml` (4-client online 2v2 smoke test) + `verify-content.yml` (lesson/puzzle content checks) |
+| `.github/workflows/` | CI — `smoke-2v2.yml` (4-client online 2v2 smoke test) + `verify-content.yml` (lesson content checks) |
 | `capacitor.config.json` / `railway.json` | Capacitor + Railway deploy config |
 
 ---
