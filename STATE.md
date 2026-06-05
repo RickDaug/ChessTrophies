@@ -1,6 +1,6 @@
 # ChessTrophies — Project state (snapshot)
 
-**Last updated:** 2026-06-01 — online ranked play (1v1 + 2v2) live & multi-device verified; fixed a JWT-drop bug that was silently breaking all online play; 2v2 Practice-vs-AI mode removed.
+**Last updated:** 2026-06-04 — big push since 06-01: game clocks (now simplified to one timed + untimed), rematch/disconnect-reconnect UX, Redis-backed multi-instance scaling for online play, password reset + change password, progress sync to the server, server-backed friends with friend-request consent + block + in-game opponent avatars, AdMob banner scaffold, Android release signing, computer AI moved to a Web Worker, and a rebuilt academy curriculum. Client split into focused modules (`ct-ai.js`, `ct-auth.js`, `ct-duo.js`, `trophy-data.js`, `ct-ads.js`, `ct-ai-worker.js`).
 
 This file is the canonical "where are we, what's next" document. Read it first when you come back.
 
@@ -13,12 +13,17 @@ This file is the canonical "where are we, what's next" document. Read it first w
 | Feature | Status |
 |---|---|
 | Email/password auth | ✓ Done — local + server endpoints |
+| Password reset + change password | ✓ Done — `/api/auth` reset flow with email delivery (`server/email.js`) + in-app change password |
+| Cross-device progress sync | ✓ Done — `/api/progress` deep-merges puzzle/lesson state + max counters so progress follows the account, not the browser |
 | Player profiles with stats | ✓ Done |
 | Pass-and-play PvP (same device) | ✓ Done |
 | Skill-based matchmaking (±100 ELO) | ✓ Done |
 | Online ranked 1v1 (real opponents) | ✓ Done — wired to Railway server via Socket.IO (Phase 2). Required the 2026-06-01 JWT-drop fix to actually connect (see Verification note) |
 | Online ranked 2v2 team chess | ✓ Done — solo queue or friend duo, server pairs four players into two teams, 3-min queue, separate 2v2 ELO, server-authoritative moves. **Multi-device (4-client) end-to-end verified 2026-06-01** (see Verification note below) |
-| Practice vs Computer (Easy/Med/Hard) | ✓ Done — built-in minimax with PSTs, quiescence, iterative deepening (≈1500-1700 ELO) |
+| Game clocks (time controls) | ✓ Done — server-authoritative clocks for online 1v1 + 2v2. **Simplified 2026-06-04** from 6 options to two: one standard timed control (10+0) + untimed, so a small queue isn't fragmented across buckets |
+| Rematch + disconnect/reconnect (1v1) | ✓ Done — rematch offers after a finished game, disconnect-grace window + reconnect into a live game |
+| Multi-instance scaling (Redis) | ✓ Done — Socket.IO Redis adapter + shared game/queue state, gated on `REDIS_URL`. 1v1, 2v2, duo invites, reconnect & rematch all work across server instances |
+| Practice vs Computer (Easy/Med/Hard) | ✓ Done — built-in minimax with PSTs, quiescence, iterative deepening (≈1500-1700 ELO); search runs in a Web Worker so the UI never freezes |
 | 115 verified chess lessons | ✓ Done — every solution verified by python-chess |
 | Lesson teaching + Watch Example demo | ✓ Done |
 | Avatar rank progression (Pawn → King) | ✓ Done |
@@ -31,11 +36,14 @@ This file is the canonical "where are we, what's next" document. Read it first w
 | 10 embarrassing fail trophies | ✓ Done |
 | Recruiter trophy (invite friends) | ✓ Done |
 | Tiered rankings (Top 100/500/5000/All-time, 4 metrics) | ✓ Done |
-| Friends list + add by username | ✓ Done |
+| Friends list + add by username | ✓ Done — server-backed with username autocomplete/search, friend-request consent (no silent adds), and block-player |
+| In-game opponent avatars | ✓ Done — opponent avatar/rank shown during online games |
 | Friendly (non-ranked) challenge mode | ✓ Done |
 | Private room codes | ✓ Done |
 | Invite & Share modal with link + native share | ✓ Done |
 | Ads framework (Banner + Medium Rectangle) | ✓ Placeholders ready for AdSense/AdMob |
+| AdMob banner (native Android) | ✓ Scaffolded — `ct-ads.js` wires the Capacitor AdMob banner using Google test ad unit IDs (swap for real IDs before launch) |
+| Android release signing | ✓ Done — release builds sign from a gitignored `keystore.properties` (see `docs/ANDROID_BUILD.md`) |
 | Premium tier (₪ flips `isPremium`) | ✓ Done (demo toggle, ready for Stripe) |
 | Sound effects via Web Audio | ✓ Done — move, capture, check, castle, promotion, game over, trophy |
 | PWA (installable) | ✓ Done — manifest.json + service worker |
@@ -69,8 +77,7 @@ The earlier "successful online 2v2 match" gap was closed by running the **real b
 | Item | Where it goes | Effort |
 |---|---|---|
 | Stripe checkout for Premium | `server/billing.js` + replace `setPremium(true)` | 2-4 hours |
-| Real AdSense / AdMob | Replace `renderAdSlot()` HTML inside | 1 hour after approval |
-| Email password reset | New `/api/auth/forgot` route + Resend integration | 4-8 hours |
+| Real AdSense / AdMob ad units | Swap Google test IDs in `ct-ads.js` + `renderAdSlot()` for real units | 1 hour after approval |
 | Game analysis (eval bar + blunder detection) | Built-in engine already supports it; needs UI | 1 day |
 | Daily puzzle | Pull from any free puzzle DB (lichess CSV) | 4-8 hours |
 | Tournaments | Schema in server already supports games — needs UI + matchmaking | 2-3 days |
@@ -90,9 +97,15 @@ Active working copy: `C:\Users\RickD\AndroidStudioProjects\ChessTrophies\` (GitH
 | File | Purpose |
 |---|---|
 | `index.html` | Main app UI, all screens & modals |
-| `app.js` | Auth, game, computer AI, 2v2 (online-only), trophies, rankings, ads, premium |
+| `app.js` | Game orchestration, trophies, rankings, premium, time-control picker (now 2 options) |
+| `ct-auth.js` | Extracted storage/auth/network primitives (session, JWT, progress sync) |
+| `ct-ai.js` | Computer-opponent engine (minimax/PST/quiescence), extracted from app.js |
+| `ct-ai-worker.js` | Web Worker that runs the AI search off the main thread (no UI freeze) |
+| `ct-duo.js` | 2v2 "Duo" client (online-only) extracted from app.js |
+| `ct-ads.js` | AdMob banner wiring for the native Android shell (Google test IDs) |
+| `trophy-data.js` | Trophy/achievement catalog data (extracted; dead ACHIEVEMENTS dropped) |
 | `academy.js` | Lessons, roadmap, themes, settings |
-| `ct-net.js` | Socket.IO client — online matchmaking, move sync, 2v2 invites |
+| `ct-net.js` | Socket.IO client — online matchmaking, move sync, clocks, rematch/reconnect, 2v2 invites |
 | `config.js` | Sets `CT_SERVER_URL` to the Railway backend in the native/Capacitor shell; web stays same-origin |
 | `chess960.js` | Fischer Random Chess mode |
 | `puzzles.js` / `puzzles-data.js` | Daily/practice puzzles + data |
@@ -112,8 +125,12 @@ Active working copy: `C:\Users\RickD\AndroidStudioProjects\ChessTrophies\` (GitH
 |---|---|
 | `server/server.js` | Express app + WebSocket bootstrap |
 | `server/db.js` | SQLite schema + helpers |
-| `server/auth.js` | JWT + signup/login |
-| `server/game.js` | Matchmaking + real-time games (1v1 + 2v2 teams) |
+| `server/auth.js` | JWT + signup/login + password reset/change |
+| `server/email.js` | Transactional email delivery (password reset) |
+| `server/game.js` | Matchmaking + real-time games (1v1 + 2v2 teams) + clocks; single-instance path |
+| `server/scale-store.js` | Redis-backed shared state for 1v1 matchmaking/games across instances (gated on `REDIS_URL`) |
+| `server/scale-team.js` | Redis-backed shared state for 2v2 + duo invites across instances |
+| `server/guest-names.js` | Random guest-name generator |
 | `server/package.json` / `server/.env.example` / `server/README.md` | Deps, env template, API docs |
 
 ### Other top-level folders
@@ -124,6 +141,7 @@ Active working copy: `C:\Users\RickD\AndroidStudioProjects\ChessTrophies\` (GitH
 | `www/` | Gitignored Capacitor web bundle — regenerate with `bash scripts/refresh-www.sh` |
 | `scripts/` | Build helpers (`refresh-www.sh`) |
 | `docs/` | `ANDROID_BUILD.md` runbook and other docs |
+| `.github/workflows/` | CI — `smoke-2v2.yml` (4-client online 2v2 smoke test) + `verify-content.yml` (lesson/puzzle content checks) |
 | `capacitor.config.json` / `railway.json` | Capacitor + Railway deploy config |
 
 ---
@@ -182,8 +200,9 @@ Just say: "Read STATE.md and let's continue with X" — where X is whatever phas
 - **localStorage is per-origin** — accounts created at `file://` won't appear at `https://yoursite.com`. Users start fresh when you migrate to the real domain. (Acceptable for soft launch since you have no real users yet.)
 - **Chess.js CDN dependency** — if cdnjs is ever down or you go fully offline, the app shows a fallback error. Self-host `chess.js` from your own domain if you want zero CDN reliance.
 - **No email verification on signup** — anyone can sign up with `fake@email.com`. Worth adding when revenue is involved.
-- **No password reset** — if a user forgets their password before backend deployment, they're stuck. Top priority once you have users.
-- **Trophy state is per-browser** until backend is wired — clearing browser data wipes a player's progress. Mention this in your launch FAQ.
+- **~~No password reset~~** — DONE (06-02): reset + change-password flow with email delivery (`server/email.js`). Make sure the email provider/env is configured in production.
+- **Trophy/puzzle progress now syncs server-side** for logged-in accounts via `/api/progress`. Guests/offline still keep progress per-browser, so clearing browser data wipes a guest's progress — mention in the launch FAQ.
+- **Redis is optional but recommended at scale** — online play falls back to single-instance in-memory state when `REDIS_URL` is unset. Set it in production before running more than one server instance, or cross-instance matches/reconnects won't share state.
 
 ---
 
