@@ -40,6 +40,9 @@ function emitGame(io, g, event, data) {
 // One timed control + unlimited (mirrors game.js / app.js) to avoid splitting the queue.
 const TC_ALLOWLIST = new Set(['10+0', 'unlimited']);
 function normalizeTc(tc) { return (typeof tc === 'string' && TC_ALLOWLIST.has(tc)) ? tc : 'unlimited'; }
+// Server decides the canonical 1v1 mode; only 'casual' is unrated, anything else
+// (incl. unknown/garbage) folds to 'ranked' so a client can't force unrated.
+function normalizeMode(m) { return m === 'casual' ? 'casual' : 'ranked'; }
 function parseTc(tc) {
   const key = normalizeTc(tc);
   if (key === 'unlimited') return null;
@@ -129,7 +132,7 @@ export async function onAuth(io, R, socket, uid) {
 export async function joinQueue(io, R, uid, { mode, tc }) {
   const user = getUserById(uid);
   if (!user) return;
-  const entry = { uid, elo: user.elo, joinedAt: Date.now(), mode: typeof mode === 'string' ? mode : 'ranked', tc: normalizeTc(tc) };
+  const entry = { uid, elo: user.elo, joinedAt: Date.now(), mode: normalizeMode(mode), tc: normalizeTc(tc) };
   await R.hset(K.queue, uid, JSON.stringify(entry));
   await tryPair(io, R);
 }
@@ -163,7 +166,7 @@ async function startGame(io, R, whiteEntry, blackEntry) {
   const wUser = getUserById(whiteEntry.uid), bUser = getUserById(blackEntry.uid);
   if (!wUser || !bUser) return;
   const g = {
-    id, white: whiteEntry.uid, black: blackEntry.uid, mode: whiteEntry.mode || 'ranked',
+    id, white: whiteEntry.uid, black: blackEntry.uid, mode: normalizeMode(whiteEntry.mode),
     tc, clock, pgn: '', started: Date.now(),
     whiteEloBefore: wUser.elo, blackEloBefore: bUser.elo,
     ended: false, disconnectedUid: null, graceUntil: null,

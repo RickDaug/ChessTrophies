@@ -43,6 +43,11 @@ function parseCorsOrigins(value) {
 }
 
 let corsOrigins = parseCorsOrigins(process.env.CORS_ORIGIN);
+// Loud warning if CORS is wide open (or unset, which defaults to '*') while
+// running in production — a wildcard origin lets any site call the API.
+if (corsOrigins === '*' && process.env.NODE_ENV === 'production') {
+  console.warn('[cors] WARNING: CORS_ORIGIN is unset or "*" in production — this allows requests from ANY origin. Set CORS_ORIGIN to your real domain(s).');
+}
 // Unless CORS is wide open ('*'), always union-in the production web origins so
 // the hosted client works regardless of how CORS_ORIGIN is set in the env.
 if (corsOrigins !== '*') {
@@ -211,6 +216,14 @@ app.post('/api/profile/avatar', requireAuth, (req, res, next) => {
     const stock = typeof body.avatarStock === 'string' ? body.avatarStock.slice(0, 32) : null;
     let dataUrl = typeof body.avatarDataUrl === 'string' ? body.avatarDataUrl : null;
     if (dataUrl && dataUrl.length > 200000) return res.status(413).json({ error: 'Avatar image too large.' });
+    // This value is echoed to opponents in-game, so only accept genuine base64
+    // image data URLs (no SVG/HTML/javascript: payloads). Empty string is allowed
+    // (clears the custom avatar); non-empty must match the strict prefix + charset.
+    if (dataUrl) {
+      if (!/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+=*$/.test(dataUrl)) {
+        return res.status(400).json({ error: 'Invalid avatar image format.' });
+      }
+    }
     if (stock !== null) db.prepare('UPDATE users SET avatar_stock = ? WHERE id = ?').run(stock, req.userId);
     if (dataUrl !== null) db.prepare('UPDATE users SET avatar_data_url = ? WHERE id = ?').run(dataUrl, req.userId);
     res.json({ ok: true });
@@ -465,4 +478,43 @@ httpServer.listen(PORT, () => {
   } else {
     console.warn('[email] RESEND_API_KEY is NOT set — signup verification and password-reset emails will NOT be sent. Set RESEND_API_KEY, RESEND_FROM, and APP_URL to enable email.');
   }
+});
+
+// --- Graceful shutdown + global error handlers ---------------------------------
+// Close the WebSocket + HTTP server (stop accepting new work), then the DB and
+// Redis, then exit so the process manager can restart us cleanly. Guarded so a
+// second signal (or a signal mid-shutdown) doesn't double-run the teardown.
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] received ${signal}, closing server...`);
+  // Hard cap: if close() hangs (lingering sockets), force-exit anyway.
+  const forceTimer = setTimeout(() => {
+    console.error('[shutdown] graceful close timed out, forcing exit');
+    process.exit(1);
+  }, 10000);
+  if (typeof forceTimer.unref === 'function') forceTimer.unref();
+  io.close(() => {
+    httpServer.close(() => {
+      try { if (redisClient) redisClient.disconnect(); } catch (e) { console.error('[shutdown] redis', e && e.message); }
+      try { if (db && typeof db.close === 'function') db.close(); } catch (e) { console.error('[shutdown] db', e && e.message); }
+      clearTimeout(forceTimer);
+      console.log('[shutdown] closed cleanly');
+      process.exit(0);
+    });
+  });
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Never silently swallow. Log unhandled rejections (keep running — likely a
+// recoverable async bug); log uncaught exceptions and exit so the process
+// manager restarts us in a known-good state.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+  process.exit(1);
 });

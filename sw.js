@@ -1,5 +1,5 @@
 /* ChessTrophies Service Worker — offline-first PWA shell. */
-const CACHE = 'chesstrophies-v18';
+const CACHE = 'chesstrophies-v19';
 const ASSETS = [
   './',
   './index.html',
@@ -8,8 +8,7 @@ const ASSETS = [
   './sounds.js',
   './manifest.json',
   './icon.svg',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap',
-  'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js'
+  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'
 ];
 
 self.addEventListener('install', (event) => {
@@ -26,6 +25,11 @@ self.addEventListener('activate', (event) => {
     )
   );
   self.clients.claim();
+});
+
+// Let the page activate a waiting SW on demand (the update prompt posts this).
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 // Only these third-party hosts/extensions are safe to cache. Everything dynamic

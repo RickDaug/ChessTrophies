@@ -175,12 +175,41 @@ export function verifyEmailCode(userId, code) {
   return { userId };
 }
 
+// Resend throttle: without this, a signed-in user could spam resend to keep
+// minting fresh codes (each reset to attempts=0), defeating the 5-try cap on
+// verifyEmailCode and turning it into an unlimited brute-force surface.
+// State is kept in-memory (userId -> { lastSentAt, windowStart, count }); we
+// don't own db.js, and a process restart only clears the cooldown for a soft
+// (non-blocking) verification flow, which is acceptable.
+const RESEND_MIN_INTERVAL_MS = 60 * 1000;     // >= 60s between resends
+const RESEND_WINDOW_MS = 60 * 60 * 1000;      // rolling 1-hour window
+const RESEND_MAX_PER_WINDOW = 5;              // cap resends per hour
+const resendThrottle = new Map();
+
 // Re-issue a verification code for an authenticated user who hasn't confirmed yet.
 // Returns { alreadyVerified: true } when there's nothing to do, else { email, code }.
+// Throttled per-user (min interval + hourly cap); throws a friendly Error if hit.
 export function resendEmailVerification(userId) {
   const u = getUserById(userId);
   if (!u) throw new Error('User not found.');
   if (u.email_verified) return { alreadyVerified: true };
+
+  const now = Date.now();
+  let t = resendThrottle.get(userId);
+  if (!t || now - t.windowStart >= RESEND_WINDOW_MS) {
+    t = { lastSentAt: 0, windowStart: now, count: 0 };
+  }
+  if (now - t.lastSentAt < RESEND_MIN_INTERVAL_MS) {
+    const wait = Math.ceil((RESEND_MIN_INTERVAL_MS - (now - t.lastSentAt)) / 1000);
+    throw new Error(`Please wait ${wait}s before requesting another code.`);
+  }
+  if (t.count >= RESEND_MAX_PER_WINDOW) {
+    throw new Error('Too many resend requests. Please try again later.');
+  }
+  t.lastSentAt = now;
+  t.count += 1;
+  resendThrottle.set(userId, t);
+
   return issueEmailVerification(u.id, u.email);
 }
 

@@ -26,7 +26,7 @@ This file is the canonical "where are we, what's next" document. Read it first w
 | Multi-instance scaling (Redis) | ✓ Done — Socket.IO Redis adapter + shared game/queue state, gated on `REDIS_URL`. 1v1, 2v2, duo invites, reconnect & rematch all work across server instances |
 | Practice vs Computer (Easy/Med/Hard) | ✓ Done — built-in minimax with PSTs, quiescence, iterative deepening (≈1500-1700 ELO); search runs in a Web Worker so the UI never freezes |
 | Game analysis / review | ✓ Done — post-game **Review** opens an engine-backed analysis: per-move accuracy %, Best→Blunder classification with "best: …" suggestions, an **eval bar** + per-move **eval graph**, navigable board. Reuses the built-in engine via new `CT_AI.evaluate`/`bestMove`; runs async with a progress %. Tested by `npm run test:review` (in CI) |
-| 115 verified chess lessons | ✓ Done — every solution verified by python-chess |
+| 60 verified chess lessons | ✓ Done — every solution verified by python-chess |
 | Lesson teaching + Watch Example demo | ✓ Done |
 | Avatar rank progression (Pawn → King) | ✓ Done |
 | 8 board themes + 5 piece themes | ✓ Done |

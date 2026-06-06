@@ -41,6 +41,14 @@ fi
 cp "${FILES[@]}" www/
 echo "    copied ${#FILES[@]} files into www/"
 
+# Vendor fallback assets live in a subdir and are referenced by index.html as
+# vendor/... (e.g. the local socket.io fallback used when the CDN is blocked).
+if [ -d vendor ]; then
+  mkdir -p www/vendor
+  cp vendor/* www/vendor/
+  echo "    copied vendor/ fallback assets into www/vendor/"
+fi
+
 # --- Patch 1: CSP connect-src must include the Vercel origin (idempotent) ---
 if grep -q 'playchesstrophies.com' www/index.html; then
   echo "==> CSP: Vercel origin already present, skipping"

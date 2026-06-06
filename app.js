@@ -760,7 +760,9 @@
         $('#signup-username').value,
         $('#signup-password').value,
         $('#signup-region').value,
-          $('#signup-skill') ? parseInt($('#signup-skill').value, 10) : 1200
+          // Default to a beginner rating (800) when no level is picked, so brand-new
+          // players aren't over-seeded at "Intermediate".
+          (function () { const v = $('#signup-skill') ? parseInt($('#signup-skill').value, 10) : NaN; return Number.isFinite(v) ? v : 800; })()
       );
       setSession(Object.assign({}, getSession(), { userId: u.id }));
       state.user = u;
@@ -776,8 +778,9 @@
 
   // Password reset (forgot password) ----------------------------------
   // Two-step flow inside one modal: (1) request a reset code by email,
-  // (2) enter the code + a new password. Email isn't wired up in this build,
-  // so the server returns the code as `devToken` which we prefill for the user.
+  // (2) enter the code + a new password. When the server can send email it does;
+  // when it's configured to expose the token (EXPOSE_RESET_TOKEN dev path) it
+  // returns `devToken`, which we prefill so the flow can still be completed.
   function showForgotStep(step) {
     $('#forgot-step-1').style.display = step === 1 ? '' : 'none';
     $('#forgot-step-2').style.display = step === 2 ? '' : 'none';
@@ -824,10 +827,15 @@
         const r = await api('/api/auth/forgot', { method: 'POST', body: JSON.stringify({ email }) });
         // Always show a neutral message so we don't reveal whether the email exists.
         $('#forgot-status').textContent = 'If that email exists, a reset code has been issued.';
+        const hint = $('#forgot-code-hint');
         if (r && r.devToken) {
-          // Dev convenience: prefill the code field with the returned token.
+          // Dev/self-host convenience: when the server is configured to expose the
+          // reset token (EXPOSE_RESET_TOKEN) it returns it so we can prefill the field.
           $('#reset-code').value = r.devToken;
-          $('#reset-note').textContent = 'Reset code prefilled for you (email isn’t set up in this build).';
+          $('#reset-note').textContent = 'Reset code prefilled for you.';
+          if (hint) hint.textContent = 'Your reset code is prefilled below. (Email delivery isn’t enabled on this server.)';
+        } else if (hint) {
+          hint.textContent = 'Check your email for the reset code, then paste it below.';
         }
         showForgotStep(2);
       } catch (err) {
@@ -909,11 +917,12 @@
         await refreshVerifiedStatus();
         return;
       }
-      // Dev convenience: when email isn't wired up, the server returns the code so
-      // the flow can still be completed via the "Enter code" modal.
+      // Dev/self-host convenience: when the server is configured to expose the code
+      // (email delivery not enabled), it returns it so the flow can still be
+      // completed via the "Enter code" modal.
       if (r && r.devVerifyCode) {
         const codeInput = $('#verify-code'); if (codeInput) codeInput.value = r.devVerifyCode;
-        if (noteEl) noteEl.textContent = 'Code prefilled for you (email isn’t set up in this build).';
+        if (noteEl) noteEl.textContent = 'Code prefilled for you. (Email delivery isn’t enabled on this server.)';
         toast('Verification code issued.', true);
       } else if (r && r.sent) {
         toast('Verification email sent — check your inbox for your 6-digit code.', true);
@@ -993,32 +1002,36 @@
     };
   }
 
-  const guestBtn = $('#btn-continue-guest');
-  if (guestBtn) {
-    guestBtn.addEventListener('click', async () => {
-      guestBtn.disabled = true;
+  // Start a guest session and jump into the app. Shared by the prominent "Play now"
+  // button at the top of the auth card and the "Continue as guest" button below.
+  async function startGuestSession(btn) {
+    if (btn) btn.disabled = true;
+    try {
+      let username = null;
       try {
-        let username = null;
-        try {
-          const r = await api('/api/guest', { method: 'POST' });
-          username = r && r.username;
-        } catch (e) { username = null; }
-        if (!username) username = 'Guest' + (Math.floor(Math.random() * 9999) + 1);
-        const gu = makeGuestUser(username);
-        state.user = gu;
-        // Session-scoped only: do NOT call setSession() (localStorage) and do
-        // NOT write to the local account DB.
-        try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ userId: gu.id, guest: true })); } catch (e) {}
-        window.addEventListener('pagehide', () => {
-          try { navigator.sendBeacon && navigator.sendBeacon(SERVER_URL + '/api/guest/release', new Blob([JSON.stringify({ username: username })], { type: 'application/json' })); } catch (e) {}
-        });
-        toast('Playing as ' + username + ' (guest)', true);
-        enterApp();
-      } catch (err) {
-        guestBtn.disabled = false;
-      }
-    });
+        const r = await api('/api/guest', { method: 'POST' });
+        username = r && r.username;
+      } catch (e) { username = null; }
+      if (!username) username = 'Guest' + (Math.floor(Math.random() * 9999) + 1);
+      const gu = makeGuestUser(username);
+      state.user = gu;
+      // Session-scoped only: do NOT call setSession() (localStorage) and do
+      // NOT write to the local account DB.
+      try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ userId: gu.id, guest: true })); } catch (e) {}
+      window.addEventListener('pagehide', () => {
+        try { navigator.sendBeacon && navigator.sendBeacon(SERVER_URL + '/api/guest/release', new Blob([JSON.stringify({ username: username })], { type: 'application/json' })); } catch (e) {}
+      });
+      toast('Playing as ' + username + ' (guest)', true);
+      enterApp();
+    } catch (err) {
+      if (btn) btn.disabled = false;
+    }
   }
+
+  const guestBtn = $('#btn-continue-guest');
+  if (guestBtn) guestBtn.addEventListener('click', () => startGuestSession(guestBtn));
+  const playNowBtn = $('#btn-play-now');
+  if (playNowBtn) playNowBtn.addEventListener('click', () => startGuestSession(playNowBtn));
 
   // Sound toggle
   if ($('#btn-sound')) {
@@ -1263,12 +1276,11 @@ function renderFriendsSummary() {
     else { if (!onFriends) toast((from.username || 'Someone') + ' sent you a friend request — see the Friends tab.'); renderFriendsSummary(); }
   }
 
-  $('#btn-new-match').addEventListener('click', () => {
-    // Challenge a player = ranked online matchmaking vs a similar-ELO opponent
-    state.pendingChallenge = null;
-    openTimeControlPicker({}, () => startOnlineOrFakeMatchmaking('ranked'));
-  });
+  // "Find ranked opponent" — ranked online matchmaking vs a similar-ELO opponent.
+  // (The former duplicate "Start a challenge" card was removed; it opened the same
+  // picker and called the same matchmaking, so it added no distinct behavior.)
   $('#btn-find-match').addEventListener('click', () => {
+    state.pendingChallenge = null;
     openTimeControlPicker({}, () => startOnlineOrFakeMatchmaking('ranked'));
   });
 
@@ -1319,6 +1331,28 @@ function renderFriendsSummary() {
     if (cancelBtn) cancelBtn.addEventListener('click', () => { _tcOnStart = null; closeModal('timecontrol'); });
   }
 
+  // Guests can't join the real ranked queue (no server account). Offer the honest
+  // path: create a free account for ranked online, or jump straight into an offline
+  // game that actually works for a guest (Practice vs Computer).
+  function promptGuestRankedCTA() {
+    const goRanked = confirm(
+      'Ranked online play needs a free account so your rating and matches can be saved.\n\n' +
+      'OK = Create a free account\n' +
+      'Cancel = Practice vs Computer instead'
+    );
+    if (goRanked) {
+      // Send them to the auth screen with the Create-account tab selected.
+      showScreen('auth');
+      const signupTab = $('#screen-auth .tab[data-tab="signup"]');
+      if (signupTab) signupTab.click();
+      toast('Create a free account to play ranked online.');
+    } else {
+      // Route to a mode that works offline for a guest, right now.
+      const lvl = ($('#practice-elo') && $('#practice-elo').value) || 1200;
+      startPracticeGame(lvl);
+    }
+  }
+
   function startOnlineOrFakeMatchmaking(mode) {
     if (window.CTNet && window.CTNet.isReady()) {
       startOnlineMatchmaking(mode);
@@ -1328,9 +1362,16 @@ function renderFriendsSummary() {
     const sess = getSession();
     const haveToken = !!(sess && sess.token);
 
-    if (isGuest || !window.CTNet) {
-      // Guests / no-network builds: same-device matchmaking is the only option.
-      startMatchmaking(mode);
+    if (isGuest) {
+      // Guests have no server account, so they can't be placed in the real ranked
+      // queue. Don't fake a search against an empty local pool -- offer the honest
+      // choices: create an account to play ranked online, or play offline now.
+      promptGuestRankedCTA();
+      return;
+    }
+    if (!window.CTNet) {
+      // No realtime client available at all (e.g. socket.io failed to load).
+      toast('Online play is unavailable right now — try Practice vs Computer.');
       return;
     }
     if (!haveToken) {
@@ -1386,6 +1427,11 @@ function renderFriendsSummary() {
   }
   if (practiceStartButton && practiceEloInput) {
     practiceStartButton.addEventListener('click', () => startPracticeGame(practiceEloInput.value));
+    // TODO(chess960): Fischer Random is hidden in the UI because the bundled
+    // chess.js 0.x can't castle from randomized back-ranks (the mode can't follow
+    // its own rules). startPractice960 / the #btn-start-960 button are kept for when
+    // a 960-capable engine is wired up. The guard below is a no-op while the button
+    // is commented out in index.html.
     const start960Button = $('#btn-start-960');
     if (start960Button && practiceEloInput) {
       start960Button.addEventListener('click', () => startPractice960(practiceEloInput.value));
@@ -1683,6 +1729,11 @@ function renderFriendsSummary() {
 function stopMatchmaking() {
   if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
 }
+// DEPRECATED / no longer reachable from any ranked entry point. This simulated a
+// local "search" over the per-device account DB, which could never pair two real
+// players across devices and dead-ended in the "Player 2 sign in" modal. Ranked
+// online now goes through the server (startOnlineMatchmaking); guests get an honest
+// CTA (promptGuestRankedCTA). Kept only for reference -- do NOT re-wire into ranked.
 function startMatchmaking(mode) {
   if (!state.user) return;
   stopMatchmaking();
@@ -1782,8 +1833,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   let mmGiveUpTimer = null;
   function startOnlineMatchmaking(mode) {
     if (!window.CTNet || !window.CTNet.isReady()) {
-      toast('Not connected to server. Falling back to local matchmaking.');
-      startMatchmaking(mode);
+      // Socket dropped between the readiness check and here. Don't fake a local
+      // search against an empty pool -- tell the user the truth.
+      toast('Lost connection to the game server. Check your connection and try again.');
+      closeModal('matchmaking');
       return;
     }
     if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
@@ -3445,6 +3498,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   function renderRankingRows(players, serverBacked) {
     const wrap = $('#rank-list');
     if (!wrap) return;
+    const footer = $('#rank-footer-note');
+    if (footer) footer.textContent = serverBacked
+      ? 'Global rankings update as players around the world compete.'
+      : 'Showing local results — sign in for the global leaderboard.';
     const me = state.user;
     const info = METRIC_INFO[currentRankMetric] || METRIC_INFO.elo;
     if (!players.length) {

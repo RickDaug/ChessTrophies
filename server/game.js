@@ -60,6 +60,13 @@ function normalizeTc(tc) {
   return (typeof tc === 'string' && TC_ALLOWLIST.has(tc)) ? tc : 'unlimited';
 }
 
+// Server decides the canonical 1v1 mode (the client cannot smuggle an arbitrary
+// string). Only 'casual' is unrated; anything else (including garbage/unknown)
+// folds to 'ranked' so an attacker can't silently make a game unrated.
+function normalizeMode(m) {
+  return m === 'casual' ? 'casual' : 'ranked';
+}
+
 // Parse an allowlisted tc key into { initialMs, incrementMs } or null for unlimited.
 function parseTc(tc) {
   const key = normalizeTc(tc);
@@ -287,7 +294,7 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       }
       if (scaleR) { try { await scale.joinQueue(io, scaleR, uid, { mode, tc }); } catch (e) { console.error('[scale] joinQueue', e && e.message); } return; }
       const user = getUserById(uid);
-      matchmakingQueue.set(uid, { socketId: socket.id, elo: user.elo, joinedAt: Date.now(), mode: typeof mode === 'string' ? mode : 'ranked', tc: normalizeTc(tc) });
+      matchmakingQueue.set(uid, { socketId: socket.id, elo: user.elo, joinedAt: Date.now(), mode: normalizeMode(mode), tc: normalizeTc(tc) });
       tryMatchmake(io);
     });
     socket.on('mm_leave', async () => {
@@ -717,7 +724,7 @@ function startGameWithColors(io, white, black) {
     white: white.uid,
     black: black.uid,
     chess,
-    mode: a.mode,
+    mode: normalizeMode(a.mode),
     started: Date.now(),
     tc,
     clock,
