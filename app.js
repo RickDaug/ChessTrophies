@@ -1429,11 +1429,12 @@ function renderFriendsSummary() {
   }
   if (practiceStartButton && practiceEloInput) {
     practiceStartButton.addEventListener('click', () => startPracticeGame(practiceEloInput.value));
-    // TODO(chess960): Fischer Random is hidden in the UI because the bundled
-    // chess.js 0.x can't castle from randomized back-ranks (the mode can't follow
-    // its own rules). startPractice960 / the #btn-start-960 button are kept for when
-    // a 960-capable engine is wired up. The guard below is a no-op while the button
-    // is commented out in index.html.
+    // chess960: Fischer Random is re-enabled. The bundled chess.js 0.x still can't
+    // castle from randomized back-ranks, so real 960 castling is implemented in
+    // chess960.js (window.CT_960Castle) and wired into the human-move path
+    // (tryMove / selectSquare). KNOWN LIMITATION: the computer opponent moves via
+    // chess.js .moves(), so the engine itself won't castle in 960 — acceptable;
+    // the human castling correctly is what un-breaks the mode.
     const start960Button = $('#btn-start-960');
     if (start960Button && practiceEloInput) {
       start960Button.addEventListener('click', () => startPractice960(practiceEloInput.value));
@@ -2771,6 +2772,20 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   function selectSquare(name) {
     state.selected = name;
     state.legalTargets = state.game.moves({ square: name, verbose: true }).map(m => m.to);
+    // Chess960: chess.js 0.x can't generate castles from randomized back-ranks,
+    // so add the castle destinations ourselves as legal targets for the king.
+    if (state.is960 && window.CT_960Castle) {
+      const piece = state.game.get(name);
+      if (piece && piece.type === 'k' && piece.color === state.game.turn()) {
+        window.CT_960Castle.legalCastlingMoves(state.game, state.startFen960).forEach(d => {
+          // Standard 960 input is "king onto its own rook", so surface the rook
+          // square as a target (the rook hop is what the player clicks).
+          if (state.legalTargets.indexOf(d.rookFrom) === -1) state.legalTargets.push(d.rookFrom);
+          // Also surface the g/c king destination for the two-square input.
+          if (state.legalTargets.indexOf(d.kingTo) === -1) state.legalTargets.push(d.kingTo);
+        });
+      }
+    }
     renderBoard();
   }
   function clearSelection() {
@@ -2779,6 +2794,17 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
 
   function tryMove(from, to) {
+    // Chess960 castling: chess.js 0.x can't castle from randomized back-ranks,
+    // so detect a castle intent (king onto own rook, or king two+ squares toward
+    // a rook / to the g|c square) and execute it via our own validator, which
+    // FEN-surgers the resulting position into state.game. Returns a move-like
+    // object so afterMove() drives the normal re-render + AI-reply flow.
+    if (state.is960 && window.CT_960Castle) {
+      const desc = window.CT_960Castle.castleIntent(state.game, from, to, state.startFen960);
+      if (desc) {
+        return window.CT_960Castle.applyCastleDescriptor(state.game, desc);
+      }
+    }
     // Detect promotion need
     const piece = state.game.get(from);
     if (piece && piece.type === 'p') {

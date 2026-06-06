@@ -625,14 +625,11 @@
       </div>
       <input type="range" id="practice-elo" min="100" max="2800" step="100" value="1200" style="width:100%;margin-bottom:12px;">
       <button class="btn btn-block" id="btn-start-practice">Start Practice Game</button>
-        <!-- TODO(chess960): Fischer Random hidden until a 960-capable engine is wired up.
-             The bundled chess.js 0.x cannot castle from randomized back-ranks, so this
-             mode can't follow its own rules. Re-enable this button (and the
-             #btn-start-960 handler in app.js) once castling works for 960 setups. -->
-        <!--
+        <!-- chess960: re-enabled. Real Fischer Random castling lives in
+             chess960.js (window.CT_960Castle) and is wired into the human-move
+             path in app.js. -->
         <button class="btn btn-block" id="btn-start-960" style="margin-top:8px;background:#2a3142;color:var(--accent,#ffd97a);border:1px solid var(--accent,#ffd97a)">♞ Play Fischer Random Chess</button>
-        <p class="muted small" style="margin:6px 0 0">Pieces shuffled into one of hundreds of starting setups — pure skill, no memorized openings.</p>
-        -->
+        <p class="muted small" style="margin:6px 0 0">Pieces shuffled into one of hundreds of starting setups — pure skill, no memorized openings. To castle, move your king onto your own rook (or two squares toward it).</p>
     </div>
 
     <section style="margin-top:18px">
@@ -1258,7 +1255,7 @@
     });
   </script>
 <script src="chess.min.js?v=20260530m"></script>
-<script src="chess960.js?v=20260531c"></script>
+<script src="chess960.js?v=20260606b"></script>
 <script src="sounds.js?v=20260530m"></script>
 <script src="stockfish-ai.js?v=20260530m"></script>
 <script src="config.js?v=20260531d"></script>
@@ -1277,7 +1274,7 @@
 <script src="trophy-data.js?v=20260603a"></script>
 <script src="ct-duo.js?v=20260603a"></script>
 <script src="ct-ads.js?v=20260603a"></script>
-  <script src="app.js?v=20260606a"></script>
+  <script src="app.js?v=20260606b"></script>
 <script src="academy.js?v=20260531c"></script>
 <script src="daily-challenge.js?v=20260606a"></script>
     <script src="review.js?v=20260604a"></script>
