@@ -1084,6 +1084,8 @@
     const premiumBadge = $('#premium-badge');
     if (premiumBadge) premiumBadge.style.display = u.isPremium ? '' : 'none';
     updateVerifyBanner();
+    // Daily Challenge card (day-1/day-7 return hook). Lives in daily-challenge.js.
+    if (window.CT_Daily && window.CT_Daily.render) window.CT_Daily.render();
   }
 
   // Soft email-verification nudge: shown only for server-logged-in users whose
@@ -2247,9 +2249,17 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
 
   function gatherLocalProgress() {
+    const puzzles = readPuzzleProgress();
+    // Ride the Daily Challenge streak on the existing /api/progress sync. The
+    // server (server.js POST /api/progress) only persists `lessonsCompleted` and
+    // the `puzzles` object — within `puzzles`, unknown keys survive (last-write
+    // wins). So we tuck daily state under puzzles.daily to follow the user across
+    // web/Android. applyServerProgress merges the maxes back so a stale device
+    // never erases a higher streak.
+    if (state.user && state.user.daily) puzzles.daily = state.user.daily;
     return {
       lessonsCompleted: (state.user && state.user.lessonsCompleted) || [],
-      puzzles: readPuzzleProgress(),
+      puzzles,
     };
   }
 
@@ -2272,6 +2282,24 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       merged.solved = Math.max(local.solved || 0, p.puzzles.solved || 0);
       merged.best = Math.max(local.best || 0, p.puzzles.best || 0);
       try { localStorage.setItem(PUZZLE_PROGRESS_KEY, JSON.stringify(merged)); } catch (e) {}
+      // Daily Challenge streak rides in puzzles.daily. Merge so the most-recent
+      // solve date wins and best never regresses (avoids a stale device clobber).
+      const remoteDaily = p.puzzles.daily;
+      if (state.user && remoteDaily && typeof remoteDaily === 'object') {
+        const localDaily = state.user.daily || { streak: 0, best: 0, lastDate: null };
+        const lDate = localDaily.lastDate || '';
+        const rDate = remoteDaily.lastDate || '';
+        // Newer lastDate carries the authoritative current streak; best is the max.
+        const winner = rDate > lDate ? remoteDaily : localDaily;
+        state.user.daily = {
+          streak: winner.streak || 0,
+          best: Math.max(localDaily.best || 0, remoteDaily.best || 0, winner.streak || 0),
+          lastDate: winner.lastDate || null,
+        };
+        const db = loadDB();
+        if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
+        if (window.CT_Daily && window.CT_Daily.render) window.CT_Daily.render();
+      }
     }
     // Refresh any visible rank/academy UI now that counts may have grown.
     try { if (window.CT_renderAcademy && document.getElementById('screen-academy').classList.contains('active')) window.CT_renderAcademy(); } catch (e) {}
@@ -3775,7 +3803,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     get state(){ return state; },
     get user(){ return state.user; },
     setUser(u){ state.user = u; },
-    $, $$, openModal, closeModal, showScreen, showNav, toast,
+    $, $$, openModal, closeModal, showScreen, showNav, toast, ctCelebrate,
     loadDB, saveDB, pieceSVG, escapeHTML,
     ACHIEVEMENT_TIERS,
     hasAchievement, unlockAchievement, checkAchievementsFor, tierColor,

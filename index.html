@@ -583,6 +583,10 @@
       <div class="stat"><div class="v" id="stat-streak">0</div><div class="l">Streak</div></div>
     </div>
 
+    <!-- Daily Challenge card (rendered by daily-challenge.js). Sits above the ad /
+         premium cards so it's the first compelling thing a returning user sees. -->
+    <div id="daily-card"></div>
+
     <div id="lobby-ad-slot"></div>
     <div class="premium-card" id="lobby-premium-card" onclick="window.CT && window.CT.openPremium()">
       <div class="pc-row">
@@ -810,6 +814,22 @@
       <button class="btn btn-secondary" id="lesson-solution" style="flex:1">Solution</button>
     </div>
     <button class="btn btn-block" id="lesson-next" style="display:none;margin-top:10px">Next lesson →</button>
+  </section>
+
+  <!-- DAILY CHALLENGE -->
+  <section id="screen-daily" class="screen">
+    <div class="row between" style="padding:4px 0 6px">
+      <button class="btn btn-ghost small" id="daily-back">← Back</button>
+      <div class="pill gold">Daily Challenge</div>
+      <span style="width:60px"></span>
+    </div>
+    <h2 id="daily-title">Daily Challenge</h2>
+    <p class="muted small" id="daily-desc" style="margin:4px 0 6px">—</p>
+    <div class="pill gold" id="daily-side" style="display:inline-block">White to move</div>
+    <div style="margin:12px 0">
+      <div class="lesson-board board" id="daily-board"></div>
+    </div>
+    <div id="daily-feedback" class="card center" style="min-height:34px">&nbsp;</div>
   </section>
 
   <!-- SETTINGS -->
@@ -1259,6 +1279,7 @@
 <script src="ct-ads.js?v=20260603a"></script>
   <script src="app.js?v=20260606a"></script>
 <script src="academy.js?v=20260531c"></script>
+<script src="daily-challenge.js?v=20260606a"></script>
     <script src="review.js?v=20260604a"></script>
     <script src="trophy-extras.js?v=20260531a"></script>
     <script src="learn-library.js?v=20260531c"></script>

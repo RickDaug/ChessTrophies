@@ -145,6 +145,67 @@ already prefers WebSocket. Verified with two instances + a shared Redis: players
 on different instances match, exchange moves with synced clocks, reconnect on the
 other instance, and rematch — for both 1v1 and 2v2.
 
+## Persistence backends (SQLite default; PostgreSQL for horizontal scale)
+
+Addresses audit finding **PE-M1**: the app advertises horizontal scaling (Redis
+socket layer) but historically funnelled *all* persistence through a single
+synchronous `better-sqlite3` file, which becomes a write-lock / event-loop
+bottleneck once you run more than one replica.
+
+There are now **two interchangeable persistence backends** behind one async
+data-access facade (`store.js`):
+
+| Backend | When | Module | Notes |
+|---|---|---|---|
+| **SQLite** (default) | `DATABASE_URL` unset | `db.js` | Zero config. Embedded file at `DATABASE_PATH`. What local dev and the test suite use. Behavior unchanged. |
+| **PostgreSQL** (scalable) | `DATABASE_URL` set | `db-pg.js` | `node-postgres` connection pool. Scales horizontally across replicas; no single-writer file lock. |
+
+The schema is ported 1:1 to Postgres (see `db-pg.js`). SQL translations applied:
+`?` placeholders → `$1,$2,…`; `json_array_length(col)` →
+`jsonb_array_length(col::jsonb)`; `LIKE … COLLATE NOCASE` → `ILIKE`;
+`INSERT OR IGNORE` → `INSERT … ON CONFLICT DO NOTHING`; integer ms time columns →
+`BIGINT`. Parameterized queries, the `topByMetric` allowlist, and the LIKE-escape
+hardening are preserved identically on both backends. Transactions are atomic on
+both (better-sqlite3 `db.transaction()` / Postgres `BEGIN`…`COMMIT` on a pooled
+client with rollback on throw), exposed via `store.runTransaction(fn)`.
+
+To enable Postgres: provision a database, set `DATABASE_URL` (and `REDIS_URL` for
+the socket layer), then raise `deploy.numReplicas`. The schema is created
+automatically on boot (`CREATE TABLE IF NOT EXISTS`). See `.env.example` for
+`PGPOOL_MAX` / `PGSSL` tuning.
+
+> **Migration status (honest):**
+>
+> **Converted to the backend-agnostic `store.*` API (work on SQLite *and*
+> Postgres):**
+> - `auth.js` — `signup`, `login`, `requireAuth` (now async), password reset,
+>   email verification issue/verify/resend, change-password. The email upsert
+>   uses `ON CONFLICT … DO UPDATE`, valid on both engines.
+> - `server.js` — all HTTP routes: `/api/rankings`, `/api/users/search`, avatar,
+>   friends (list/add/requests/accept/decline), blocks (block/unblock/blocked),
+>   `/api/games/recent`, `/api/progress`. These now `await store.*` /
+>   `store.get|all|run`, so the entire HTTP/auth surface runs on whichever
+>   backend `DATABASE_URL` selects.
+>
+> **NOT yet converted — still on the synchronous `db.js` (SQLite) directly:**
+> - `game.js`, `scale-store.js`, `scale-team.js` — the real-time matchmaking /
+>   live-game path: ~24 `getUserById` reads, a few `areBlocked` predicates, and
+>   the two `db.transaction()` ELO+game-result write blocks.
+>
+> These were deliberately left for a follow-up (not rewritten half-done) because:
+> their ELO/result writes execute inside **synchronous** `better-sqlite3`
+> `db.transaction()` callbacks — you cannot `await` inside a better-sqlite3
+> transaction callback — and several reads run inside synchronous `.map()` /
+> `.find()` predicates. Safely making these async means restructuring the
+> Socket.IO handlers (hoist the awaited reads out of predicates; replace the two
+> transactions with `await store.runTransaction(tx => { … })`, which the facade
+> already provides for both engines). That is a focused real-time change that
+> must be re-validated against `npm run smoke:2v2` and is best done in isolation.
+> Consequence today: with `DATABASE_URL` set, HTTP/auth/rankings use Postgres,
+> but **live game result persistence still writes to the local SQLite file** on
+> each replica. The follow-up closes that gap using the already-built
+> `store.runTransaction()` helper.
+
 ## Architecture notes
 
 - All moves are validated server-side using `chess.js` (the same library the client uses) — clients can't cheat by sending illegal moves

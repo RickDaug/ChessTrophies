@@ -2,7 +2,7 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { createUser, getUserByEmail, getUserByUsername, getUserById, db } from './db.js';
+import * as store from './store.js';
 
 const DUMMY_HASH = bcrypt.hashSync('dummy-password-for-account-enumeration-hardening', 12);
 const TOKEN_EXPIRY = '30d';
@@ -35,17 +35,17 @@ export async function signup({ email, username, password, region, invitedBy }) {
   const safeInvitedBy = typeof invitedBy === 'string' && invitedBy.trim() ? invitedBy.trim().slice(0, 64) : null;
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(lowEmail)) throw new Error('Email is invalid.');
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(safeUsername)) throw new Error('Username must be 3–20 letters, numbers, or underscores.');
-  if (getUserByEmail(lowEmail) || getUserByUsername(safeUsername)) throw new Error('An account with that email or username already exists.');
+  if ((await store.getUserByEmail(lowEmail)) || (await store.getUserByUsername(safeUsername))) throw new Error('An account with that email or username already exists.');
   const pw_hash = await bcrypt.hash(safePassword, 12);
   const id = 'u_' + crypto.randomBytes(8).toString('hex');
-  createUser({ id, email: lowEmail, username: safeUsername, region: safeRegion, pw_hash, invited_by: safeInvitedBy });
-  if (safeInvitedBy && getUserById(safeInvitedBy)) {
-    db.prepare('UPDATE users SET invites_accepted = invites_accepted + 1 WHERE id = ?').run(safeInvitedBy);
+  await store.createUser({ id, email: lowEmail, username: safeUsername, region: safeRegion, pw_hash, invited_by: safeInvitedBy });
+  if (safeInvitedBy && (await store.getUserById(safeInvitedBy))) {
+    await store.run('UPDATE users SET invites_accepted = invites_accepted + 1 WHERE id = ?', [safeInvitedBy]);
   }
   // Issue a verification token so the caller can email a confirm link. Returns
   // both the JWT (for immediate sign-in — verification is soft, non-blocking)
   // and the raw verification token to send.
-  const verification = issueEmailVerification(id, lowEmail);
+  const verification = await issueEmailVerification(id, lowEmail);
   return { token: makeToken(id), verification };
 }
 
@@ -53,7 +53,7 @@ export async function login({ email, password }) {
   const normalizedEmail = normalizeString(email, 'email', { min: 3, max: 254 }).toLowerCase();
   const safePassword = typeof password === 'string' ? password : '';
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizedEmail)) throw new Error('Email or password is incorrect.');
-  const u = getUserByEmail(normalizedEmail);
+  const u = await store.getUserByEmail(normalizedEmail);
   const ok = await bcrypt.compare(safePassword, u ? u.pw_hash : DUMMY_HASH);
   if (!ok || !u) throw new Error('Email or password is incorrect.');
   return makeToken(u.id);
@@ -73,24 +73,24 @@ function hashToken(raw) {
 // Issue a password-reset token for the account with this email.
 // To avoid account enumeration the caller always responds 200 regardless of
 // whether an account exists; when none does we simply return { token: null }.
-export function requestPasswordReset(email) {
+export async function requestPasswordReset(email) {
   const lowEmail = normalizeString(email, 'email', { min: 3, max: 254 }).toLowerCase();
 
   // Cheap inline sweep of expired tokens (no cron needed).
-  db.prepare('DELETE FROM password_resets WHERE expires_at < ?').run(Date.now());
+  await store.run('DELETE FROM password_resets WHERE expires_at < ?', [Date.now()]);
 
-  const u = getUserByEmail(lowEmail);
+  const u = await store.getUserByEmail(lowEmail);
   if (!u) return { token: null };
 
   // Invalidate any prior unused tokens for this user so only one is ever live.
-  db.prepare('DELETE FROM password_resets WHERE user_id = ? AND used = 0').run(u.id);
+  await store.run('DELETE FROM password_resets WHERE user_id = ? AND used = 0', [u.id]);
 
   const raw = crypto.randomBytes(32).toString('hex');
   const tokenHash = hashToken(raw);
   const now = Date.now();
-  db.prepare(`INSERT INTO password_resets (token_hash, user_id, expires_at, used, created_at)
-              VALUES (?, ?, ?, 0, ?)`)
-    .run(tokenHash, u.id, now + RESET_TTL_MS, now);
+  await store.run(`INSERT INTO password_resets (token_hash, user_id, expires_at, used, created_at)
+              VALUES (?, ?, ?, 0, ?)`,
+    [tokenHash, u.id, now + RESET_TTL_MS, now]);
 
   return { token: raw, userId: u.id };
 }
@@ -102,15 +102,15 @@ export async function resetPassword(token, newPassword) {
   const safeToken = typeof token === 'string' ? token.trim() : '';
   const tokenHash = hashToken(safeToken);
 
-  const row = db.prepare(`SELECT * FROM password_resets
-                          WHERE token_hash = ? AND used = 0 AND expires_at > ?`)
-    .get(tokenHash, Date.now());
+  const row = await store.get(`SELECT * FROM password_resets
+                          WHERE token_hash = ? AND used = 0 AND expires_at > ?`,
+    [tokenHash, Date.now()]);
   if (!row) throw new Error('This reset link is invalid or has expired.');
 
   const pw_hash = await bcrypt.hash(safePassword, 12);
-  db.prepare('UPDATE users SET pw_hash = ? WHERE id = ?').run(pw_hash, row.user_id);
+  await store.run('UPDATE users SET pw_hash = ? WHERE id = ?', [pw_hash, row.user_id]);
   // Mark used and remove the row so the token can never be replayed.
-  db.prepare('DELETE FROM password_resets WHERE token_hash = ?').run(tokenHash);
+  await store.run('DELETE FROM password_resets WHERE token_hash = ?', [tokenHash]);
   return true;
 }
 
@@ -128,21 +128,24 @@ function generateCode() {
 
 // Issue a fresh 6-digit verification code for a user, replacing any prior one so
 // only the latest code works. Returns { email, code, userId } (raw code).
-export function issueEmailVerification(userId, email) {
+export async function issueEmailVerification(userId, email) {
   // Cheap inline sweep of expired codes (no cron needed).
-  db.prepare('DELETE FROM email_verifications WHERE expires_at < ?').run(Date.now());
+  await store.run('DELETE FROM email_verifications WHERE expires_at < ?', [Date.now()]);
 
   const code = generateCode();
   const now = Date.now();
   // One row per user (user_id is the PK) — upsert replaces any existing code.
-  db.prepare(`INSERT INTO email_verifications (user_id, code_hash, expires_at, attempts, created_at)
+  // `ON CONFLICT(col) DO UPDATE SET x = excluded.x` is valid on BOTH SQLite and
+  // Postgres (Postgres also spells the pseudo-table `excluded`), so the same SQL
+  // works on either backend.
+  await store.run(`INSERT INTO email_verifications (user_id, code_hash, expires_at, attempts, created_at)
               VALUES (?, ?, ?, 0, ?)
               ON CONFLICT(user_id) DO UPDATE SET
                 code_hash = excluded.code_hash,
                 expires_at = excluded.expires_at,
                 attempts = 0,
-                created_at = excluded.created_at`)
-    .run(userId, hashToken(code), now + VERIFY_TTL_MS, now);
+                created_at = excluded.created_at`,
+    [userId, hashToken(code), now + VERIFY_TTL_MS, now]);
   return { email, code, userId };
 }
 
@@ -150,28 +153,28 @@ export function issueEmailVerification(userId, email) {
 // User-scoped because a 6-digit code isn't globally unique. Throttled: after
 // VERIFY_MAX_ATTEMPTS wrong tries the code is burned and a new one is required.
 // Throws a friendly Error on any failure.
-export function verifyEmailCode(userId, code) {
+export async function verifyEmailCode(userId, code) {
   const safeCode = (typeof code === 'string' ? code : '').replace(/\s+/g, '');
-  const row = db.prepare('SELECT * FROM email_verifications WHERE user_id = ?').get(userId);
+  const row = await store.get('SELECT * FROM email_verifications WHERE user_id = ?', [userId]);
   if (!row || row.expires_at <= Date.now()) {
-    if (row) db.prepare('DELETE FROM email_verifications WHERE user_id = ?').run(userId);
+    if (row) await store.run('DELETE FROM email_verifications WHERE user_id = ?', [userId]);
     throw new Error('Your code has expired. Tap Resend to get a new one.');
   }
   if (row.attempts >= VERIFY_MAX_ATTEMPTS) {
-    db.prepare('DELETE FROM email_verifications WHERE user_id = ?').run(userId);
+    await store.run('DELETE FROM email_verifications WHERE user_id = ?', [userId]);
     throw new Error('Too many incorrect tries. Tap Resend to get a new code.');
   }
   const a = Buffer.from(hashToken(safeCode), 'hex');
   const b = Buffer.from(row.code_hash, 'hex');
   const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
   if (!ok) {
-    db.prepare('UPDATE email_verifications SET attempts = attempts + 1 WHERE user_id = ?').run(userId);
+    await store.run('UPDATE email_verifications SET attempts = attempts + 1 WHERE user_id = ?', [userId]);
     const left = VERIFY_MAX_ATTEMPTS - (row.attempts + 1);
     throw new Error(left > 0 ? `That code is incorrect. ${left} ${left === 1 ? 'try' : 'tries'} left.`
                              : 'That code is incorrect. Tap Resend to get a new code.');
   }
-  db.prepare('UPDATE users SET email_verified = 1 WHERE id = ?').run(userId);
-  db.prepare('DELETE FROM email_verifications WHERE user_id = ?').run(userId);
+  await store.run('UPDATE users SET email_verified = 1 WHERE id = ?', [userId]);
+  await store.run('DELETE FROM email_verifications WHERE user_id = ?', [userId]);
   return { userId };
 }
 
@@ -189,8 +192,8 @@ const resendThrottle = new Map();
 // Re-issue a verification code for an authenticated user who hasn't confirmed yet.
 // Returns { alreadyVerified: true } when there's nothing to do, else { email, code }.
 // Throttled per-user (min interval + hourly cap); throws a friendly Error if hit.
-export function resendEmailVerification(userId) {
-  const u = getUserById(userId);
+export async function resendEmailVerification(userId) {
+  const u = await store.getUserById(userId);
   if (!u) throw new Error('User not found.');
   if (u.email_verified) return { alreadyVerified: true };
 
@@ -210,18 +213,18 @@ export function resendEmailVerification(userId) {
   t.count += 1;
   resendThrottle.set(userId, t);
 
-  return issueEmailVerification(u.id, u.email);
+  return await issueEmailVerification(u.id, u.email);
 }
 
 // Change the password for an authenticated user after verifying the current one.
 export async function changePassword(userId, currentPassword, newPassword) {
-  const u = getUserById(userId);
+  const u = await store.getUserById(userId);
   if (!u) throw new Error('User not found.');
   const currentOk = await bcrypt.compare(typeof currentPassword === 'string' ? currentPassword : '', u.pw_hash);
   if (!currentOk) throw new Error('Current password is incorrect.');
   const safePassword = normalizeString(newPassword, 'password', { min: 6, max: 128 });
   const pw_hash = await bcrypt.hash(safePassword, 12);
-  db.prepare('UPDATE users SET pw_hash = ? WHERE id = ?').run(pw_hash, u.id);
+  await store.run('UPDATE users SET pw_hash = ? WHERE id = ?', [pw_hash, u.id]);
   return true;
 }
 
@@ -234,14 +237,18 @@ export function verifyToken(token) {
   catch (e) { return null; }
 }
 
-// Express middleware
-export function requireAuth(req, res, next) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-  const payload = token ? verifyToken(token) : null;
-  if (!payload) return res.status(401).json({ error: 'Unauthorized' });
-  req.userId = payload.uid;
-  req.user = getUserById(payload.uid);
-  if (!req.user) return res.status(401).json({ error: 'User not found' });
-  next();
+// Express middleware. Async because the user lookup goes through the
+// backend-agnostic store (synchronous SQLite by default, async Postgres when
+// DATABASE_URL is set). Any thrown error is forwarded to Express's error handler.
+export async function requireAuth(req, res, next) {
+  try {
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+    const payload = token ? verifyToken(token) : null;
+    if (!payload) return res.status(401).json({ error: 'Unauthorized' });
+    req.userId = payload.uid;
+    req.user = await store.getUserById(payload.uid);
+    if (!req.user) return res.status(401).json({ error: 'User not found' });
+    next();
+  } catch (e) { next(e); }
 }

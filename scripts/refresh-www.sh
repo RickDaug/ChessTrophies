@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 FILES=(
-  index.html app.js academy.js sounds.js stockfish-ai.js
+  index.html app.js academy.js daily-challenge.js sounds.js stockfish-ai.js
   chess.min.js chess960.js config.js ct-auth.js ct-net.js ct-ai.js ct-ai-worker.js ct-duo.js
   trophy-data.js
   review.js trophy-extras.js learn-library.js ct-ads.js sw.js manifest.json
