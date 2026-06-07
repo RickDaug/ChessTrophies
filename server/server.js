@@ -13,7 +13,11 @@ import 'dotenv/config';
 
 import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, verifyEmailCode, resendEmailVerification } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
-import { db, getUserById, topByMetric, getProgress, setProgress, searchUsersByUsername, areBlocked } from './db.js';
+// `db` is still imported directly only to close the SQLite handle on shutdown
+// (no-op when running on Postgres); `getProgress` is a pure flags-JSON parser
+// (identical on both backends). All other persistence goes through `store.*`.
+import { db, getProgress } from './db.js';
+import * as store from './store.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
 import { attachSocketHandlers, notifyUser } from './game.js';
 
@@ -43,6 +47,11 @@ function parseCorsOrigins(value) {
 }
 
 let corsOrigins = parseCorsOrigins(process.env.CORS_ORIGIN);
+// Loud warning if CORS is wide open (or unset, which defaults to '*') while
+// running in production — a wildcard origin lets any site call the API.
+if (corsOrigins === '*' && process.env.NODE_ENV === 'production') {
+  console.warn('[cors] WARNING: CORS_ORIGIN is unset or "*" in production — this allows requests from ANY origin. Set CORS_ORIGIN to your real domain(s).');
+}
 // Unless CORS is wide open ('*'), always union-in the production web origins so
 // the hosted client works regardless of how CORS_ORIGIN is set in the env.
 if (corsOrigins !== '*') {
@@ -118,7 +127,7 @@ app.post('/api/auth/signup', authLimiter, async (req, res, next) => {
 app.post('/api/auth/verify', authLimiter, requireAuth, async (req, res, next) => {
   try {
     const code = requireStringField(req.body || {}, 'code', { min: 4, max: 12 });
-    verifyEmailCode(req.userId, code);
+    await verifyEmailCode(req.userId, code);
     res.json({ ok: true });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
@@ -126,7 +135,7 @@ app.post('/api/auth/verify', authLimiter, requireAuth, async (req, res, next) =>
 // Re-send the verification code for the signed-in user (no-op if already verified).
 app.post('/api/auth/resend-verification', authLimiter, requireAuth, async (req, res, next) => {
   try {
-    const r = resendEmailVerification(req.userId);
+    const r = await resendEmailVerification(req.userId);
     if (r.alreadyVerified) return res.json({ ok: true, alreadyVerified: true });
     let sent = false;
     if (r.code) sent = await sendVerifyEmail(r.email, r.code);
@@ -151,7 +160,7 @@ app.post('/api/auth/login', authLimiter, async (req, res, next) => {
 app.post('/api/auth/forgot', authLimiter, async (req, res, next) => {
   try {
     const email = requireStringField(req.body || {}, 'email', { min: 3, max: 254 });
-    const { token } = requestPasswordReset(email);
+    const { token } = await requestPasswordReset(email);
     if (token) {
       console.log('[password-reset] requested for', email);
       // Email the reset link via Resend when RESEND_API_KEY is configured.
@@ -205,80 +214,93 @@ app.get('/api/me', requireAuth, (req, res) => {
 
 // Persist the player's chosen avatar so opponents can see it in-game. Both fields
 // are optional; data URLs are size-capped to avoid bloating the row.
-app.post('/api/profile/avatar', requireAuth, (req, res, next) => {
+app.post('/api/profile/avatar', requireAuth, async (req, res, next) => {
   try {
     const body = req.body || {};
     const stock = typeof body.avatarStock === 'string' ? body.avatarStock.slice(0, 32) : null;
     let dataUrl = typeof body.avatarDataUrl === 'string' ? body.avatarDataUrl : null;
     if (dataUrl && dataUrl.length > 200000) return res.status(413).json({ error: 'Avatar image too large.' });
-    if (stock !== null) db.prepare('UPDATE users SET avatar_stock = ? WHERE id = ?').run(stock, req.userId);
-    if (dataUrl !== null) db.prepare('UPDATE users SET avatar_data_url = ? WHERE id = ?').run(dataUrl, req.userId);
+    // This value is echoed to opponents in-game, so only accept genuine base64
+    // image data URLs (no SVG/HTML/javascript: payloads). Empty string is allowed
+    // (clears the custom avatar); non-empty must match the strict prefix + charset.
+    if (dataUrl) {
+      if (!/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+=*$/.test(dataUrl)) {
+        return res.status(400).json({ error: 'Invalid avatar image format.' });
+      }
+    }
+    if (stock !== null) await store.run('UPDATE users SET avatar_stock = ? WHERE id = ?', [stock, req.userId]);
+    if (dataUrl !== null) await store.run('UPDATE users SET avatar_data_url = ? WHERE id = ?', [dataUrl, req.userId]);
     res.json({ ok: true });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
 // Rankings (Top N by metric)
-app.get('/api/rankings', (req, res) => {
-  const metric = req.query.metric || 'elo';
-  const limit = Math.min(parseInt(req.query.limit, 10) || 100, 5000);
-  res.json({ metric, players: topByMetric(metric, limit) });
+app.get('/api/rankings', async (req, res, next) => {
+  try {
+    const metric = req.query.metric || 'elo';
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 5000);
+    res.json({ metric, players: await store.topByMetric(metric, limit) });
+  } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 
 // Username search for friend autocomplete. Returns up to `limit` (default 8,
 // max 20) non-friend users whose username starts with `q` (case-insensitive),
 // excluding the requester. Empty/blank `q` returns an empty list.
-app.get('/api/users/search', requireAuth, (req, res, next) => {
+app.get('/api/users/search', requireAuth, async (req, res, next) => {
   try {
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     if (q.length < 1) return res.json({ users: [] });
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 8, 1), 20);
-    const users = searchUsersByUsername(q, req.userId, limit);
+    const users = await store.searchUsersByUsername(q, req.userId, limit);
     res.json({ users });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
 // Friends
-app.get('/api/friends', requireAuth, (req, res) => {
-  const rows = db.prepare(`
-    SELECT u.id, u.username, u.elo, u.wins, u.losses, u.region, u.is_premium
-    FROM friendships f JOIN users u ON u.id = f.friend_id
-    WHERE f.user_id = ? ORDER BY u.username COLLATE NOCASE
-  `).all(req.userId);
-  res.json({ friends: rows });
+app.get('/api/friends', requireAuth, async (req, res, next) => {
+  try {
+    const rows = await store.all(`
+      SELECT u.id, u.username, u.elo, u.wins, u.losses, u.region, u.is_premium
+      FROM friendships f JOIN users u ON u.id = f.friend_id
+      WHERE f.user_id = ? ORDER BY u.username COLLATE NOCASE
+    `, [req.userId]);
+    res.json({ friends: rows });
+  } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 // Helper: make two users friends (both directions) and clear any pending requests
 // between them. Used by accept and by the auto-accept-on-mutual-request path.
-function makeFriends(aId, bId) {
+async function makeFriends(aId, bId) {
   const now = Date.now();
-  const insF = db.prepare('INSERT OR IGNORE INTO friendships (user_id, friend_id, created_at) VALUES (?, ?, ?)');
-  insF.run(aId, bId, now);
-  insF.run(bId, aId, now);
-  db.prepare('DELETE FROM friend_requests WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)')
-    .run(aId, bId, bId, aId);
+  const ins = 'INSERT OR IGNORE INTO friendships (user_id, friend_id, created_at) VALUES (?, ?, ?)';
+  await store.run(ins, [aId, bId, now]);
+  await store.run(ins, [bId, aId, now]);
+  await store.run(
+    'DELETE FROM friend_requests WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)',
+    [aId, bId, bId, aId]);
 }
 
 // Send a friend REQUEST (not an instant add). The recipient must accept it.
 // If they had already requested you, this accepts that instead (mutual intent).
-app.post('/api/friends/add', requireAuth, (req, res, next) => {
+app.post('/api/friends/add', requireAuth, async (req, res, next) => {
   try {
     const username = requireStringField(req.body || {}, 'username', { min: 1, max: 40 });
-    const friend = db.prepare('SELECT id, username FROM users WHERE LOWER(username) = LOWER(?)').get(username);
+    const friend = await store.get('SELECT id, username FROM users WHERE LOWER(username) = LOWER(?)', [username]);
     if (!friend) return res.status(404).json({ error: 'No user with that username' });
     if (friend.id === req.userId) return res.status(400).json({ error: 'Cannot friend yourself' });
-    if (areBlocked(req.userId, friend.id)) return res.status(403).json({ error: 'Unable to add this user.' });
+    if (await store.areBlocked(req.userId, friend.id)) return res.status(403).json({ error: 'Unable to add this user.' });
     // Already friends?
-    const already = db.prepare('SELECT 1 FROM friendships WHERE user_id = ? AND friend_id = ?').get(req.userId, friend.id);
+    const already = await store.get('SELECT 1 FROM friendships WHERE user_id = ? AND friend_id = ?', [req.userId, friend.id]);
     if (already) return res.json({ ok: true, alreadyFriends: true, friend });
     // They already requested ME -> accept it now (becomes mutual).
-    const reverse = db.prepare('SELECT 1 FROM friend_requests WHERE from_id = ? AND to_id = ?').get(friend.id, req.userId);
+    const reverse = await store.get('SELECT 1 FROM friend_requests WHERE from_id = ? AND to_id = ?', [friend.id, req.userId]);
     if (reverse) {
-      makeFriends(req.userId, friend.id);
+      await makeFriends(req.userId, friend.id);
       notifyUser(friend.id, 'friend_accepted', { by: req.userId });
       return res.json({ ok: true, accepted: true, friend });
     }
     // Otherwise record a pending request and notify the recipient if online.
-    db.prepare('INSERT OR IGNORE INTO friend_requests (from_id, to_id, created_at) VALUES (?, ?, ?)')
-      .run(req.userId, friend.id, Date.now());
+    await store.run('INSERT OR IGNORE INTO friend_requests (from_id, to_id, created_at) VALUES (?, ?, ?)',
+      [req.userId, friend.id, Date.now()]);
     notifyUser(friend.id, 'friend_request', {
       from: { id: req.userId, username: req.user.username, elo: req.user.elo },
     });
@@ -287,84 +309,90 @@ app.post('/api/friends/add', requireAuth, (req, res, next) => {
 });
 
 // Incoming pending friend requests (people who asked to befriend me).
-app.get('/api/friends/requests', requireAuth, (req, res) => {
-  const rows = db.prepare(`
-    SELECT u.id, u.username, u.elo, fr.created_at
-    FROM friend_requests fr JOIN users u ON u.id = fr.from_id
-    WHERE fr.to_id = ? ORDER BY fr.created_at DESC
-  `).all(req.userId);
-  res.json({ requests: rows });
+app.get('/api/friends/requests', requireAuth, async (req, res, next) => {
+  try {
+    const rows = await store.all(`
+      SELECT u.id, u.username, u.elo, fr.created_at
+      FROM friend_requests fr JOIN users u ON u.id = fr.from_id
+      WHERE fr.to_id = ? ORDER BY fr.created_at DESC
+    `, [req.userId]);
+    res.json({ requests: rows });
+  } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 
 // Accept a pending request from `fromId`.
-app.post('/api/friends/accept', requireAuth, (req, res, next) => {
+app.post('/api/friends/accept', requireAuth, async (req, res, next) => {
   try {
     const fromId = requireStringField(req.body || {}, 'fromId', { min: 1, max: 64 });
-    const pending = db.prepare('SELECT 1 FROM friend_requests WHERE from_id = ? AND to_id = ?').get(fromId, req.userId);
+    const pending = await store.get('SELECT 1 FROM friend_requests WHERE from_id = ? AND to_id = ?', [fromId, req.userId]);
     if (!pending) return res.status(404).json({ error: 'No such request.' });
-    makeFriends(req.userId, fromId);
+    await makeFriends(req.userId, fromId);
     notifyUser(fromId, 'friend_accepted', { by: req.userId, username: req.user.username });
-    const friend = db.prepare('SELECT id, username, elo, wins, losses, region, is_premium FROM users WHERE id = ?').get(fromId);
+    const friend = await store.get('SELECT id, username, elo, wins, losses, region, is_premium FROM users WHERE id = ?', [fromId]);
     res.json({ ok: true, friend });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
 // Decline / dismiss a pending request from `fromId`.
-app.post('/api/friends/decline', requireAuth, (req, res, next) => {
+app.post('/api/friends/decline', requireAuth, async (req, res, next) => {
   try {
     const fromId = requireStringField(req.body || {}, 'fromId', { min: 1, max: 64 });
-    db.prepare('DELETE FROM friend_requests WHERE from_id = ? AND to_id = ?').run(fromId, req.userId);
+    await store.run('DELETE FROM friend_requests WHERE from_id = ? AND to_id = ?', [fromId, req.userId]);
     res.json({ ok: true });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
 // Block a user: removes any friendship + pending requests both ways, and records
 // the block. Blocked pairs are never matched and can't friend-request each other.
-app.post('/api/friends/block', requireAuth, (req, res, next) => {
+app.post('/api/friends/block', requireAuth, async (req, res, next) => {
   try {
     const body = req.body || {};
     let target = null;
-    if (typeof body.userId === 'string' && body.userId) target = getUserById(body.userId);
+    if (typeof body.userId === 'string' && body.userId) target = await store.getUserById(body.userId);
     else if (typeof body.username === 'string' && body.username)
-      target = db.prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?)').get(body.username);
+      target = await store.get('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [body.username]);
     if (!target) return res.status(404).json({ error: 'No such user.' });
     if (target.id === req.userId) return res.status(400).json({ error: 'Cannot block yourself.' });
-    db.prepare('INSERT OR IGNORE INTO blocks (blocker_id, blocked_id, created_at) VALUES (?, ?, ?)')
-      .run(req.userId, target.id, Date.now());
-    db.prepare('DELETE FROM friendships WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)')
-      .run(req.userId, target.id, target.id, req.userId);
-    db.prepare('DELETE FROM friend_requests WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)')
-      .run(req.userId, target.id, target.id, req.userId);
+    await store.run('INSERT OR IGNORE INTO blocks (blocker_id, blocked_id, created_at) VALUES (?, ?, ?)',
+      [req.userId, target.id, Date.now()]);
+    await store.run('DELETE FROM friendships WHERE (user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)',
+      [req.userId, target.id, target.id, req.userId]);
+    await store.run('DELETE FROM friend_requests WHERE (from_id = ? AND to_id = ?) OR (from_id = ? AND to_id = ?)',
+      [req.userId, target.id, target.id, req.userId]);
     res.json({ ok: true, blocked: { id: target.id, username: target.username } });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
-app.post('/api/friends/unblock', requireAuth, (req, res, next) => {
+app.post('/api/friends/unblock', requireAuth, async (req, res, next) => {
   try {
     const userId = requireStringField(req.body || {}, 'userId', { min: 1, max: 64 });
-    db.prepare('DELETE FROM blocks WHERE blocker_id = ? AND blocked_id = ?').run(req.userId, userId);
+    await store.run('DELETE FROM blocks WHERE blocker_id = ? AND blocked_id = ?', [req.userId, userId]);
     res.json({ ok: true });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
-app.get('/api/friends/blocked', requireAuth, (req, res) => {
-  const rows = db.prepare(`
-    SELECT u.id, u.username, u.elo FROM blocks b JOIN users u ON u.id = b.blocked_id
-    WHERE b.blocker_id = ? ORDER BY u.username COLLATE NOCASE
-  `).all(req.userId);
-  res.json({ blocked: rows });
+app.get('/api/friends/blocked', requireAuth, async (req, res, next) => {
+  try {
+    const rows = await store.all(`
+      SELECT u.id, u.username, u.elo FROM blocks b JOIN users u ON u.id = b.blocked_id
+      WHERE b.blocker_id = ? ORDER BY u.username COLLATE NOCASE
+    `, [req.userId]);
+    res.json({ blocked: rows });
+  } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 
 // Recent game history
-app.get('/api/games/recent', requireAuth, (req, res) => {
-  const rows = db.prepare(`
-    SELECT id, white_id, black_id, mode, result, winner_id, pgn,
-           white_elo_delta, black_elo_delta, created_at, ended_at
-    FROM games
-    WHERE white_id = ? OR black_id = ?
-    ORDER BY ended_at DESC LIMIT 50
-  `).all(req.userId, req.userId);
-  res.json({ games: rows });
+app.get('/api/games/recent', requireAuth, async (req, res, next) => {
+  try {
+    const rows = await store.all(`
+      SELECT id, white_id, black_id, mode, result, winner_id, pgn,
+             white_elo_delta, black_elo_delta, created_at, ended_at
+      FROM games
+      WHERE white_id = ? OR black_id = ?
+      ORDER BY ended_at DESC LIMIT 50
+    `, [req.userId, req.userId]);
+    res.json({ games: rows });
+  } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 
 // Learning-progress sync (survives across devices / web vs Android).
@@ -379,7 +407,7 @@ app.get('/api/progress', requireAuth, (req, res, next) => {
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
-app.post('/api/progress', requireAuth, (req, res, next) => {
+app.post('/api/progress', requireAuth, async (req, res, next) => {
   try {
     const body = req.body || {};
     const existing = getProgress(req.user);
@@ -418,7 +446,7 @@ app.post('/api/progress', requireAuth, (req, res, next) => {
       throw new Error(`Too many puzzle entries (max ${MAX_PUZZLE_KEYS}).`);
     }
 
-    const result = setProgress(req.userId, { lessonsCompleted: [...merged], puzzles });
+    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles });
     res.json(result);
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
@@ -454,6 +482,21 @@ app.use((err, req, res, next) => {
 // WebSocket
 attachSocketHandlers(io, verifyToken, redisClient);
 
+// Initialize the scalable persistence backend's schema when DATABASE_URL is
+// set (Postgres). No-op on the SQLite default path (db.js created the schema
+// synchronously on import), so this neither slows nor changes local/test boot.
+if (store.usingPostgres) {
+  try {
+    await store.init();
+    console.log('[db] Postgres backend active (DATABASE_URL set) — schema ensured');
+  } catch (e) {
+    console.error('[db] Postgres init failed:', e && e.message);
+    process.exit(1);
+  }
+} else {
+  console.log('[db] SQLite backend active (default; set DATABASE_URL to scale to Postgres)');
+}
+
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`ChessTrophies server listening on :${PORT}`);
@@ -465,4 +508,45 @@ httpServer.listen(PORT, () => {
   } else {
     console.warn('[email] RESEND_API_KEY is NOT set — signup verification and password-reset emails will NOT be sent. Set RESEND_API_KEY, RESEND_FROM, and APP_URL to enable email.');
   }
+});
+
+// --- Graceful shutdown + global error handlers ---------------------------------
+// Close the WebSocket + HTTP server (stop accepting new work), then the DB and
+// Redis, then exit so the process manager can restart us cleanly. Guarded so a
+// second signal (or a signal mid-shutdown) doesn't double-run the teardown.
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] received ${signal}, closing server...`);
+  // Hard cap: if close() hangs (lingering sockets), force-exit anyway.
+  const forceTimer = setTimeout(() => {
+    console.error('[shutdown] graceful close timed out, forcing exit');
+    process.exit(1);
+  }, 10000);
+  if (typeof forceTimer.unref === 'function') forceTimer.unref();
+  io.close(() => {
+    httpServer.close(() => {
+      try { if (redisClient) redisClient.disconnect(); } catch (e) { console.error('[shutdown] redis', e && e.message); }
+      try { if (db && typeof db.close === 'function') db.close(); } catch (e) { console.error('[shutdown] db', e && e.message); }
+      // Drain the Postgres pool too (only loaded when DATABASE_URL is set).
+      try { store.closePool && store.closePool().catch(() => {}); } catch (e) { console.error('[shutdown] pg', e && e.message); }
+      clearTimeout(forceTimer);
+      console.log('[shutdown] closed cleanly');
+      process.exit(0);
+    });
+  });
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Never silently swallow. Log unhandled rejections (keep running — likely a
+// recoverable async bug); log uncaught exceptions and exit so the process
+// manager restarts us in a known-good state.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+  process.exit(1);
 });

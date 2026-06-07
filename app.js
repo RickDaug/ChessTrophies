@@ -617,7 +617,7 @@
       <div class="ad-label">${cfg.label} · ${cfg.size}</div>
       <div class="ad-body">
         <div class="ad-copy">${cfg.copy}</div>
-        <button class="ad-upgrade" onclick="window.CT && window.CT.openPremium()">Remove ads</button>
+        <button class="ad-upgrade" data-act="open-premium">Remove ads</button>
       </div>
     </div>`;
   }
@@ -760,7 +760,9 @@
         $('#signup-username').value,
         $('#signup-password').value,
         $('#signup-region').value,
-          $('#signup-skill') ? parseInt($('#signup-skill').value, 10) : 1200
+          // Default to a beginner rating (800) when no level is picked, so brand-new
+          // players aren't over-seeded at "Intermediate".
+          (function () { const v = $('#signup-skill') ? parseInt($('#signup-skill').value, 10) : NaN; return Number.isFinite(v) ? v : 800; })()
       );
       setSession(Object.assign({}, getSession(), { userId: u.id }));
       state.user = u;
@@ -776,8 +778,9 @@
 
   // Password reset (forgot password) ----------------------------------
   // Two-step flow inside one modal: (1) request a reset code by email,
-  // (2) enter the code + a new password. Email isn't wired up in this build,
-  // so the server returns the code as `devToken` which we prefill for the user.
+  // (2) enter the code + a new password. When the server can send email it does;
+  // when it's configured to expose the token (EXPOSE_RESET_TOKEN dev path) it
+  // returns `devToken`, which we prefill so the flow can still be completed.
   function showForgotStep(step) {
     $('#forgot-step-1').style.display = step === 1 ? '' : 'none';
     $('#forgot-step-2').style.display = step === 2 ? '' : 'none';
@@ -824,10 +827,15 @@
         const r = await api('/api/auth/forgot', { method: 'POST', body: JSON.stringify({ email }) });
         // Always show a neutral message so we don't reveal whether the email exists.
         $('#forgot-status').textContent = 'If that email exists, a reset code has been issued.';
+        const hint = $('#forgot-code-hint');
         if (r && r.devToken) {
-          // Dev convenience: prefill the code field with the returned token.
+          // Dev/self-host convenience: when the server is configured to expose the
+          // reset token (EXPOSE_RESET_TOKEN) it returns it so we can prefill the field.
           $('#reset-code').value = r.devToken;
-          $('#reset-note').textContent = 'Reset code prefilled for you (email isn’t set up in this build).';
+          $('#reset-note').textContent = 'Reset code prefilled for you.';
+          if (hint) hint.textContent = 'Your reset code is prefilled below. (Email delivery isn’t enabled on this server.)';
+        } else if (hint) {
+          hint.textContent = 'Check your email for the reset code, then paste it below.';
         }
         showForgotStep(2);
       } catch (err) {
@@ -909,11 +917,12 @@
         await refreshVerifiedStatus();
         return;
       }
-      // Dev convenience: when email isn't wired up, the server returns the code so
-      // the flow can still be completed via the "Enter code" modal.
+      // Dev/self-host convenience: when the server is configured to expose the code
+      // (email delivery not enabled), it returns it so the flow can still be
+      // completed via the "Enter code" modal.
       if (r && r.devVerifyCode) {
         const codeInput = $('#verify-code'); if (codeInput) codeInput.value = r.devVerifyCode;
-        if (noteEl) noteEl.textContent = 'Code prefilled for you (email isn’t set up in this build).';
+        if (noteEl) noteEl.textContent = 'Code prefilled for you. (Email delivery isn’t enabled on this server.)';
         toast('Verification code issued.', true);
       } else if (r && r.sent) {
         toast('Verification email sent — check your inbox for your 6-digit code.', true);
@@ -993,32 +1002,36 @@
     };
   }
 
-  const guestBtn = $('#btn-continue-guest');
-  if (guestBtn) {
-    guestBtn.addEventListener('click', async () => {
-      guestBtn.disabled = true;
+  // Start a guest session and jump into the app. Shared by the prominent "Play now"
+  // button at the top of the auth card and the "Continue as guest" button below.
+  async function startGuestSession(btn) {
+    if (btn) btn.disabled = true;
+    try {
+      let username = null;
       try {
-        let username = null;
-        try {
-          const r = await api('/api/guest', { method: 'POST' });
-          username = r && r.username;
-        } catch (e) { username = null; }
-        if (!username) username = 'Guest' + (Math.floor(Math.random() * 9999) + 1);
-        const gu = makeGuestUser(username);
-        state.user = gu;
-        // Session-scoped only: do NOT call setSession() (localStorage) and do
-        // NOT write to the local account DB.
-        try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ userId: gu.id, guest: true })); } catch (e) {}
-        window.addEventListener('pagehide', () => {
-          try { navigator.sendBeacon && navigator.sendBeacon(SERVER_URL + '/api/guest/release', new Blob([JSON.stringify({ username: username })], { type: 'application/json' })); } catch (e) {}
-        });
-        toast('Playing as ' + username + ' (guest)', true);
-        enterApp();
-      } catch (err) {
-        guestBtn.disabled = false;
-      }
-    });
+        const r = await api('/api/guest', { method: 'POST' });
+        username = r && r.username;
+      } catch (e) { username = null; }
+      if (!username) username = 'Guest' + (Math.floor(Math.random() * 9999) + 1);
+      const gu = makeGuestUser(username);
+      state.user = gu;
+      // Session-scoped only: do NOT call setSession() (localStorage) and do
+      // NOT write to the local account DB.
+      try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ userId: gu.id, guest: true })); } catch (e) {}
+      window.addEventListener('pagehide', () => {
+        try { navigator.sendBeacon && navigator.sendBeacon(SERVER_URL + '/api/guest/release', new Blob([JSON.stringify({ username: username })], { type: 'application/json' })); } catch (e) {}
+      });
+      toast('Playing as ' + username + ' (guest)', true);
+      enterApp();
+    } catch (err) {
+      if (btn) btn.disabled = false;
+    }
   }
+
+  const guestBtn = $('#btn-continue-guest');
+  if (guestBtn) guestBtn.addEventListener('click', () => startGuestSession(guestBtn));
+  const playNowBtn = $('#btn-play-now');
+  if (playNowBtn) playNowBtn.addEventListener('click', () => startGuestSession(playNowBtn));
 
   // Sound toggle
   if ($('#btn-sound')) {
@@ -1071,6 +1084,8 @@
     const premiumBadge = $('#premium-badge');
     if (premiumBadge) premiumBadge.style.display = u.isPremium ? '' : 'none';
     updateVerifyBanner();
+    // Daily Challenge card (day-1/day-7 return hook). Lives in daily-challenge.js.
+    if (window.CT_Daily && window.CT_Daily.render) window.CT_Daily.render();
   }
 
   // Soft email-verification nudge: shown only for server-logged-in users whose
@@ -1263,12 +1278,11 @@ function renderFriendsSummary() {
     else { if (!onFriends) toast((from.username || 'Someone') + ' sent you a friend request — see the Friends tab.'); renderFriendsSummary(); }
   }
 
-  $('#btn-new-match').addEventListener('click', () => {
-    // Challenge a player = ranked online matchmaking vs a similar-ELO opponent
-    state.pendingChallenge = null;
-    openTimeControlPicker({}, () => startOnlineOrFakeMatchmaking('ranked'));
-  });
+  // "Find ranked opponent" — ranked online matchmaking vs a similar-ELO opponent.
+  // (The former duplicate "Start a challenge" card was removed; it opened the same
+  // picker and called the same matchmaking, so it added no distinct behavior.)
   $('#btn-find-match').addEventListener('click', () => {
+    state.pendingChallenge = null;
     openTimeControlPicker({}, () => startOnlineOrFakeMatchmaking('ranked'));
   });
 
@@ -1319,6 +1333,28 @@ function renderFriendsSummary() {
     if (cancelBtn) cancelBtn.addEventListener('click', () => { _tcOnStart = null; closeModal('timecontrol'); });
   }
 
+  // Guests can't join the real ranked queue (no server account). Offer the honest
+  // path: create a free account for ranked online, or jump straight into an offline
+  // game that actually works for a guest (Practice vs Computer).
+  function promptGuestRankedCTA() {
+    const goRanked = confirm(
+      'Ranked online play needs a free account so your rating and matches can be saved.\n\n' +
+      'OK = Create a free account\n' +
+      'Cancel = Practice vs Computer instead'
+    );
+    if (goRanked) {
+      // Send them to the auth screen with the Create-account tab selected.
+      showScreen('auth');
+      const signupTab = $('#screen-auth .tab[data-tab="signup"]');
+      if (signupTab) signupTab.click();
+      toast('Create a free account to play ranked online.');
+    } else {
+      // Route to a mode that works offline for a guest, right now.
+      const lvl = ($('#practice-elo') && $('#practice-elo').value) || 1200;
+      startPracticeGame(lvl);
+    }
+  }
+
   function startOnlineOrFakeMatchmaking(mode) {
     if (window.CTNet && window.CTNet.isReady()) {
       startOnlineMatchmaking(mode);
@@ -1328,9 +1364,16 @@ function renderFriendsSummary() {
     const sess = getSession();
     const haveToken = !!(sess && sess.token);
 
-    if (isGuest || !window.CTNet) {
-      // Guests / no-network builds: same-device matchmaking is the only option.
-      startMatchmaking(mode);
+    if (isGuest) {
+      // Guests have no server account, so they can't be placed in the real ranked
+      // queue. Don't fake a search against an empty local pool -- offer the honest
+      // choices: create an account to play ranked online, or play offline now.
+      promptGuestRankedCTA();
+      return;
+    }
+    if (!window.CTNet) {
+      // No realtime client available at all (e.g. socket.io failed to load).
+      toast('Online play is unavailable right now — try Practice vs Computer.');
       return;
     }
     if (!haveToken) {
@@ -1386,6 +1429,12 @@ function renderFriendsSummary() {
   }
   if (practiceStartButton && practiceEloInput) {
     practiceStartButton.addEventListener('click', () => startPracticeGame(practiceEloInput.value));
+    // chess960: Fischer Random is re-enabled. The bundled chess.js 0.x still can't
+    // castle from randomized back-ranks, so real 960 castling is implemented in
+    // chess960.js (window.CT_960Castle) and wired into the human-move path
+    // (tryMove / selectSquare). KNOWN LIMITATION: the computer opponent moves via
+    // chess.js .moves(), so the engine itself won't castle in 960 — acceptable;
+    // the human castling correctly is what un-breaks the mode.
     const start960Button = $('#btn-start-960');
     if (start960Button && practiceEloInput) {
       start960Button.addEventListener('click', () => startPractice960(practiceEloInput.value));
@@ -1683,6 +1732,11 @@ function renderFriendsSummary() {
 function stopMatchmaking() {
   if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
 }
+// DEPRECATED / no longer reachable from any ranked entry point. This simulated a
+// local "search" over the per-device account DB, which could never pair two real
+// players across devices and dead-ended in the "Player 2 sign in" modal. Ranked
+// online now goes through the server (startOnlineMatchmaking); guests get an honest
+// CTA (promptGuestRankedCTA). Kept only for reference -- do NOT re-wire into ranked.
 function startMatchmaking(mode) {
   if (!state.user) return;
   stopMatchmaking();
@@ -1782,8 +1836,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   let mmGiveUpTimer = null;
   function startOnlineMatchmaking(mode) {
     if (!window.CTNet || !window.CTNet.isReady()) {
-      toast('Not connected to server. Falling back to local matchmaking.');
-      startMatchmaking(mode);
+      // Socket dropped between the readiness check and here. Don't fake a local
+      // search against an empty pool -- tell the user the truth.
+      toast('Lost connection to the game server. Check your connection and try again.');
+      closeModal('matchmaking');
       return;
     }
     if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
@@ -2194,9 +2250,17 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
 
   function gatherLocalProgress() {
+    const puzzles = readPuzzleProgress();
+    // Ride the Daily Challenge streak on the existing /api/progress sync. The
+    // server (server.js POST /api/progress) only persists `lessonsCompleted` and
+    // the `puzzles` object — within `puzzles`, unknown keys survive (last-write
+    // wins). So we tuck daily state under puzzles.daily to follow the user across
+    // web/Android. applyServerProgress merges the maxes back so a stale device
+    // never erases a higher streak.
+    if (state.user && state.user.daily) puzzles.daily = state.user.daily;
     return {
       lessonsCompleted: (state.user && state.user.lessonsCompleted) || [],
-      puzzles: readPuzzleProgress(),
+      puzzles,
     };
   }
 
@@ -2219,6 +2283,24 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       merged.solved = Math.max(local.solved || 0, p.puzzles.solved || 0);
       merged.best = Math.max(local.best || 0, p.puzzles.best || 0);
       try { localStorage.setItem(PUZZLE_PROGRESS_KEY, JSON.stringify(merged)); } catch (e) {}
+      // Daily Challenge streak rides in puzzles.daily. Merge so the most-recent
+      // solve date wins and best never regresses (avoids a stale device clobber).
+      const remoteDaily = p.puzzles.daily;
+      if (state.user && remoteDaily && typeof remoteDaily === 'object') {
+        const localDaily = state.user.daily || { streak: 0, best: 0, lastDate: null };
+        const lDate = localDaily.lastDate || '';
+        const rDate = remoteDaily.lastDate || '';
+        // Newer lastDate carries the authoritative current streak; best is the max.
+        const winner = rDate > lDate ? remoteDaily : localDaily;
+        state.user.daily = {
+          streak: winner.streak || 0,
+          best: Math.max(localDaily.best || 0, remoteDaily.best || 0, winner.streak || 0),
+          lastDate: winner.lastDate || null,
+        };
+        const db = loadDB();
+        if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
+        if (window.CT_Daily && window.CT_Daily.render) window.CT_Daily.render();
+      }
     }
     // Refresh any visible rank/academy UI now that counts may have grown.
     try { if (window.CT_renderAcademy && document.getElementById('screen-academy').classList.contains('active')) window.CT_renderAcademy(); } catch (e) {}
@@ -2690,6 +2772,20 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   function selectSquare(name) {
     state.selected = name;
     state.legalTargets = state.game.moves({ square: name, verbose: true }).map(m => m.to);
+    // Chess960: chess.js 0.x can't generate castles from randomized back-ranks,
+    // so add the castle destinations ourselves as legal targets for the king.
+    if (state.is960 && window.CT_960Castle) {
+      const piece = state.game.get(name);
+      if (piece && piece.type === 'k' && piece.color === state.game.turn()) {
+        window.CT_960Castle.legalCastlingMoves(state.game, state.startFen960).forEach(d => {
+          // Standard 960 input is "king onto its own rook", so surface the rook
+          // square as a target (the rook hop is what the player clicks).
+          if (state.legalTargets.indexOf(d.rookFrom) === -1) state.legalTargets.push(d.rookFrom);
+          // Also surface the g/c king destination for the two-square input.
+          if (state.legalTargets.indexOf(d.kingTo) === -1) state.legalTargets.push(d.kingTo);
+        });
+      }
+    }
     renderBoard();
   }
   function clearSelection() {
@@ -2698,6 +2794,17 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
 
   function tryMove(from, to) {
+    // Chess960 castling: chess.js 0.x can't castle from randomized back-ranks,
+    // so detect a castle intent (king onto own rook, or king two+ squares toward
+    // a rook / to the g|c square) and execute it via our own validator, which
+    // FEN-surgers the resulting position into state.game. Returns a move-like
+    // object so afterMove() drives the normal re-render + AI-reply flow.
+    if (state.is960 && window.CT_960Castle) {
+      const desc = window.CT_960Castle.castleIntent(state.game, from, to, state.startFen960);
+      if (desc) {
+        return window.CT_960Castle.applyCastleDescriptor(state.game, desc);
+      }
+    }
     // Detect promotion need
     const piece = state.game.get(from);
     if (piece && piece.type === 'p') {
@@ -2869,20 +2976,29 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const g = state.game;                       // capture: skip if a new game starts mid-think
     const fen = g.fen();
     const aiElo = state.opponent.aiElo || 1200;
+    // In 960 the engine may return a real Chess960 castle descriptor (king + rook
+    // hop) instead of a chess.js move; pass the 960 start FEN so it can find them.
+    const startFen960 = state.is960 ? state.startFen960 : undefined;
     const apply = (m) => {
       state.aiThinking = false;
       // Bail if the game was reset/left while the worker was thinking, or the move
       // is no longer legal (defensive — the worker ran on a snapshot FEN).
       if (!m || state.game !== g || g.game_over()) return;
+      // 960 castle descriptor: apply via FEN surgery, not chess.js .move().
+      if (m.castle && m.kingFrom && window.CT_960Castle) {
+        const move = window.CT_960Castle.applyCastleDescriptor(g, m);
+        if (move) afterMove(move);
+        return;
+      }
       const move = g.move({ from: m.from, to: m.to, promotion: m.promotion || 'q' });
       if (move) afterMove(move);
     };
     // Prefer the off-thread (Web Worker) search so the UI never freezes; fall back
     // to the synchronous engine if Workers are unavailable.
     if (window.CT_AI && window.CT_AI.chooseMoveAsync) {
-      window.CT_AI.chooseMoveAsync(fen, aiElo).then(apply, () => { state.aiThinking = false; });
+      window.CT_AI.chooseMoveAsync(fen, aiElo, startFen960).then(apply, () => { state.aiThinking = false; });
     } else if (window.CT_AI) {
-      apply(window.CT_AI.chooseMove(g, aiElo));
+      apply(window.CT_AI.chooseMove(g, aiElo, startFen960));
     } else {
       state.aiThinking = false;
     }
@@ -3445,6 +3561,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   function renderRankingRows(players, serverBacked) {
     const wrap = $('#rank-list');
     if (!wrap) return;
+    const footer = $('#rank-footer-note');
+    if (footer) footer.textContent = serverBacked
+      ? 'Global rankings update as players around the world compete.'
+      : 'Showing local results — sign in for the global leaderboard.';
     const me = state.user;
     const info = METRIC_INFO[currentRankMetric] || METRIC_INFO.elo;
     if (!players.length) {
@@ -3713,12 +3833,34 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   if ($('#btn-premium-cancel-paid')) $('#btn-premium-cancel-paid').addEventListener('click', () => { setPremium(false); closeModal('premium'); });
   if ($('#btn-premium-close')) $('#btn-premium-close').addEventListener('click', () => closeModal('premium'));
 
+  // Static handlers formerly inline on* attributes in index.html. Removing
+  // 'unsafe-inline' from the CSP script-src blocks on* attributes, so we wire
+  // them here. Functions defined outside this IIFE (openAvatarEditor, signOut,
+  // renderFriendSearchResults) are referenced via window.* inside the handler so
+  // they resolve at click time (after the window.* assignments at file end run).
+  if ($('#lobby-premium-card')) $('#lobby-premium-card').addEventListener('click', () => openPremium());
+  if ($('#btn-open-avatar-editor')) $('#btn-open-avatar-editor').addEventListener('click', () => window.openAvatarEditor && window.openAvatarEditor());
+  if ($('#btn-view-profile')) $('#btn-view-profile').addEventListener('click', () => showScreen('profile'));
+  if ($('#btn-sign-out')) $('#btn-sign-out').addEventListener('click', () => window.signOut && window.signOut());
+  if ($('#toggle-sounds')) $('#toggle-sounds').addEventListener('change', function () { localStorage.setItem('ct_sounds', this.checked); });
+  if ($('#friend-search-input')) $('#friend-search-input').addEventListener('input', function () { window.renderFriendSearchResults && window.renderFriendSearchResults(this.value); });
+
+  // Document-level delegation for dynamically-rendered controls that aren't part
+  // of a dedicated modal container (e.g. the ad-slot "Remove ads" button which
+  // renderAdSlot() injects into the lobby/various screens). Inline onclick was
+  // removed for CSP, so dispatch on data-act here.
+  document.addEventListener('click', function (e) {
+    const t = e.target.closest('[data-act]');
+    if (!t) return;
+    if (t.getAttribute('data-act') === 'open-premium') openPremium();
+  });
+
   // Expose for academy.js
   window.CT = {
     get state(){ return state; },
     get user(){ return state.user; },
     setUser(u){ state.user = u; },
-    $, $$, openModal, closeModal, showScreen, showNav, toast,
+    $, $$, openModal, closeModal, showScreen, showNav, toast, ctCelebrate,
     loadDB, saveDB, pieceSVG, escapeHTML,
     ACHIEVEMENT_TIERS,
     hasAchievement, unlockAchievement, checkAchievementsFor, tierColor,
@@ -3859,15 +4001,27 @@ function openChat(roomId, label) {
   overlay.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#1a2438;border-bottom:1px solid #2d3a52;">
       <span style="font-weight:600;color:#cdd3e6;font-size:13px;">💬 ${escapeHTML(label||'Chat')}</span>
-      <button onclick="document.getElementById('ct-chat-overlay').remove()" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer;line-height:1;">×</button>
+      <button data-act="chat-close" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer;line-height:1;">×</button>
     </div>
     <div id="ct-chat-box" style="flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;"></div>
     <div style="padding:8px;border-top:1px solid #2d3a52;display:flex;gap:6px;">
       <input id="ct-chat-input" type="text" maxlength="500" placeholder="Type a message…" style="flex:1;background:#0d1422;border:1px solid #2d3a52;border-radius:8px;padding:7px 10px;color:#f0f0f0;font-size:13px;outline:none;"
-        onkeydown="if(event.key==='Enter'){window._sendChat();}">
-      <button onclick="window._sendChat()" style="background:#3b425a;border:none;border-radius:8px;color:#fff;padding:7px 12px;cursor:pointer;font-size:13px;">Send</button>
+        data-act="chat-input">
+      <button data-act="chat-send" style="background:#3b425a;border:none;border-radius:8px;color:#fff;padding:7px 12px;cursor:pointer;font-size:13px;">Send</button>
     </div>
   `;
+  // Delegated click + keydown for this overlay (CSP blocks inline on* handlers).
+  overlay.addEventListener('click', function (e) {
+    const t = e.target.closest('[data-act]');
+    if (!t || !overlay.contains(t)) return;
+    const act = t.getAttribute('data-act');
+    if (act === 'chat-close') overlay.remove();
+    else if (act === 'chat-send') window._sendChat && window._sendChat();
+  });
+  overlay.addEventListener('keydown', function (e) {
+    const t = e.target.closest('[data-act="chat-input"]');
+    if (t && e.key === 'Enter') window._sendChat && window._sendChat();
+  });
   document.body.appendChild(overlay);
   window._sendChat = function() {
     const inp = document.getElementById('ct-chat-input');
@@ -3923,14 +4077,14 @@ function openAvatarEditor() {
   modal.id = 'ct-avatar-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:#0009;z-index:9999;display:flex;align-items:center;justify-content:center;';
   const stockGrid = STOCK_AVATARS.map(av =>
-    `<button onclick="window._selectStockAvatar('${av.id}')" title="${av.label}"
+    `<button data-act="avatar-stock" data-id="${escapeHTML(av.id)}" title="${escapeHTML(av.label)}"
       style="width:52px;height:52px;border-radius:50%;background:${av.bg};border:${(user.avatarStock===av.id&&!user.avatarDataUrl)?'3px solid #6eb5ff':'2px solid #2d3a52'};cursor:pointer;font-size:26px;display:flex;align-items:center;justify-content:center;">${av.emoji}</button>`
   ).join('');
   modal.innerHTML = `
     <div style="background:#141d2b;border-radius:16px;padding:24px;width:340px;max-width:95vw;color:#f0f0f0;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
         <h3 style="margin:0;font-size:16px;">Edit Profile Picture</h3>
-        <button onclick="document.getElementById('ct-avatar-modal').remove()" style="background:none;border:none;color:#888;font-size:22px;cursor:pointer;">×</button>
+        <button data-act="avatar-close" style="background:none;border:none;color:#888;font-size:22px;cursor:pointer;">×</button>
       </div>
       <div style="text-align:center;margin-bottom:18px;">
         <div id="ct-avatar-preview" style="display:inline-block;">${getAvatarHTML(user, 72)}</div>
@@ -3941,18 +4095,32 @@ function openAvatarEditor() {
       </div>
       <div style="margin-bottom:16px;">
         <div style="font-size:12px;color:#888;margin-bottom:8px;">UPLOAD YOUR OWN (max 1MB)</div>
-        <input type="file" id="ct-avatar-upload" accept="image/*" style="display:none;" onchange="window._handleAvatarUpload(this)">
-        <button onclick="document.getElementById('ct-avatar-upload').click()"
+        <input type="file" id="ct-avatar-upload" accept="image/*" style="display:none;" data-act="avatar-upload">
+        <button data-act="avatar-choose"
           style="width:100%;padding:9px;background:#1a2438;border:1px dashed #3b425a;border-radius:8px;color:#aaa;cursor:pointer;font-size:13px;">
           📁 Choose Image…
         </button>
       </div>
       <div style="display:flex;gap:10px;margin-top:8px;">
-        <button onclick="window._clearCustomAvatar()" style="flex:1;padding:9px;background:#2d1a1a;border:none;border-radius:8px;color:#f0a0a0;cursor:pointer;font-size:13px;">Remove Custom</button>
-        <button onclick="document.getElementById('ct-avatar-modal').remove()" style="flex:1;padding:9px;background:#3b425a;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;">Done</button>
+        <button data-act="avatar-clear" style="flex:1;padding:9px;background:#2d1a1a;border:none;border-radius:8px;color:#f0a0a0;cursor:pointer;font-size:13px;">Remove Custom</button>
+        <button data-act="avatar-close" style="flex:1;padding:9px;background:#3b425a;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;">Done</button>
       </div>
     </div>
   `;
+  // Delegated handler for this modal (CSP blocks inline on* handlers).
+  modal.addEventListener('click', function (e) {
+    const t = e.target.closest('[data-act]');
+    if (!t || !modal.contains(t)) return;
+    const act = t.getAttribute('data-act');
+    if (act === 'avatar-close') modal.remove();
+    else if (act === 'avatar-stock') window._selectStockAvatar && window._selectStockAvatar(t.getAttribute('data-id'));
+    else if (act === 'avatar-choose') { const up = document.getElementById('ct-avatar-upload'); if (up) up.click(); }
+    else if (act === 'avatar-clear') window._clearCustomAvatar && window._clearCustomAvatar();
+  });
+  modal.addEventListener('change', function (e) {
+    const t = e.target.closest('[data-act="avatar-upload"]');
+    if (t) window._handleAvatarUpload && window._handleAvatarUpload(t);
+  });
   document.body.appendChild(modal);
 
   window._selectStockAvatar = function(avId) {
@@ -3964,8 +4132,8 @@ function openAvatarEditor() {
     ctSyncAvatar(state.user);
     document.getElementById('ct-avatar-preview').innerHTML = getAvatarHTML(state.user, 72);
     // Refresh stock grid borders
-    document.querySelectorAll('#ct-avatar-modal button[onclick*="_selectStockAvatar"]').forEach(btn => {
-      const id = btn.getAttribute('onclick').match(/'([^']+)'/)[1];
+    document.querySelectorAll('#ct-avatar-modal button[data-act="avatar-stock"]').forEach(btn => {
+      const id = btn.getAttribute('data-id');
       btn.style.border = (id === avId) ? '3px solid #6eb5ff' : '2px solid #2d3a52';
     });
     toast('Avatar updated!', true);
@@ -4032,7 +4200,7 @@ function openReportDialog(targetUserId, targetUsername) {
   modal.id = 'ct-report-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:#0009;z-index:9999;display:flex;align-items:center;justify-content:center;';
   const reasonOpts = REPORT_REASONS.map((r,i) =>
-    `<label style="display:flex;align-items:center;gap:8px;padding:6px;border-radius:6px;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background='#1a2438'" onmouseout="this.style.background=''" >
+    `<label data-act="report-reason-row" style="display:flex;align-items:center;gap:8px;padding:6px;border-radius:6px;cursor:pointer;transition:background 0.15s;">
       <input type="radio" name="ct-report-reason" value="${i}" style="accent-color:#6eb5ff;"> <span style="font-size:13px;">${escapeHTML(r)}</span>
     </label>`
   ).join('');
@@ -4040,7 +4208,7 @@ function openReportDialog(targetUserId, targetUsername) {
     <div style="background:#141d2b;border-radius:16px;padding:24px;width:360px;max-width:95vw;color:#f0f0f0;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
         <h3 style="margin:0;font-size:15px;">🚩 Report User</h3>
-        <button onclick="document.getElementById('ct-report-modal').remove()" style="background:none;border:none;color:#888;font-size:22px;cursor:pointer;">×</button>
+        <button data-act="report-close" style="background:none;border:none;color:#888;font-size:22px;cursor:pointer;">×</button>
       </div>
       <p style="color:#aaa;font-size:13px;margin:0 0 14px;">Reporting: <strong style="color:#f0f0f0;">${escapeHTML(targetUsername||targetUserId)}</strong></p>
       <div style="margin-bottom:14px;">
@@ -4053,11 +4221,27 @@ function openReportDialog(targetUserId, targetUsername) {
           style="width:100%;box-sizing:border-box;background:#0d1422;border:1px solid #2d3a52;border-radius:8px;padding:8px;color:#f0f0f0;font-size:13px;resize:vertical;outline:none;"></textarea>
       </div>
       <div style="display:flex;gap:10px;">
-        <button onclick="document.getElementById('ct-report-modal').remove()" style="flex:1;padding:10px;background:#1a2438;border:1px solid #2d3a52;border-radius:8px;color:#aaa;cursor:pointer;font-size:13px;">Cancel</button>
-        <button onclick="window._submitReport('${escapeHTML(targetUserId)}','${escapeHTML(targetUsername||targetUserId)}')" style="flex:1;padding:10px;background:#8b2020;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">Submit Report</button>
+        <button data-act="report-close" style="flex:1;padding:10px;background:#1a2438;border:1px solid #2d3a52;border-radius:8px;color:#aaa;cursor:pointer;font-size:13px;">Cancel</button>
+        <button data-act="report-submit" data-id="${escapeHTML(targetUserId)}" data-username="${escapeHTML(targetUsername||targetUserId)}" style="flex:1;padding:10px;background:#8b2020;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">Submit Report</button>
       </div>
     </div>
   `;
+  // Delegated handlers for this modal (CSP blocks inline on* handlers).
+  modal.addEventListener('click', function (e) {
+    const t = e.target.closest('[data-act]');
+    if (!t || !modal.contains(t)) return;
+    const act = t.getAttribute('data-act');
+    if (act === 'report-close') modal.remove();
+    else if (act === 'report-submit') window._submitReport && window._submitReport(t.getAttribute('data-id'), t.getAttribute('data-username'));
+  });
+  modal.addEventListener('mouseover', function (e) {
+    const t = e.target.closest('[data-act="report-reason-row"]');
+    if (t && modal.contains(t)) t.style.background = '#1a2438';
+  });
+  modal.addEventListener('mouseout', function (e) {
+    const t = e.target.closest('[data-act="report-reason-row"]');
+    if (t && modal.contains(t)) t.style.background = '';
+  });
   document.body.appendChild(modal);
 
   window._submitReport = function(tid, tname) {

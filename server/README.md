@@ -145,6 +145,73 @@ already prefers WebSocket. Verified with two instances + a shared Redis: players
 on different instances match, exchange moves with synced clocks, reconnect on the
 other instance, and rematch — for both 1v1 and 2v2.
 
+## Persistence backends (SQLite default; PostgreSQL for horizontal scale)
+
+Addresses audit finding **PE-M1**: the app advertises horizontal scaling (Redis
+socket layer) but historically funnelled *all* persistence through a single
+synchronous `better-sqlite3` file, which becomes a write-lock / event-loop
+bottleneck once you run more than one replica.
+
+There are now **two interchangeable persistence backends** behind one async
+data-access facade (`store.js`):
+
+| Backend | When | Module | Notes |
+|---|---|---|---|
+| **SQLite** (default) | `DATABASE_URL` unset | `db.js` | Zero config. Embedded file at `DATABASE_PATH`. What local dev and the test suite use. Behavior unchanged. |
+| **PostgreSQL** (scalable) | `DATABASE_URL` set | `db-pg.js` | `node-postgres` connection pool. Scales horizontally across replicas; no single-writer file lock. |
+
+The schema is ported 1:1 to Postgres (see `db-pg.js`). SQL translations applied:
+`?` placeholders → `$1,$2,…`; `json_array_length(col)` →
+`jsonb_array_length(col::jsonb)`; `LIKE … COLLATE NOCASE` → `ILIKE`;
+`INSERT OR IGNORE` → `INSERT … ON CONFLICT DO NOTHING`; integer ms time columns →
+`BIGINT`. Parameterized queries, the `topByMetric` allowlist, and the LIKE-escape
+hardening are preserved identically on both backends. Transactions are atomic on
+both (better-sqlite3 `db.transaction()` / Postgres `BEGIN`…`COMMIT` on a pooled
+client with rollback on throw), exposed via `store.runTransaction(fn)`.
+
+To enable Postgres: provision a database, set `DATABASE_URL` (and `REDIS_URL` for
+the socket layer), then raise `deploy.numReplicas`. The schema is created
+automatically on boot (`CREATE TABLE IF NOT EXISTS`). See `.env.example` for
+`PGPOOL_MAX` / `PGSSL` tuning.
+
+> **Migration status:** PE-M1 is now **fully closed** — with `DATABASE_URL` set,
+> *all* persistence (HTTP/auth/rankings **and** the real-time live-game / ELO
+> path) goes to Postgres. SQLite remains the zero-config default and its proven
+> path is unchanged (validated by `npm run smoke:2v2`, `test:verify`,
+> `test:rankings`).
+>
+> **Converted to the backend-agnostic `store.*` API (work on SQLite *and*
+> Postgres):**
+> - `auth.js` — `signup`, `login`, `requireAuth` (async), password reset, email
+>   verification issue/verify/resend, change-password. Email upsert uses
+>   `ON CONFLICT … DO UPDATE`, valid on both engines.
+> - `server.js` — all HTTP routes: `/api/rankings`, `/api/users/search`, avatar,
+>   friends, blocks, `/api/games/recent`, `/api/progress`.
+> - `game.js`, `scale-store.js`, `scale-team.js` — the real-time matchmaking /
+>   live-game path: the `getUserById` display/elo reads, the `areBlocked`
+>   matchmaking predicates, and the 1v1 + 2v2 `ELO`+game-result write blocks.
+>
+> **Dual-path design (non-negotiable constraint):** better-sqlite3 transactions
+> are **synchronous** and cannot span `await`, so the code **branches on the
+> backend** rather than forcing one path:
+> - When `store.usingPostgres` is **false**, the proven synchronous SQLite path
+>   runs essentially byte-for-byte: direct `db.transaction(() => { … })()` with
+>   synchronous `db.getUserById` / `areBlocked`. Zero behavior change.
+> - When `store.usingPostgres` is **true**, an async path performs the same
+>   reads/writes via the facade inside `await store.runTransaction(async (tx) => {
+>   … })` (Postgres `BEGIN`/`COMMIT`/`ROLLBACK` on one pooled client; every query
+>   in `fn` is bound to that transaction client). `areBlocked` is hoisted out of
+>   the `.find()` matchmaking predicate into an awaited loop; reads feeding socket
+>   responses use `await store.getUserById`.
+>
+> The shared computed values (new ELOs, win/loss/draw/streak deltas, the game
+> record fields) are factored out so the two branches differ only in *how* they
+> persist. SQL added on the Postgres branch is portable via the `toPg` translator
+> (`?`→`$n`), with two hand-applied translations the translator does not cover:
+> SQLite's 2-arg `MAX(best_streak, …)` → Postgres `GREATEST(…)`, and
+> `CASE WHEN <int> THEN` → `CASE WHEN <int> = 1 THEN` (Postgres `CASE WHEN` needs
+> a boolean, not a 0/1 integer).
+
 ## Architecture notes
 
 - All moves are validated server-side using `chess.js` (the same library the client uses) — clients can't cheat by sending illegal moves

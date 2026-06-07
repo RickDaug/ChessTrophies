@@ -267,7 +267,7 @@
         { h: 'Why it wins and draws games' },
         { p: 'Holding the opposition is frequently the difference between promoting your last pawn and watching the game fizzle into a draw. With a pawn and a king against a lone king, the attacker must use the opposition to force the defending king out of the pawn’s path. Get the opposition at the right moment and the pawn marches to a new queen; lose it by a single tempo and the same position is a dead draw.' },
         { h: 'How to grab it' },
-        { p: 'To take the opposition, aim to be the one moving your king to face the enemy king with one square between you, so that they must move next. A handy guide: when there is an even number of squares between the kings on the file, the player to move can usually seize the opposition. It feels abstract at first, but set up a king and pawn against a king and push them around, and within an afternoon the pattern clicks. Master this single idea and you will win endgames that you used to throw away.' }
+        { p: 'To take the opposition, aim to be the one moving your king to face the enemy king with one square between you, so that they must move next. A handy guide: when an ODD number of squares separates the kings on the file (one square for the direct opposition) and it is your opponent’s move, you already hold the opposition; when an EVEN number of squares separates them and it is your move, you can step forward to seize it. It feels abstract at first, but set up a king and pawn against a king and push them around, and within an afternoon the pattern clicks. Master this single idea and you will win endgames that you used to throw away.' }
       ]
     },
     {

@@ -2,17 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<script>
-  // Global error visibility — surface field failures that would otherwise be silent.
-  window.addEventListener('error', function (e) {
-    try { console.error('[CT error]', (e && e.message) || e, e && e.filename, e && e.lineno); } catch (_) {}
-  });
-  window.addEventListener('unhandledrejection', function (e) {
-    try { console.error('[CT error] unhandled rejection:', e && e.reason); } catch (_) {}
-  });
-</script>
+<!-- Global error visibility — installs error/unhandledrejection handlers before
+     anything else. Externalized to a same-origin file so script-src can drop
+     'unsafe-inline'. Must stay the FIRST script and load synchronously. -->
+<script src="ct-onerror.js?v=20260606c"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://chesstrophies-production.up.railway.app wss://chesstrophies-production.up.railway.app; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';" />
+<!-- Content-Security-Policy: script-src is hardened to 'self' (+ cdnjs for
+     socket.io) — NO 'unsafe-inline', so injected inline scripts/handlers can't
+     execute. All formerly-inline scripts are externalized and all on* handlers
+     are wired via addEventListener / delegation. NOTE: style-src intentionally
+     KEEPS 'unsafe-inline' because the app generates HTML with many inline
+     style="" attributes; removing that is a separate CSS refactor. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://chesstrophies-production.up.railway.app wss://chesstrophies-production.up.railway.app; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';" />
 <meta name="theme-color" content="#f5c451" />
 <title>ChessTrophies</title>
 <meta name="description" content="Play ranked online chess (1v1 & 2v2), climb the ELO ladder, earn trophies, practice vs the computer, and learn with free lessons. Jump in free." />
@@ -40,7 +41,7 @@
 
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
-<link rel="apple-touch-icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -493,12 +494,17 @@
       <h1>ChessTrophies</h1>
       <p>Play. Win streaks. Earn trophies.</p>
     </div>
+
+    <!-- Fastest path to playing: jump straight into a guest game, no account needed. -->
+    <button type="button" id="btn-play-now" class="btn btn-block" style="margin-bottom:6px">▶ Play now</button>
+    <p class="muted center small" style="margin:0 0 16px">No sign-up needed — start a game in one tap.</p>
+
     <div class="tabs">
-      <div class="tab active" data-tab="login">Sign in</div>
-      <div class="tab" data-tab="signup">Create account</div>
+      <div class="tab" data-tab="login">Sign in</div>
+      <div class="tab active" data-tab="signup">Create account</div>
     </div>
 
-    <form id="form-login" class="auth-form">
+    <form id="form-login" class="auth-form" style="display:none">
       <label for="login-email">Email</label>
       <input type="email" id="login-email" autocomplete="email" required>
       <label for="login-password">Password</label>
@@ -510,7 +516,7 @@
       </p>
     </form>
 
-    <form id="form-signup" class="auth-form" style="display:none">
+    <form id="form-signup" class="auth-form">
       <label for="signup-username">Username</label>
       <input type="text" id="signup-username" autocomplete="username" required minlength="3" maxlength="20">
       <label for="signup-email">Email</label>
@@ -521,11 +527,13 @@
       <input type="text" id="signup-region" placeholder="e.g. Austin, USA">
       <label for="signup-skill">Skill level (sets your starting rating)</label>
         <select id="signup-skill">
+          <option value="" selected disabled>Choose your level…</option>
           <option value="400">New to chess – 400</option>
           <option value="800">Beginner – 800</option>
-          <option value="1200" selected>Intermediate – 1200</option>
+          <option value="1200">Intermediate – 1200</option>
           <option value="1600">Advanced – 1600</option>
         </select>
+        <p class="muted small" style="margin:6px 0 0;font-size:11px">ELO is your chess rating — higher means stronger. New players usually start around 400–800.</p>
         <div class="error" id="signup-error"></div>
       <button type="submit" class="btn btn-block" style="margin-top:14px">Create account</button>
     </form>
@@ -571,13 +579,17 @@
     </div>
 
     <div class="stat-grid">
-      <div class="stat"><div class="v" id="stat-elo">1200</div><div class="l">ELO</div></div>
+      <div class="stat" title="ELO is your chess rating — it goes up when you win ranked games and down when you lose. Higher is stronger."><div class="v" id="stat-elo">1200</div><div class="l">ELO</div></div>
       <div class="stat"><div class="v" id="stat-wins">0</div><div class="l">Wins</div></div>
       <div class="stat"><div class="v" id="stat-streak">0</div><div class="l">Streak</div></div>
     </div>
 
+    <!-- Daily Challenge card (rendered by daily-challenge.js). Sits above the ad /
+         premium cards so it's the first compelling thing a returning user sees. -->
+    <div id="daily-card"></div>
+
     <div id="lobby-ad-slot"></div>
-    <div class="premium-card" id="lobby-premium-card" onclick="window.CT && window.CT.openPremium()">
+    <div class="premium-card" id="lobby-premium-card">
       <div class="pc-row">
         <div class="pc-icon">⭐</div>
         <div style="flex:1">
@@ -603,11 +615,6 @@
       </div>
     </div>
     <div class="card">
-      <h3 style="margin-bottom:8px">Challenge a player</h3>
-      <p class="muted small" style="margin:0 0 12px">Get matched with an online player near your ELO for a ranked game.</p>
-      <button class="btn btn-secondary btn-block" id="btn-new-match">Start a challenge</button>
-    </div>
-    <div class="card">
       <h3 style="margin-bottom:8px">Practice vs computer</h3>
       <p class="muted small" style="margin:0 0 12px">Sharpen your skills — practice games don't affect your ELO.</p>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px;flex-wrap:wrap;">
@@ -619,8 +626,11 @@
       </div>
       <input type="range" id="practice-elo" min="100" max="2800" step="100" value="1200" style="width:100%;margin-bottom:12px;">
       <button class="btn btn-block" id="btn-start-practice">Start Practice Game</button>
+        <!-- chess960: re-enabled. Real Fischer Random castling lives in
+             chess960.js (window.CT_960Castle) and is wired into the human-move
+             path in app.js. -->
         <button class="btn btn-block" id="btn-start-960" style="margin-top:8px;background:#2a3142;color:var(--accent,#ffd97a);border:1px solid var(--accent,#ffd97a)">♞ Play Fischer Random Chess</button>
-        <p class="muted small" style="margin:6px 0 0">Pieces shuffled into one of hundreds of starting setups — pure skill, no memorized openings.</p>
+        <p class="muted small" style="margin:6px 0 0">Pieces shuffled into one of hundreds of starting setups — pure skill, no memorized openings. To castle, move your king onto your own rook (or two squares toward it).</p>
     </div>
 
     <section style="margin-top:18px">
@@ -636,8 +646,8 @@
   </section>
 
   <!-- Connection / opponent status banners (fixed, online 1v1). JS shows/hides. -->
-  <div id="net-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:1200;padding:8px 12px;text-align:center;font-size:14px;font-weight:600;color:#fff;background:#b45309;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
-  <div id="opp-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:1199;padding:8px 12px;text-align:center;font-size:14px;font-weight:600;color:#fff;background:#1e3a8a;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
+  <div id="net-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:1200;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;text-align:center;font-size:14px;font-weight:600;color:#fff;background:#b45309;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
+  <div id="opp-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:1199;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;text-align:center;font-size:14px;font-weight:600;color:#fff;background:#1e3a8a;box-shadow:0 2px 8px rgba(0,0,0,.3)"></div>
 
   <!-- GAME -->
   <section id="screen-game" class="screen">
@@ -757,7 +767,7 @@
       <div class="rank-size" data-size="all">All-time</div>
     </div>
     <div id="rank-list"></div>
-    <p class="muted small center" style="margin-top:20px">Phase 2 will connect this to global servers — for now you see everyone who's signed up on this device.</p>
+    <p class="muted small center" id="rank-footer-note" style="margin-top:20px">Global rankings update as players around the world compete.</p>
   </section>
 
   <!-- TROPHIES -->
@@ -804,6 +814,22 @@
     <button class="btn btn-block" id="lesson-next" style="display:none;margin-top:10px">Next lesson →</button>
   </section>
 
+  <!-- DAILY CHALLENGE -->
+  <section id="screen-daily" class="screen">
+    <div class="row between" style="padding:4px 0 6px">
+      <button class="btn btn-ghost small" id="daily-back">← Back</button>
+      <div class="pill gold">Daily Challenge</div>
+      <span style="width:60px"></span>
+    </div>
+    <h2 id="daily-title">Daily Challenge</h2>
+    <p class="muted small" id="daily-desc" style="margin:4px 0 6px">—</p>
+    <div class="pill gold" id="daily-side" style="display:inline-block">White to move</div>
+    <div style="margin:12px 0">
+      <div class="lesson-board board" id="daily-board"></div>
+    </div>
+    <div id="daily-feedback" class="card center" style="min-height:34px">&nbsp;</div>
+  </section>
+
   <!-- SETTINGS -->
   <section id="screen-settings" class="screen">
       <div class="top-bar"><h1>Settings</h1></div>
@@ -821,10 +847,10 @@
         <!-- PROFILE PERSONALIZATION -->
         <div class="settings-section">
           <h3>👤 Profile</h3>
-          <button onclick="openAvatarEditor()" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:8px;">
+          <button id="btn-open-avatar-editor" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:8px;">
             🖼️ &nbsp; Change Profile Picture
           </button>
-          <button onclick="showScreen('profile')" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;">
+          <button id="btn-view-profile" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;">
             ✏️ &nbsp; View My Profile
           </button>
         </div>
@@ -835,7 +861,7 @@
           <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;">
             <span style="font-size:14px;color:var(--text);">Game sounds</span>
             <label style="position:relative;display:inline-block;width:42px;height:24px;">
-              <input type="checkbox" id="toggle-sounds" checked style="opacity:0;width:0;height:0;" onchange="localStorage.setItem('ct_sounds', this.checked)">
+              <input type="checkbox" id="toggle-sounds" checked style="opacity:0;width:0;height:0;">
               <span id="toggle-sounds-track" style="position:absolute;cursor:pointer;inset:0;background:var(--accent);border-radius:24px;transition:.2s;"></span>
               <span id="toggle-sounds-thumb" style="position:absolute;content:'';height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;"></span>
             </label>
@@ -849,7 +875,7 @@
           <button id="btn-change-password" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:8px;">
             🔑 &nbsp; Change Password
           </button>
-          <button onclick="signOut()" style="width:100%;padding:11px;background:#8b2020;border:none;border-radius:10px;color:#fff;font-size:14px;cursor:pointer;font-weight:600;">Sign Out</button>
+          <button id="btn-sign-out" style="width:100%;padding:11px;background:#8b2020;border:none;border-radius:10px;color:#fff;font-size:14px;cursor:pointer;font-weight:600;">Sign Out</button>
         </div>
 
       </div>
@@ -862,8 +888,7 @@
       <div style="padding:12px 16px 0;">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center;">
           <input id="friend-search-input" type="text" placeholder="Search by username…"
-            style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;"
-            oninput="renderFriendSearchResults(this.value)">
+            style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;">
           <button class="btn btn-secondary small" id="btn-add-friend" style="padding:10px 14px;white-space:nowrap;">+ Add friend</button>
         </div>
         <div id="friend-search-results" style="margin-bottom:16px;"></div>
@@ -935,7 +960,8 @@
   <div class="modal">
     <div class="handle"></div>
     <h2 style="margin:0 0 4px" id="tc-title">Choose a time control</h2>
-    <p class="muted small" id="tc-subtitle" style="margin:0 0 14px">Both players must pick the same time control to be matched.</p>
+    <p class="muted small" id="tc-subtitle" style="margin:0 0 4px">Both players must pick the same time control to be matched.</p>
+    <p class="muted small" style="margin:0 0 14px;font-size:11px">e.g. "10+0" = 10 minutes each, no added time per move.</p>
     <div class="tc-grid" id="tc-grid"></div>
     <div class="stack" style="margin-top:16px">
       <button class="btn btn-block" id="btn-tc-start">Find match</button>
@@ -1065,7 +1091,7 @@
     <!-- Step 2: enter the code + a new password -->
     <div id="forgot-step-2" style="display:none">
       <p class="muted small" style="margin:4px 0 4px">Enter the reset code and choose a new password.</p>
-      <p class="muted small" style="margin:0 0 12px;font-size:11px">Note: email isn't wired up in this build, so your reset code is shown below (and logged on the server) instead of being emailed.</p>
+      <p class="muted small" id="forgot-code-hint" style="margin:0 0 12px;font-size:11px">Check your email for the reset code, then paste it below.</p>
       <label for="reset-code">Reset code</label>
       <input type="text" id="reset-code" autocomplete="off" placeholder="Paste the reset code">
       <label for="reset-new-password" style="margin-top:10px;display:block">New password</label>
@@ -1142,7 +1168,7 @@
       <button class="btn btn-secondary" id="btn-room-copy" style="flex:1">Copy code</button>
       <button class="btn btn-secondary" id="btn-room-toggle" style="flex:1">Switch to ranked</button>
     </div>
-    <p class="muted small center" style="margin-top:14px">Phase 2 of the app will pair players online via this code. For now, hand your device to your opponent — they sign in with their account and join the room.</p>
+    <p class="muted small center" style="margin-top:14px">This is a pass-and-play room: hand your device to your opponent — they sign in with their account on this device and join the room, then you both play on the same screen.</p>
     <div class="stack" style="margin-top:10px">
       <button class="btn btn-block" id="btn-room-start">Opponent ready — start match</button>
       <button class="btn btn-ghost btn-block" id="btn-room-cancel">Cancel</button>
@@ -1163,16 +1189,16 @@
         <li>No ads anywhere in the app</li>
         <li>⭐ Premium badge on your profile and rank rows</li>
         <li>Support continued development</li>
-        <li>Early access to new themes and lessons (Phase 2)</li>
+        <li>Early access to new themes and lessons</li>
       </ul>
     </div>
-    <p class="muted small center" style="margin:10px 0">$4.99 / month · Cancel anytime</p>
+    <p class="muted small center" style="margin:10px 0">Free preview · Cancel anytime</p>
     <div class="stack">
-      <button class="btn btn-block" id="btn-premium-buy">Upgrade · $4.99/mo</button>
+      <button class="btn btn-block" id="btn-premium-buy">Upgrade — free preview</button>
       <button class="btn btn-secondary btn-block" id="btn-premium-cancel-paid" style="display:none">Cancel subscription</button>
       <button class="btn btn-ghost btn-block" id="btn-premium-close">Not now</button>
     </div>
-    <p class="muted small center" style="margin-top:14px;line-height:1.5">Demo build: tapping Upgrade flips a local flag — no real payment is processed. Replace this with Stripe / Apple IAP / Google Play Billing in production.</p>
+    <p class="muted small center" style="margin-top:14px;line-height:1.5">Premium is in preview — upgrading is free for now and just unlocks the perks above. Paid billing is coming soon.</p>
   </div>
 </div>
 
@@ -1218,41 +1244,26 @@
 </div>
 
 <!-- chess.js (move validation, check/mate detection) -->
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-      if (typeof Chess === 'undefined') {
-        const warn = document.createElement('div');
-      warn.style.cssText = 'max-width:480px;margin:0 auto;padding:24px 18px;color:#fff;font-family:Inter,Arial,sans-serif;line-height:1.5;';
-      warn.textContent = 'Chess.js failed to load. Please refresh the page or check your network connection.';
-      document.body.appendChild(warn);
-      }
-    });
-  </script>
+<script src="ct-chess-check.js?v=20260606c"></script>
 <script src="chess.min.js?v=20260530m"></script>
-<script src="chess960.js?v=20260531c"></script>
+<script src="chess960.js?v=20260606b"></script>
 <script src="sounds.js?v=20260530m"></script>
 <script src="stockfish-ai.js?v=20260530m"></script>
 <script src="config.js?v=20260531d"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="ct-socket-fallback.js?v=20260606c"></script>
 <script src="ct-auth.js?v=20260603a"></script>
 <script src="ct-net.js?v=20260601a"></script>
 <script src="ct-ai.js?v=20260604a"></script>
 <script src="trophy-data.js?v=20260603a"></script>
 <script src="ct-duo.js?v=20260603a"></script>
 <script src="ct-ads.js?v=20260603a"></script>
-  <script src="app.js?v=20260604c"></script>
+  <script src="app.js?v=20260606c"></script>
 <script src="academy.js?v=20260531c"></script>
+<script src="daily-challenge.js?v=20260606a"></script>
     <script src="review.js?v=20260604a"></script>
     <script src="trophy-extras.js?v=20260531a"></script>
     <script src="learn-library.js?v=20260531c"></script>
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js').catch(function (err) {
-        console.warn('Service worker registration skipped:', err);
-      });
-    });
-  }
-</script>
+<script src="ct-sw-register.js?v=20260606c"></script>
 </body>
 </html>

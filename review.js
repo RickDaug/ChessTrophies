@@ -2,11 +2,13 @@
  * review.js -- ChessTrophies Game Review (self-contained module).
  *
  * After a game ends, app.js calls window.CT_reviewGame(history, startFen).
- * We replay the moves through chess.js, score each resulting position with a
- * lightweight material+mobility heuristic (Stockfish is intentionally disabled
- * in this build -- see stockfish-ai.js), compare each played move against the
- * heuristic best move at 1-ply, classify it, and present an accuracy summary
- * with a navigable board. Decoupled from app.js internals; uses window.CT + window.Chess.
+ * We replay the moves through chess.js, score each resulting position with the
+ * SAME engine that picks the computer's moves (window.CT_AI from ct-ai.js:
+ * minimax + quiescence + piece-square tables), compare each played move against
+ * the engine's best move at a modest depth, classify it, and present an accuracy
+ * summary with a navigable board. This is a fast in-browser engine, not
+ * Stockfish, so verdicts are approximate (see DISCLAIMER below).
+ * Decoupled from app.js internals; uses window.CT + window.Chess + window.CT_AI.
  */
 (function () {
   'use strict';
@@ -48,13 +50,20 @@
   }
   console.log('[review] module loaded');
 
-  // Classify a move by how much eval (from the mover's perspective) it lost vs best.
+  // One-line honesty note shown in the review UI: this is a fast browser engine,
+  // not a top engine, so its judgements are approximate.
+  var DISCLAIMER = 'Approximate analysis by a fast in-browser engine — not a definitive evaluation.';
+
+  // Classify a move by how much eval (from the mover's perspective) it lost vs the
+  // engine's best. Labels are deliberately lower-confidence wording (DX-7): the
+  // CSS/keys (`cls`) are unchanged so styling and downstream checks keep working;
+  // only the human-readable `tag` text is softened.
   function classify(loss) {
-    if (loss <= 20) return { tag: 'Best', cls: 'best' };
-    if (loss <= 60) return { tag: 'Good', cls: 'good' };
+    if (loss <= 20) return { tag: 'Good move', cls: 'best' };
+    if (loss <= 60) return { tag: 'Solid', cls: 'good' };
     if (loss <= 150) return { tag: 'Inaccuracy', cls: 'inacc' };
-    if (loss <= 300) return { tag: 'Mistake', cls: 'mistake' };
-    return { tag: 'Blunder', cls: 'blunder' };
+    if (loss <= 300) return { tag: 'Likely mistake', cls: 'mistake' };
+    return { tag: 'Likely blunder', cls: 'blunder' };
   }
 
   // --- Engine-backed evaluation (falls back to the local heuristic) ----------
@@ -69,7 +78,10 @@
     return null;
   }
 
-  var MATE_CP = 90000;
+  // Anything at or beyond this magnitude is a forced mate, not material. The
+  // engine (ct-ai.js) returns mate scores near +/-1,000,000 (MATE_BASE - ply);
+  // the local fallback uses +/-100,000. 50,000 sits safely above any material eval.
+  var MATE_CP = 50000;
   // Format a white-positive cp score as a short label, e.g. "+1.4", "-2.0", "M".
   function fmtEval(cp) {
     if (cp >= MATE_CP) return '+M';
@@ -106,8 +118,13 @@
       if (!res) { break; }
       var fenAfter = g.fen();
       var playedWhite = engineEval(fenAfter, Math.max(0, depth - 1));
-      // Loss from the mover's perspective (white-cp normalised by side).
-      var loss = Math.max(0, mover === 'w' ? (bestWhite - playedWhite) : (playedWhite - bestWhite));
+      // Loss from the mover's perspective (white-cp normalised by side). Cap it:
+      // when a position is winning/losing by force the engine returns huge mate
+      // scores (~+/-1,000,000), so an uncapped diff would dwarf the average and
+      // make one move dominate the accuracy. 1000cp (~a queen) is plenty to mark
+      // a blunder without distorting the mean.
+      var rawLoss = mover === 'w' ? (bestWhite - playedWhite) : (playedWhite - bestWhite);
+      var loss = Math.max(0, Math.min(1000, rawLoss));
       var k = classify(loss);
       lossByColor[mover].push(loss);
       // Surface a "best was ..." hint only when the played move wasn't best/good.
@@ -119,9 +136,15 @@
     function acc(losses) {
       if (!losses.length) return 100;
       var avg = losses.reduce(function (a, b) { return a + b; }, 0) / losses.length;
-      // map average centipawn loss to a friendly accuracy %
-      var a = 100 - (avg / 8);
-      return Math.max(20, Math.min(100, Math.round(a)));
+      // Map average centipawn loss to accuracy with a smooth exponential decay:
+      //   accuracy = 100 * exp(-avgCpLoss / K)
+      // This is monotonic and bounded (0,100]: 0 cp loss -> 100%, and it decays
+      // steeply enough that hanging material tanks the score (unlike the old
+      // 100 - avg/8, which still gave ~80% to a ~150cp average). With K = 250:
+      //   ~20cp -> 92%, ~60cp -> 79%, ~150cp -> 55%, ~300cp -> 30%, ~600cp -> 9%.
+      var K = 250;
+      var a = 100 * Math.exp(-avg / K);
+      return Math.max(0, Math.min(100, Math.round(a)));
     }
     return { rows: rows, accWhite: acc(lossByColor.w), accBlack: acc(lossByColor.b), startEval: startEval };
   }
@@ -232,6 +255,7 @@
       '    <div class="rv-acc-item"><label>Black</label><span id="rv-acc-b">--</span></div>',
       '  </div>',
       '  <div class="rv-status" id="rv-status"></div>',
+      '  <div class="rv-disclaimer" id="rv-disclaimer"></div>',
       '  <div class="rv-boardwrap">',
       '    <div class="rv-evalbar"><div class="rv-evalfill" id="rv-evalfill"></div><span class="rv-evalnum" id="rv-evalnum"></span></div>',
       '    <div class="rv-board" id="rv-board"></div>',
@@ -249,6 +273,7 @@
       '</div>'
     ].join('');
     document.body.appendChild(d);
+    var disc = document.getElementById('rv-disclaimer'); if (disc) disc.textContent = DISCLAIMER;
     d.addEventListener('click', function (e) {
       var t = e.target;
       if (t.id === 'rv-close' || t.id === 'modal-review') close();

@@ -13,8 +13,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 FILES=(
-  index.html app.js academy.js sounds.js stockfish-ai.js
+  index.html app.js academy.js daily-challenge.js sounds.js stockfish-ai.js
   chess.min.js chess960.js config.js ct-auth.js ct-net.js ct-ai.js ct-ai-worker.js ct-duo.js
+  ct-onerror.js ct-chess-check.js ct-socket-fallback.js ct-sw-register.js
   trophy-data.js
   review.js trophy-extras.js learn-library.js ct-ads.js sw.js manifest.json
   terms.html privacy.html
@@ -41,6 +42,14 @@ fi
 cp "${FILES[@]}" www/
 echo "    copied ${#FILES[@]} files into www/"
 
+# Vendor fallback assets live in a subdir and are referenced by index.html as
+# vendor/... (e.g. the local socket.io fallback used when the CDN is blocked).
+if [ -d vendor ]; then
+  mkdir -p www/vendor
+  cp vendor/* www/vendor/
+  echo "    copied vendor/ fallback assets into www/vendor/"
+fi
+
 # --- Patch 1: CSP connect-src must include the Vercel origin (idempotent) ---
 if grep -q 'playchesstrophies.com' www/index.html; then
   echo "==> CSP: Vercel origin already present, skipping"
@@ -55,7 +64,9 @@ else
 fi
 
 # --- Patch 2: guard service-worker registration against Capacitor (idempotent) ---
-# Use whichever Python is on PATH (python3 on most systems, python on Windows).
+# The SW registration was externalized from index.html into ct-sw-register.js
+# (so the CSP can drop script-src 'unsafe-inline'), so this patch now targets
+# that file. Use whichever Python is on PATH (python3 most places, python on Win).
 if command -v python3 >/dev/null 2>&1; then
   PYTHON=python3
 elif command -v python >/dev/null 2>&1; then
@@ -67,7 +78,7 @@ fi
 
 "$PYTHON" - <<'PYEOF'
 import sys
-p = 'www/index.html'
+p = 'www/ct-sw-register.js'
 s = open(p, encoding='utf-8').read()
 guarded = "if (!window.Capacitor && 'serviceWorker' in navigator) {"
 plain = "if ('serviceWorker' in navigator) {"

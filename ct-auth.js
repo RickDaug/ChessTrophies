@@ -54,7 +54,13 @@
     }
   }
   function saveDB(db) {
-    localStorage.setItem(DB_KEY, JSON.stringify(db));
+    try {
+      localStorage.setItem(DB_KEY, JSON.stringify(db));
+    } catch (e) {
+      // Safari private mode / quota-exceeded / storage-disabled: don't let a
+      // failed persist throw and break game-save.
+      console.warn('saveDB failed (storage unavailable?)', e);
+    }
   }
   function defaultDB() {
     return { users: {}, rooms: {}, version: 1 };
@@ -65,8 +71,14 @@
     try { return JSON.parse(v); } catch (e) { return null; }
   }
   function setSession(s) {
-    if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s));
-    else localStorage.removeItem(SESSION_KEY);
+    try {
+      if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      else localStorage.removeItem(SESSION_KEY);
+    } catch (e) {
+      // Safari private mode / quota-exceeded / storage-disabled: don't let a
+      // failed persist throw and break login.
+      console.warn('setSession failed (storage unavailable?)', e);
+    }
   }
 
   // Abort hung requests so the offline fallback can kick in -- but give the

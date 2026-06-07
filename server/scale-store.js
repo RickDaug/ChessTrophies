@@ -12,6 +12,17 @@
 import { Chess } from 'chess.js';
 import crypto from 'crypto';
 import { db, getUserById, areBlocked } from './db.js';
+import * as store from './store.js';
+
+// Backend-agnostic single-user read: sync SQLite (unchanged) or awaited Postgres
+// facade. Callers here are already async, so they always `await` this.
+function readUser(uid) {
+  return store.usingPostgres ? store.getUserById(uid) : getUserById(uid);
+}
+// Backend-agnostic block check (awaited by the matchmaking pair loop).
+function readBlocked(a, b) {
+  return store.usingPostgres ? store.areBlocked(a, b) : areBlocked(a, b);
+}
 
 // ---- keys ----
 const K = {
@@ -40,6 +51,9 @@ function emitGame(io, g, event, data) {
 // One timed control + unlimited (mirrors game.js / app.js) to avoid splitting the queue.
 const TC_ALLOWLIST = new Set(['10+0', 'unlimited']);
 function normalizeTc(tc) { return (typeof tc === 'string' && TC_ALLOWLIST.has(tc)) ? tc : 'unlimited'; }
+// Server decides the canonical 1v1 mode; only 'casual' is unrated, anything else
+// (incl. unknown/garbage) folds to 'ranked' so a client can't force unrated.
+function normalizeMode(m) { return m === 'casual' ? 'casual' : 'ranked'; }
 function parseTc(tc) {
   const key = normalizeTc(tc);
   if (key === 'unlimited') return null;
@@ -117,7 +131,7 @@ export async function onAuth(io, R, socket, uid) {
     const clockSnap = g.clock ? { w: g.clock.w, b: g.clock.b, running: g.clock.running, serverNow: Date.now() } : null;
     socket.emit('game_state', {
       gameId, fen: chess.fen(), mode: g.mode, yourColor,
-      white: publicUser(getUserById(g.white)), black: publicUser(getUserById(g.black)),
+      white: publicUser(await readUser(g.white)), black: publicUser(await readUser(g.black)),
       clock: clockSnap,
     });
   });
@@ -127,9 +141,9 @@ export async function onAuth(io, R, socket, uid) {
 // Matchmaking (shared queue, atomic pairing under a Redis lock)
 // ---------------------------------------------------------------------------
 export async function joinQueue(io, R, uid, { mode, tc }) {
-  const user = getUserById(uid);
+  const user = await readUser(uid);
   if (!user) return;
-  const entry = { uid, elo: user.elo, joinedAt: Date.now(), mode: typeof mode === 'string' ? mode : 'ranked', tc: normalizeTc(tc) };
+  const entry = { uid, elo: user.elo, joinedAt: Date.now(), mode: normalizeMode(mode), tc: normalizeTc(tc) };
   await R.hset(K.queue, uid, JSON.stringify(entry));
   await tryPair(io, R);
 }
@@ -142,7 +156,14 @@ async function tryPair(io, R) {
     const entries = Object.values(all).map((s) => JSON.parse(s)).sort((a, b) => a.joinedAt - b.joinedAt);
     for (const a of entries) {
       const tol = Math.min(500, 50 + Math.floor((Date.now() - a.joinedAt) / 1000) * 25);
-      const b = entries.find((x) => x.uid !== a.uid && x.mode === a.mode && x.tc === a.tc && Math.abs(x.elo - a.elo) <= tol && !areBlocked(a.uid, x.uid));
+      // areBlocked must be awaited on the Postgres backend, so it's hoisted out of
+      // the .find() predicate into an explicit loop (works for both backends).
+      let b = null;
+      for (const x of entries) {
+        if (x.uid === a.uid || x.mode !== a.mode || x.tc !== a.tc || Math.abs(x.elo - a.elo) > tol) continue;
+        if (await readBlocked(a.uid, x.uid)) continue;
+        b = x; break;
+      }
       if (b) { await R.hdel(K.queue, a.uid, b.uid); pair = [a, b]; break; }
     }
   });
@@ -160,10 +181,10 @@ async function startGame(io, R, whiteEntry, blackEntry) {
   const tc = normalizeTc(whiteEntry.tc);
   const parsed = parseTc(tc);
   const clock = makeClock(parsed);
-  const wUser = getUserById(whiteEntry.uid), bUser = getUserById(blackEntry.uid);
+  const wUser = await readUser(whiteEntry.uid), bUser = await readUser(blackEntry.uid);
   if (!wUser || !bUser) return;
   const g = {
-    id, white: whiteEntry.uid, black: blackEntry.uid, mode: whiteEntry.mode || 'ranked',
+    id, white: whiteEntry.uid, black: blackEntry.uid, mode: normalizeMode(whiteEntry.mode),
     tc, clock, pgn: '', started: Date.now(),
     whiteEloBefore: wUser.elo, blackEloBefore: bUser.elo,
     ended: false, disconnectedUid: null, graceUntil: null,
@@ -292,30 +313,56 @@ async function finishGame(io, R, g, override, chess) {
     winnerId = chess.turn() === 'w' ? g.black : g.white;
   }
   const isDraw = !winnerId;
-  const whiteUser = getUserById(g.white), blackUser = getUserById(g.black);
+  const whiteUser = await readUser(g.white), blackUser = await readUser(g.black);
   let wd = 0, bd = 0;
   if (g.mode === 'ranked' && whiteUser && blackUser) {
     const whiteScore = isDraw ? 0.5 : (winnerId === g.white ? 1 : 0);
     wd = eloDelta(whiteUser.elo, blackUser.elo, whiteScore);
     bd = eloDelta(blackUser.elo, whiteUser.elo, 1 - whiteScore);
   }
-  try {
-    db.transaction(() => {
-      if (g.mode === 'ranked') {
-        const up = db.prepare(`UPDATE users SET elo = elo + ?, wins = wins + ?, losses = losses + ?, draws = draws + ?,
-            current_streak = CASE WHEN ? THEN current_streak + 1 ELSE 0 END,
-            best_streak = MAX(best_streak, CASE WHEN ? THEN current_streak + 1 ELSE 0 END) WHERE id = ?`);
-        up.run(wd, isDraw ? 0 : (winnerId === g.white ? 1 : 0), isDraw ? 0 : (winnerId === g.white ? 0 : 1), isDraw ? 1 : 0,
-          isDraw ? 0 : (winnerId === g.white ? 1 : 0), isDraw ? 0 : (winnerId === g.white ? 1 : 0), g.white);
-        up.run(bd, isDraw ? 0 : (winnerId === g.black ? 1 : 0), isDraw ? 0 : (winnerId === g.black ? 0 : 1), isDraw ? 1 : 0,
-          isDraw ? 0 : (winnerId === g.black ? 1 : 0), isDraw ? 0 : (winnerId === g.black ? 1 : 0), g.black);
-      }
-      db.prepare(`INSERT INTO games (id, white_id, black_id, mode, result, winner_id, pgn,
-                                     white_elo_before, black_elo_before, white_elo_delta, black_elo_delta, created_at, ended_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(g.id, g.white, g.black, g.mode, reason, winnerId, chess.pgn(), g.whiteEloBefore, g.blackEloBefore, wd, bd, g.started, Date.now());
-    })();
-  } catch (e) { console.error('[scale] finish persist failed', e && e.message); }
+  // Atomic ELO + game-record persist. Branch on backend: SQLite uses the proven
+  // synchronous better-sqlite3 transaction (unchanged); Postgres uses the async
+  // store.runTransaction (BEGIN/COMMIT on one pooled client). MAX(best_streak,..)
+  // becomes GREATEST(..) on Postgres (Postgres MAX is aggregate-only).
+  if (store.usingPostgres) {
+    try {
+      await store.runTransaction(async (tx) => {
+        if (g.mode === 'ranked') {
+          // Postgres CASE WHEN needs a boolean (SQLite accepts 0/1 int); win flag
+          // is 1/0 so compare `= 1`. GREATEST replaces SQLite's 2-arg MAX.
+          const up = `UPDATE users SET elo = elo + ?, wins = wins + ?, losses = losses + ?, draws = draws + ?,
+              current_streak = CASE WHEN ? = 1 THEN current_streak + 1 ELSE 0 END,
+              best_streak = GREATEST(best_streak, CASE WHEN ? = 1 THEN current_streak + 1 ELSE 0 END) WHERE id = ?`;
+          await tx.run(up, [wd, isDraw ? 0 : (winnerId === g.white ? 1 : 0), isDraw ? 0 : (winnerId === g.white ? 0 : 1), isDraw ? 1 : 0,
+            isDraw ? 0 : (winnerId === g.white ? 1 : 0), isDraw ? 0 : (winnerId === g.white ? 1 : 0), g.white]);
+          await tx.run(up, [bd, isDraw ? 0 : (winnerId === g.black ? 1 : 0), isDraw ? 0 : (winnerId === g.black ? 0 : 1), isDraw ? 1 : 0,
+            isDraw ? 0 : (winnerId === g.black ? 1 : 0), isDraw ? 0 : (winnerId === g.black ? 1 : 0), g.black]);
+        }
+        await tx.run(`INSERT INTO games (id, white_id, black_id, mode, result, winner_id, pgn,
+                                         white_elo_before, black_elo_before, white_elo_delta, black_elo_delta, created_at, ended_at)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [g.id, g.white, g.black, g.mode, reason, winnerId, chess.pgn(), g.whiteEloBefore, g.blackEloBefore, wd, bd, g.started, Date.now()]);
+      });
+    } catch (e) { console.error('[scale] finish pg persist failed', e && e.message); }
+  } else {
+    try {
+      db.transaction(() => {
+        if (g.mode === 'ranked') {
+          const up = db.prepare(`UPDATE users SET elo = elo + ?, wins = wins + ?, losses = losses + ?, draws = draws + ?,
+              current_streak = CASE WHEN ? THEN current_streak + 1 ELSE 0 END,
+              best_streak = MAX(best_streak, CASE WHEN ? THEN current_streak + 1 ELSE 0 END) WHERE id = ?`);
+          up.run(wd, isDraw ? 0 : (winnerId === g.white ? 1 : 0), isDraw ? 0 : (winnerId === g.white ? 0 : 1), isDraw ? 1 : 0,
+            isDraw ? 0 : (winnerId === g.white ? 1 : 0), isDraw ? 0 : (winnerId === g.white ? 1 : 0), g.white);
+          up.run(bd, isDraw ? 0 : (winnerId === g.black ? 1 : 0), isDraw ? 0 : (winnerId === g.black ? 0 : 1), isDraw ? 1 : 0,
+            isDraw ? 0 : (winnerId === g.black ? 1 : 0), isDraw ? 0 : (winnerId === g.black ? 1 : 0), g.black);
+        }
+        db.prepare(`INSERT INTO games (id, white_id, black_id, mode, result, winner_id, pgn,
+                                       white_elo_before, black_elo_before, white_elo_delta, black_elo_delta, created_at, ended_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .run(g.id, g.white, g.black, g.mode, reason, winnerId, chess.pgn(), g.whiteEloBefore, g.blackEloBefore, wd, bd, g.started, Date.now());
+      })();
+    } catch (e) { console.error('[scale] finish persist failed', e && e.message); }
+  }
   emitGame(io, g, 'game_over', { gameId: g.id, winnerId, reason, whiteDelta: wd, blackDelta: bd, pgn: chess.pgn() });
   await R.del(K.game(g.id));
   await R.srem(K.active, g.id);
@@ -343,7 +390,7 @@ export async function handleRematchOffer(io, R, uid, gameId) {
   await R.sadd(K.offers(gameId), uid);
   await R.pexpire(K.offers(gameId), REMATCH_TTL_MS);
   await R.set(uoffKey(uid), gameId, 'PX', REMATCH_TTL_MS);
-  io.to(userRoom(opp)).emit('rematch_offered', { gameId, from: publicUser(getUserById(uid)) });
+  io.to(userRoom(opp)).emit('rematch_offered', { gameId, from: publicUser(await readUser(uid)) });
   // Best-effort expiry notice (Redis TTL also auto-cleans the offer set).
   const t = setTimeout(async () => {
     try {
@@ -394,7 +441,7 @@ async function leaveRematch(io, R, uid) {
 async function startRematch(io, R, gameId, rg) {
   await R.del(K.offers(gameId)); await R.del(K.recent(gameId));
   await R.del(uoffKey(rg.whiteUid)); await R.del(uoffKey(rg.blackUid));
-  const newWhite = getUserById(rg.blackUid), newBlack = getUserById(rg.whiteUid);
+  const newWhite = await readUser(rg.blackUid), newBlack = await readUser(rg.whiteUid);
   if (!newWhite || !newBlack) return;
   await startGame(io, R,
     { uid: rg.blackUid, elo: newWhite.elo, mode: rg.mode, tc: rg.tc },
