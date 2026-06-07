@@ -48,7 +48,8 @@ Write-Host ("    copied {0} files into www/" -f $files.Count)
 # (e.g. the local socket.io fallback used when the CDN is blocked).
 if (Test-Path 'vendor') {
   New-Item -ItemType Directory -Path 'www/vendor' -Force | Out-Null
-  Copy-Item -LiteralPath 'vendor/*' -Destination 'www/vendor/'
+  # -Path (not -LiteralPath) so the * wildcard expands, mirroring `cp vendor/*`.
+  Copy-Item -Path 'vendor/*' -Destination 'www/vendor/' -Recurse -Force
   Write-Host "    copied vendor/ fallback assets into www/vendor/"
 }
 
