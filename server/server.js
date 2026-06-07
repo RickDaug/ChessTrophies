@@ -494,7 +494,7 @@ if (store.usingPostgres) {
     process.exit(1);
   }
 } else {
-  console.log('[db] SQLite backend active (default; set DATABASE_URL to scale to Postgres)');
+  console.log('[db] SQLite backend active (default; set DB_BACKEND=postgres + DATABASE_URL to scale to Postgres)');
 }
 
 const PORT = process.env.PORT || 3000;
