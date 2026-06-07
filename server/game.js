@@ -56,6 +56,10 @@ export function notifyUser(userId, event, data) {
   sock.emit(event, data);
   return true;
 }
+// Distinct authenticated users with a live socket right now (admin "online" stat).
+export function getOnlineUserCount() {
+  return userSocket.size;
+}
 
 // --- Time controls (server-authoritative clocks) ---
 // Allowlisted keys; anything else is treated as 'unlimited' (no clock).
@@ -285,6 +289,7 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       socket.data.userId = user.id;
       userSocket.set(user.id, socket.id);
       socketUser.set(socket.id, user.id);
+      store.markActive(user.id); // fire-and-forget activity ping for admin stats
       socket.emit('auth_ok', { user: publicUser(user) });
 
       // Multi-instance mode: delegate 1v1 presence + resume to the shared store.

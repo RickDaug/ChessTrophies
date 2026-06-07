@@ -67,6 +67,7 @@ export async function login({ identifier, password }) {
     : await store.getUserByUsername(lower);
   const ok = await bcrypt.compare(safePassword, u ? u.pw_hash : DUMMY_HASH);
   if (!ok || !u) throw new Error('Email/username or password is incorrect.');
+  store.markActive(u.id); // fire-and-forget activity ping for admin stats
   return makeToken(u.id);
 }
 

@@ -13,7 +13,8 @@
     "test:verify": "node test/verify-email.mjs",
     "test:review": "node test/review-eval.mjs",
     "test:rankings": "node test/rankings.mjs",
-    "test:session": "node test/session.mjs"
+    "test:session": "node test/session.mjs",
+    "test:admin": "node test/admin.mjs"
   },
   "repository": {
     "type": "git",

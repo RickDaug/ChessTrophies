@@ -133,6 +133,14 @@ export async function run(sql, params = []) {
   return sqlite.db.prepare(sql).run(...params);
 }
 
+// Record that a user was just active (login / socket auth). Powers admin
+// "active users" stats. Fire-and-forget at call sites; never throws.
+export async function markActive(userId) {
+  if (!userId) return;
+  try { await run('UPDATE users SET last_seen = ? WHERE id = ?', [Date.now(), userId]); }
+  catch (e) { /* non-critical telemetry write */ }
+}
+
 // --- Transactions ----------------------------------------------------------
 //
 // Atomic ELO + game-result writes. The two drivers have fundamentally different

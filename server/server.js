@@ -19,7 +19,7 @@ import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-nam
 import { db, getProgress } from './db.js';
 import * as store from './store.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
-import { attachSocketHandlers, notifyUser } from './game.js';
+import { attachSocketHandlers, notifyUser, getOnlineUserCount } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -468,6 +468,37 @@ app.post('/api/guest/release', (req, res) => {
   const name = req.body && req.body.username;
   releaseGuestName(name);
   res.json({ ok: true });
+});
+
+// --- Admin stats -----------------------------------------------------------
+// Lightweight usage dashboard data. Gated by the ADMIN_KEY env var (passed as
+// ?key= or the x-admin-key header). Disabled (403) when ADMIN_KEY is unset, so
+// it's never exposed by accident. Works on either DB backend via the store facade.
+app.get('/api/admin/stats', async (req, res, next) => {
+  try {
+    const provided = req.get('x-admin-key') || req.query.key || '';
+    if (!process.env.ADMIN_KEY || provided !== process.env.ADMIN_KEY) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const now = Date.now();
+    const DAY = 86400000;
+    const n = async (sql, p = []) => { const r = await store.get(sql, p); return r ? Number(r.n) : 0; };
+    const stats = {
+      totalUsers:     await n('SELECT COUNT(*) AS n FROM users'),
+      verifiedUsers:  await n('SELECT COUNT(*) AS n FROM users WHERE email_verified = 1'),
+      premiumUsers:   await n('SELECT COUNT(*) AS n FROM users WHERE is_premium = 1'),
+      newUsers24h:    await n('SELECT COUNT(*) AS n FROM users WHERE created_at > ?', [now - DAY]),
+      newUsers7d:     await n('SELECT COUNT(*) AS n FROM users WHERE created_at > ?', [now - 7 * DAY]),
+      newUsers30d:    await n('SELECT COUNT(*) AS n FROM users WHERE created_at > ?', [now - 30 * DAY]),
+      activeUsers24h: await n('SELECT COUNT(*) AS n FROM users WHERE last_seen > ?', [now - DAY]),
+      activeUsers7d:  await n('SELECT COUNT(*) AS n FROM users WHERE last_seen > ?', [now - 7 * DAY]),
+      onlineNow:      getOnlineUserCount(),
+      gamesTotal:     (await n('SELECT COUNT(*) AS n FROM games')) + (await n('SELECT COUNT(*) AS n FROM team_games')),
+      games24h:       await n('SELECT COUNT(*) AS n FROM games WHERE created_at > ?', [now - DAY]),
+      serverTime:     now,
+    };
+    res.json(stats);
+  } catch (e) { next(e); }
 });
 
 // Serve static client (optional — useful for one-command deploy)

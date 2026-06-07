@@ -120,6 +120,9 @@ ensureColumn('users', 'avatar_data_url', 'TEXT', "''");
 // Email verification (soft): 0 until the user confirms their email via the link
 // we send on signup. Unverified users can still play; the client just nudges them.
 ensureColumn('users', 'email_verified', 'INTEGER', '0');
+// Last activity timestamp (ms) — set on login + socket auth. Powers the admin
+// "active users" stats. 0 = never seen since this column was added.
+ensureColumn('users', 'last_seen', 'INTEGER', '0');
 
 // Pending friend requests (from_id asked to befriend to_id; awaiting consent).
 // Confirmed friendships still live in the `friendships` table.
