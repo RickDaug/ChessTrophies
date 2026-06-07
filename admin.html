@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ChessTrophies — Admin Stats</title>
+<style>
+  :root { --bg:#0b1220; --panel:#131c2e; --border:#243049; --text:#e8edf6; --muted:#8aa0c0; --accent:#f5c451; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; padding:24px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:18px; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:20px; }
+  input { background:var(--panel); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:9px 12px; font-size:14px; min-width:260px; }
+  button { background:var(--accent); color:#1a1300; border:none; border-radius:8px; padding:9px 16px; font-weight:700; cursor:pointer; font-size:14px; }
+  button.ghost { background:transparent; color:var(--muted); border:1px solid var(--border); font-weight:500; }
+  .err { color:#ff9b9b; font-size:13px; margin-bottom:14px; min-height:18px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .card .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .card .val { font-size:30px; font-weight:800; margin-top:6px; }
+  .card.hi { border-color:rgba(245,196,81,.5); }
+  .foot { color:var(--muted); font-size:12px; margin-top:18px; }
+</style>
+</head>
+<body>
+  <h1>♟ ChessTrophies — Admin Stats</h1>
+  <div class="sub">Live usage dashboard. Your admin key is stored only in this browser.</div>
+  <div class="bar">
+    <input id="key" type="password" placeholder="Admin key (ADMIN_KEY)" autocomplete="off">
+    <button id="load">Load stats</button>
+    <button id="auto" class="ghost">Auto-refresh: off</button>
+  </div>
+  <div class="err" id="err"></div>
+  <div class="grid" id="grid"></div>
+  <div class="foot" id="foot"></div>
+
+<script>
+  (function () {
+    var KEY_STORE = 'ct_admin_key';
+    var keyEl = document.getElementById('key');
+    var errEl = document.getElementById('err');
+    var grid = document.getElementById('grid');
+    var foot = document.getElementById('foot');
+    var autoBtn = document.getElementById('auto');
+    var timer = null;
+    keyEl.value = localStorage.getItem(KEY_STORE) || '';
+
+    var CARDS = [
+      { k:'onlineNow',     label:'Online now',    hi:true },
+      { k:'activeUsers24h',label:'Active · 24h',   hi:true },
+      { k:'activeUsers7d', label:'Active · 7d' },
+      { k:'totalUsers',    label:'Total users',   hi:true },
+      { k:'newUsers24h',   label:'New · 24h' },
+      { k:'newUsers7d',    label:'New · 7d' },
+      { k:'newUsers30d',   label:'New · 30d' },
+      { k:'verifiedUsers', label:'Verified' },
+      { k:'premiumUsers',  label:'Premium' },
+      { k:'gamesTotal',    label:'Games total' },
+      { k:'games24h',      label:'Games · 24h' },
+    ];
+
+    function render(s) {
+      grid.innerHTML = CARDS.map(function (c) {
+        var v = (s && s[c.k] != null) ? s[c.k] : '–';
+        return '<div class="card' + (c.hi ? ' hi' : '') + '"><div class="label">' + c.label + '</div><div class="val">' + v + '</div></div>';
+      }).join('');
+      foot.textContent = 'Updated ' + new Date().toLocaleTimeString();
+    }
+
+    async function load() {
+      var key = keyEl.value.trim();
+      if (!key) { errEl.textContent = 'Enter your admin key.'; return; }
+      localStorage.setItem(KEY_STORE, key);
+      errEl.textContent = '';
+      try {
+        var res = await fetch('/api/admin/stats', { headers: { 'x-admin-key': key } });
+        if (res.status === 403) { errEl.textContent = 'Forbidden — wrong key, or ADMIN_KEY is not set on the server.'; return; }
+        if (!res.ok) { errEl.textContent = 'Error: HTTP ' + res.status; return; }
+        render(await res.json());
+      } catch (e) {
+        errEl.textContent = 'Could not reach the server: ' + (e && e.message ? e.message : e);
+      }
+    }
+
+    document.getElementById('load').addEventListener('click', load);
+    keyEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
+    autoBtn.addEventListener('click', function () {
+      if (timer) { clearInterval(timer); timer = null; autoBtn.textContent = 'Auto-refresh: off'; }
+      else { timer = setInterval(load, 30000); autoBtn.textContent = 'Auto-refresh: 30s'; load(); }
+    });
+    if (keyEl.value) load();
+  })();
+</script>
+</body>
+</html>

@@ -110,8 +110,11 @@ CREATE TABLE IF NOT EXISTS users (
   draws_2v2 INTEGER NOT NULL DEFAULT 0,
   avatar_stock TEXT NOT NULL DEFAULT 'av_knight',
   avatar_data_url TEXT NOT NULL DEFAULT '',
-  email_verified INTEGER NOT NULL DEFAULT 0
+  email_verified INTEGER NOT NULL DEFAULT 0,
+  last_seen BIGINT NOT NULL DEFAULT 0
 );
+-- Idempotent for pre-existing Postgres databases created before last_seen.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen BIGINT NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS friendships (
   user_id TEXT NOT NULL,
