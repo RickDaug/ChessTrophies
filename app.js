@@ -2125,10 +2125,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       window.CTNet.on('duoInviteReceived', handleDuoInviteReceived);
       window.CTNet.on('duoAccepted', handleDuoAccepted);
       window.CTNet.on('duoReady', handleDuoReady);
-      window.CTNet.on('duoDeclined', (d) => { toast('Your duo invite was declined.'); state._pendingDuoInvite = null; });
-      window.CTNet.on('duoCancelled', (d) => { toast('Duo invite cancelled.'); state._pendingDuoInvite = null; closeModal('duo-invite'); });
-      window.CTNet.on('duoInviteExpired', (d) => { toast('Duo invite expired.'); state._pendingDuoInvite = null; closeModal('duo-invite'); });
-      window.CTNet.on('duoErr', (d) => toast('Duo error: ' + (d && d.error || 'unknown')));
+      window.CTNet.on('duoDeclined', (d) => { toast('Your 2v2 invite was declined.'); state._pendingDuoInvite = null; });
+      window.CTNet.on('duoCancelled', (d) => { toast('2v2 invite cancelled.'); state._pendingDuoInvite = null; closeModal('duo-invite'); });
+      window.CTNet.on('duoInviteExpired', (d) => { toast('2v2 invite expired.'); state._pendingDuoInvite = null; closeModal('duo-invite'); });
+      window.CTNet.on('duoErr', (d) => toast('2v2 error: ' + (d && d.error || 'unknown')));
 
       // Friendly 1v1 challenge lifecycle
       window.CTNet.on('challengeReceived', handleChallengeReceived);

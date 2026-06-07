@@ -602,13 +602,14 @@
 
     <h2 style="margin-top:18px">Play</h2>
     <div class="card">
-      <h3 style="margin-bottom:8px">Find a match</h3>
-      <p class="muted small" style="margin:0 0 12px">Skill-based matchmaking — opponents within ±100 ELO.</p>
+      <h3 style="margin-bottom:8px">Ranked 1v1</h3>
+      <p class="muted small" style="margin:0 0 12px">We match you with a random opponent near your rating (within ±100 ELO). Counts toward your ELO, wins, and streaks.</p>
       <button class="btn btn-block" id="btn-find-match">Find ranked opponent</button>
+      <p class="muted small" style="margin:8px 0 0">Want to play a specific friend? Open the Friends tab and send a friendly challenge — friend games are always unrated.</p>
     </div>
     <div class="card">
       <h3 style="margin-bottom:8px">Practice vs computer</h3>
-      <p class="muted small" style="margin:0 0 12px">Sharpen your skills — practice games don't affect your ELO.</p>
+      <p class="muted small" style="margin:0 0 12px">Play offline against the computer to sharpen your skills. Always unrated — never affects your rating.</p>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px;flex-wrap:wrap;">
         <div>
           <div style="font-weight:700;">Computer Strength</div>
@@ -626,11 +627,11 @@
     </div>
 
     <section style="margin-top:18px">
-        <h2>2v2 Team Chess</h2>
+        <h2>2v2 (Team)</h2>
         <div class="card">
-          <div class="row between" style="font-weight:600;letter-spacing:.04em;color:var(--muted)">RANKED 2v2</div>
+          <p class="muted small" style="margin:0 0 12px">Two-on-two team match. Opponents are always random; counts toward a separate 2v2 rating.</p>
           <button class="btn btn-block" id="btn-duo-online">Find ranked 2v2</button>
-          <p class="muted small" style="margin:10px 0 0">Want to team up with a specific friend? Tap a friend in the Friends tab and choose &ldquo;Team up for ranked 2v2&rdquo;.</p>
+          <p class="muted small" style="margin:10px 0 0">Want a friend on your team? Open the Friends tab, tap a friend, and choose &ldquo;Invite to 2v2&rdquo; — your opponents are still random.</p>
         </div>
       </section>
 
@@ -677,7 +678,7 @@
 
   <!-- PROFILE -->
       <section id="screen-duo" class="screen">
-      <h2 style="display:flex;align-items:center;gap:8px">2v2 Team Chess <button id="duo-quit" class="btn" style="margin-left:auto;padding:6px 12px">Quit</button></h2>
+      <h2 style="display:flex;align-items:center;gap:8px">2v2 (Team) <button id="duo-quit" class="btn" style="margin-left:auto;padding:6px 12px">Quit</button></h2>
       <div class="muted small" id="duo-teams" style="margin-bottom:6px"></div>
       <div class="player-card" id="duo-card-top" style="display:none">
         <div style="flex:1;min-width:0;font-weight:600" id="duo-top-label">Opponents</div>
@@ -885,8 +886,8 @@
         </div>
         <div id="friend-search-results" style="margin-bottom:16px;"></div>
       <div style="padding:0 0 16px;">
-        <button class="btn btn-block" id="btn-invite">🔗 Invite &amp; Share</button>
-        <p class="muted small" style="margin:8px 0 0;text-align:center;">Generate a link or code and share it however you like.</p>
+        <button class="btn btn-block" id="btn-invite">🔗 Invite friends</button>
+        <p class="muted small" style="margin:8px 0 0;text-align:center;">Share your invite link so friends can join ChessTrophies.</p>
       </div>
       </div>
       <div style="padding:0 16px;">
@@ -933,8 +934,8 @@
 <div class="modal-overlay" id="modal-opponent">
   <div class="modal">
     <div class="handle"></div>
-    <h2>Who's challenging?</h2>
-    <p class="muted small" style="margin:4px 0 12px">Player 2 — sign in on this device to play a ranked match.</p>
+    <h2>Sign in to continue</h2>
+    <p class="muted small" style="margin:4px 0 12px">Sign in with your account to keep playing.</p>
     <label>Email</label>
     <input type="email" id="opp-email" autocomplete="off">
     <label>Password</label>
@@ -942,7 +943,7 @@
     <div class="error" id="opp-error"></div>
     <div class="stack" style="margin-top:14px">
       <button class="btn btn-block" id="btn-opp-signin">Sign in & start</button>
-      <button class="btn btn-secondary btn-block" id="btn-opp-guest">Play unranked (no opponent account)</button>
+      <button class="btn btn-secondary btn-block" id="btn-opp-guest">Continue without signing in</button>
       <button class="btn btn-ghost btn-block" id="btn-opp-cancel">Cancel</button>
     </div>
   </div>
@@ -993,10 +994,10 @@
 <div class="modal-overlay" id="modal-duo-invite">
   <div class="modal">
     <div class="handle"></div>
-    <h2 style="margin:0 0 6px">2v2 Team Invite</h2>
-    <p class="muted small" id="duo-invite-body" style="margin:0 0 14px">Player invited you to team up.</p>
+    <h2 style="margin:0 0 6px">2v2 team invite</h2>
+    <p class="muted small" id="duo-invite-body" style="margin:0 0 14px">A friend wants you on their 2v2 team. Opponents will be random.</p>
     <div class="stack">
-      <button class="btn btn-block" id="btn-duo-accept">Accept &amp; queue for ranked 2v2</button>
+      <button class="btn btn-block" id="btn-duo-accept">Accept &amp; find a 2v2 match</button>
       <button class="btn btn-ghost btn-block" id="btn-duo-decline">Decline</button>
     </div>
   </div>
@@ -1138,8 +1139,8 @@
     <h2 id="fc-title">Challenge a friend</h2>
     <p class="muted small" style="margin:4px 0 14px" id="fc-sub">—</p>
     <div class="stack">
-      <button class="btn btn-block" id="btn-fc-friendly">Challenge to a friendly game (unrated)</button>
-      <button class="btn btn-secondary btn-block" id="btn-fc-ranked">Invite to 2v2 (team up)</button>
+      <button class="btn btn-block" id="btn-fc-friendly">Friendly 1v1 (unrated)</button>
+      <button class="btn btn-secondary btn-block" id="btn-fc-ranked">Invite to 2v2 (random opponents)</button>
       <button class="btn btn-ghost btn-block" id="btn-fc-remove" style="color:var(--danger)">Remove friend</button>
       <button class="btn btn-ghost btn-block" id="btn-fc-block" style="color:var(--danger)">Block player</button>
       <button class="btn btn-ghost btn-block" id="btn-fc-cancel">Cancel</button>
