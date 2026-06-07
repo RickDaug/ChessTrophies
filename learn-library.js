@@ -813,6 +813,104 @@
         { h: 'Phases Blend Together' },
         { p: 'These phases do not have hard borders; one melts into the next. The lesson is to keep asking what the position needs right now, develop and get safe early, fight with purpose in the middle, and convert carefully at the end.' }
       ]
+    },
+
+    // ---- Checkers / Draughts ----
+    // New 'Checkers' category. Articles are original and beginner-friendly,
+    // matching the existing article shape { id, cat, icon, title, blurb, mins, body[] }.
+    {
+      id: 'ck_what_is_checkers',
+      cat: 'Checkers',
+      icon: '⛂',
+      title: 'What Is Checkers / Draughts?',
+      blurb: 'A whole family of games played on dark squares, with men that grow into kings.',
+      mins: 4,
+      body: [
+        { h: 'One game, many names' },
+        { p: 'Checkers, known as draughts in much of the world, is not a single game but a family of closely related games. They all share the same heart: two players, round pieces, a checkered board, and the simple goal of capturing or trapping every enemy piece. The differences between versions come down to the size of the board and a few rules about how pieces move and jump.' },
+        { h: 'Only the dark squares' },
+        { p: 'Although the board is checkered in two colors, all the action happens on squares of just one color, traditionally the dark ones. Pieces sit only on dark squares and move only diagonally, so half the board is never used at all. This is why a checkers board can look identical to a chess board yet play in a completely different way.' },
+        { h: 'Men and kings' },
+        { p: 'You start with ordinary pieces called men. A man is limited: it can only step and capture in certain directions. When a man reaches the far side of the board, it is crowned and becomes a king, usually shown by stacking a second piece on top. A king is more powerful, able to move and capture in more directions, and getting one is often the turning point of a game.' },
+        { h: 'How you win' },
+        { p: 'The goal is the same across every version: leave your opponent with nothing to do. You win by capturing all of their pieces, or by blocking them so completely that they have no legal move on their turn. If neither side can make progress, the game is a draw.' }
+      ]
+    },
+    {
+      id: 'ck_how_to_play_8x8',
+      cat: 'Checkers',
+      icon: '⛂',
+      title: 'How to Play: 8×8 American Checkers (ACF)',
+      blurb: 'The classic version on a small board, with forward-only men and capturing that you cannot skip.',
+      mins: 5,
+      body: [
+        { h: 'The board and setup' },
+        { p: 'American checkers, governed by the American Checker Federation, is played on a standard 8×8 board using only the dark squares. Each player starts with twelve men lined up on the three rows nearest to them. The remaining two empty rows in the middle are the no-mans-land where the first captures usually happen.' },
+        { h: 'How men move and capture' },
+        { p: 'An ordinary man moves one square diagonally forward, toward the opponent. To capture, it jumps diagonally forward over an adjacent enemy piece into the empty square just beyond, removing the jumped piece. In this version men capture forward only; they can never jump backward. If your jump lands you next to another enemy piece you can leap again, chaining several captures in a single turn.' },
+        { h: 'Capturing is mandatory' },
+        { p: 'You are not allowed to ignore a capture. If a jump is available on your turn, you must take it. When more than one capturing move exists, you may choose any of them; this version does not force you to pick the jump that captures the most pieces. That single freedom is one of the things that sets it apart from the international game.' },
+        { h: 'Kings and how to win' },
+        { p: 'When a man reaches the far back row, it is crowned a king. A king may move and capture diagonally both forward and backward, which makes it far more useful, but it still only steps one square at a time; it is not a flying king. You win by capturing all of your opponent’s pieces or by leaving them with no legal move on their turn.' }
+      ]
+    },
+    {
+      id: 'ck_how_to_play_10x10',
+      cat: 'Checkers',
+      icon: '⛂',
+      title: 'How to Play: 10×10 International Draughts (FMJD)',
+      blurb: 'The big-board version with backward captures, flying kings, and a must-take-the-most rule.',
+      mins: 6,
+      body: [
+        { h: 'A bigger board, more pieces' },
+        { p: 'International draughts, overseen by the world body known as the FMJD, is played on a larger 10×10 board, again on the dark squares only. Each side begins with twenty men arranged on the four rows closest to them. The bigger board and extra pieces make for longer, deeper games with more room to maneuver.' },
+        { h: 'Men capture in every direction' },
+        { p: 'An ordinary man still moves one square diagonally forward. But here is a key difference: when capturing, a man may jump an enemy piece either forward or backward. This backward capture for ordinary men means threats can come from any diagonal, and a piece that looks safe behind you may not be safe at all.' },
+        { h: 'The maximum-capture rule' },
+        { p: 'Capturing is mandatory, and this version goes further: you must make the capturing move that takes the greatest number of pieces. If one jump sequence wins three pieces and another wins two, you are required to play the one that wins three. You count the whole chain, not just the first leap, before deciding which capture is forced.' },
+        { h: 'Flying kings and winning' },
+        { p: 'When a man reaches the far back row it becomes a king, and here the king is a flying king. It glides any distance along a clear diagonal in one move, and when capturing it can jump an enemy piece from far away and land on any empty square beyond it. A single flying king can sweep across the whole board, which makes promotion enormously powerful. As always, you win by capturing every enemy piece or leaving your opponent with no legal move.' }
+      ]
+    },
+    {
+      id: 'ck_ruleset_differences',
+      cat: 'Checkers',
+      icon: '⚖',
+      title: 'Rule-Set Differences: ACF vs FMJD / WCDF',
+      blurb: 'Backward captures, flying kings, board size, and the must-jump-the-most rule, side by side.',
+      mins: 6,
+      body: [
+        { h: 'Why the rules differ' },
+        { p: 'Different traditions grew up around different boards, so several official rule sets exist. The two most common reference points are American or English-style checkers, used by bodies such as the ACF and the WCDF, and international draughts under the FMJD. Knowing which version you are playing matters, because the same move can be legal in one and impossible in the other.' },
+        { h: 'Do men capture backward?' },
+        { p: 'This is the single biggest difference for beginners. In official American and English draughts, ordinary men capture FORWARD ONLY; an uncrowned man can never jump backward, no matter what. In international draughts, ordinary men may capture both forward and backward. Get this wrong and you will either miss legal jumps or attempt illegal ones.' },
+        { h: 'Flying kings, or not' },
+        { p: 'In American and English checkers the king is not a flying king: it moves and captures one square at a time, just in both directions. In international draughts the king flies, sliding any distance along an open diagonal and capturing from afar. The flying king is so strong that promotion changes the whole character of the 10×10 game.' },
+        { h: 'The maximum-capture rule' },
+        { p: 'All these versions make capturing mandatory, but they differ on which capture. In American and English draughts there is no maximum rule: if several jumps are available you may choose any of them. In international draughts you must take the capture that wins the most pieces. So one game lets you pick your favorite jump while the other forces the greediest one.' },
+        { h: 'Board size and casual rules' },
+        { p: 'American and English checkers use an 8×8 board with twelve men a side; international draughts uses a 10×10 board with twenty men a side. Beyond the official codes, many people play a relaxed or casual rule set that drops the strictest requirements, often allowing you to skip a capture, ignore the must-jump-the-most rule, or let men jump backward, simply to keep friendly games easy and forgiving. There is nothing wrong with casual rules, just agree on them before you start.' }
+      ]
+    },
+    {
+      id: 'ck_strategy_basics',
+      cat: 'Checkers',
+      icon: '\u{1F451}',
+      title: 'Checkers Strategy Basics',
+      blurb: 'Control the center, guard your back row, trade when ahead, and dream of a king.',
+      mins: 5,
+      body: [
+        { h: 'Fight for the center' },
+        { p: 'Just as in chess, the middle of the board is where your pieces have the most options. Pieces pushed toward the center control more squares and can swing to either side, while pieces stuck on the edges have fewer moves and are easier to trap. Steer your men toward the central squares in the opening rather than crowding the rim.' },
+        { h: 'Hold your back row early' },
+        { p: 'The row of pieces nearest you is your back row, and it does double duty: it guards the squares an enemy needs to reach to be crowned. Keeping your back row intact in the early game makes it hard for your opponent to promote a man into a king. Do not give up those guarding pieces without a good reason; an open back row is an invitation to a new enemy king.' },
+        { h: 'Trade when you are ahead' },
+        { p: 'If you have captured more pieces than your opponent, every even trade helps you, because the fewer pieces remain, the larger your extra piece looms. When you are ahead in material, look for chances to swap pieces one for one. When you are behind, do the opposite and keep pieces on the board to preserve your chances.' },
+        { h: 'Tempo, the move, and free jumps' },
+        { p: 'Because captures are mandatory, you can sometimes force your opponent into a jump that helps you, a bit like the opposition in a king endgame, where being forced to move is a disadvantage. Set traps where any jump they make lets you recapture more than you lose. The flip side: never leave a man sitting where the opponent gets a free jump, especially a chain that sweeps up several of your pieces at once.' },
+        { h: 'Make kings, and respect the flying king' },
+        { p: 'Crowning a man is one of the surest ways to take over a game, so push toward promotion while blocking your opponent from doing the same. In the 8×8 game a king is a strong two-way fighter. In the 10×10 game a single flying king can dominate the whole board from a safe distance, so racing to the first flying king is often the entire plan.' }
+      ]
     }
   ];
 
