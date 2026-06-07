@@ -157,8 +157,15 @@ data-access facade (`store.js`):
 
 | Backend | When | Module | Notes |
 |---|---|---|---|
-| **SQLite** (default) | `DATABASE_URL` unset | `db.js` | Zero config. Embedded file at `DATABASE_PATH`. What local dev and the test suite use. Behavior unchanged. |
-| **PostgreSQL** (scalable) | `DATABASE_URL` set | `db-pg.js` | `node-postgres` connection pool. Scales horizontally across replicas; no single-writer file lock. |
+| **SQLite** (default) | `DB_BACKEND` ≠ `postgres` | `db.js` | Zero config. Embedded file at `DATABASE_PATH`. What local dev and the test suite use. Behavior unchanged. |
+| **PostgreSQL** (scalable) | `DB_BACKEND=postgres` (+ `DATABASE_URL`) | `db-pg.js` | `node-postgres` connection pool. Scales horizontally across replicas; no single-writer file lock. |
+
+> **Why an explicit `DB_BACKEND` flag and not just `DATABASE_URL`?** Hosting
+> platforms (Railway, Render, Heroku) auto-inject `DATABASE_URL` when a Postgres
+> add-on is attached to the project. Switching backends on its mere presence
+> would silently flip the app onto Postgres — and crash boot if that database
+> isn't provisioned with our schema. Postgres is therefore opt-in via
+> `DB_BACKEND=postgres`; the connection string is still read from `DATABASE_URL`.
 
 The schema is ported 1:1 to Postgres (see `db-pg.js`). SQL translations applied:
 `?` placeholders → `$1,$2,…`; `json_array_length(col)` →
@@ -169,12 +176,13 @@ hardening are preserved identically on both backends. Transactions are atomic on
 both (better-sqlite3 `db.transaction()` / Postgres `BEGIN`…`COMMIT` on a pooled
 client with rollback on throw), exposed via `store.runTransaction(fn)`.
 
-To enable Postgres: provision a database, set `DATABASE_URL` (and `REDIS_URL` for
-the socket layer), then raise `deploy.numReplicas`. The schema is created
-automatically on boot (`CREATE TABLE IF NOT EXISTS`). See `.env.example` for
-`PGPOOL_MAX` / `PGSSL` tuning.
+To enable Postgres: provision a database, set `DB_BACKEND=postgres` and
+`DATABASE_URL` (and `REDIS_URL` for the socket layer), then raise
+`deploy.numReplicas`. The schema is created automatically on boot
+(`CREATE TABLE IF NOT EXISTS`). See `.env.example` for `PGPOOL_MAX` / `PGSSL`
+tuning.
 
-> **Migration status:** PE-M1 is now **fully closed** — with `DATABASE_URL` set,
+> **Migration status:** PE-M1 is now **fully closed** — with `DB_BACKEND=postgres`,
 > *all* persistence (HTTP/auth/rankings **and** the real-time live-game / ELO
 > path) goes to Postgres. SQLite remains the zero-config default and its proven
 > path is unchanged (validated by `npm run smoke:2v2`, `test:verify`,

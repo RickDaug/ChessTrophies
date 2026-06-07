@@ -24,7 +24,15 @@
 // local dev or tests.
 import * as sqlite from './db.js';
 
-export const usingPostgres = !!process.env.DATABASE_URL;
+// Postgres is OPT-IN and must be requested EXPLICITLY with DB_BACKEND=postgres.
+// We deliberately do NOT switch on the mere presence of DATABASE_URL: hosting
+// platforms (Railway, Render, Heroku, …) auto-inject DATABASE_URL whenever a
+// Postgres add-on exists on the project, which would silently flip the whole
+// app onto the Postgres backend — even when SQLite is intended — and crash the
+// boot if that database isn't provisioned with our schema. Requiring the
+// explicit flag keeps the zero-config default (SQLite) safe. The connection
+// string is still read from DATABASE_URL by db-pg.js when the flag is set.
+export const usingPostgres = process.env.DB_BACKEND === 'postgres';
 
 // The active backend module. For Postgres we lazily import db-pg.js so the pg
 // driver is only pulled in when actually configured.
