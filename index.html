@@ -505,8 +505,8 @@
     </div>
 
     <form id="form-login" class="auth-form" style="display:none">
-      <label for="login-email">Email</label>
-      <input type="email" id="login-email" autocomplete="email" required>
+      <label for="login-email">Email or username</label>
+      <input type="text" id="login-email" autocomplete="username" placeholder="Email or username" required>
       <label for="login-password">Password</label>
       <input type="password" id="login-password" autocomplete="current-password" required>
       <div class="error" id="login-error"></div>
@@ -605,14 +605,6 @@
       <h3 style="margin-bottom:8px">Find a match</h3>
       <p class="muted small" style="margin:0 0 12px">Skill-based matchmaking — opponents within ±100 ELO.</p>
       <button class="btn btn-block" id="btn-find-match">Find ranked opponent</button>
-    </div>
-    <div class="card">
-      <h3 style="margin-bottom:8px">Private match</h3>
-      <p class="muted small" style="margin:0 0 12px">Create a room code or join an existing one.</p>
-      <div class="row" style="gap:8px">
-        <button class="btn btn-secondary" id="btn-create-room" style="flex:1">Create room</button>
-        <button class="btn btn-secondary" id="btn-join-room" style="flex:1">Join room</button>
-      </div>
     </div>
     <div class="card">
       <h3 style="margin-bottom:8px">Practice vs computer</h3>
@@ -1146,8 +1138,8 @@
     <h2 id="fc-title">Challenge a friend</h2>
     <p class="muted small" style="margin:4px 0 14px" id="fc-sub">—</p>
     <div class="stack">
-      <button class="btn btn-block" id="btn-fc-friendly">Friendly match (1v1, doesn't count)</button>
-      <button class="btn btn-secondary btn-block" id="btn-fc-ranked">Ranked 2v2 team match</button>
+      <button class="btn btn-block" id="btn-fc-friendly">Challenge to a friendly game (unrated)</button>
+      <button class="btn btn-secondary btn-block" id="btn-fc-ranked">Invite to 2v2 (team up)</button>
       <button class="btn btn-ghost btn-block" id="btn-fc-remove" style="color:var(--danger)">Remove friend</button>
       <button class="btn btn-ghost btn-block" id="btn-fc-block" style="color:var(--danger)">Block player</button>
       <button class="btn btn-ghost btn-block" id="btn-fc-cancel">Cancel</button>
@@ -1155,23 +1147,27 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="modal-create-room">
+<!-- Waiting for a friend to accept your friendly 1v1 challenge -->
+<div class="modal-overlay" id="modal-challenge-wait">
   <div class="modal">
     <div class="handle"></div>
-    <h2>Waiting room</h2>
-    <p class="muted small" style="margin:4px 0 14px">Waiting for your opponent to join. Share this code (or invite a friend) — they tap <b>Join room</b> and enter it.</p>
-    <div class="card center" style="padding:20px 14px">
-      <div id="room-code" style="font-family:monospace;font-size:36px;letter-spacing:6px;font-weight:800;color:var(--accent)">------</div>
-      <div class="muted small" style="margin-top:6px" id="room-mode-label">Friendly · doesn't count</div>
+    <h2 style="margin:0 0 6px">Friendly challenge sent</h2>
+    <p class="muted small" id="challenge-wait-body" style="margin:0 0 14px">Waiting for your friend to accept…</p>
+    <div class="stack">
+      <button class="btn btn-ghost btn-block" id="btn-challenge-cancel">Cancel</button>
     </div>
-    <div class="row" style="gap:8px;margin-top:10px">
-      <button class="btn btn-secondary" id="btn-room-copy" style="flex:1">Copy code</button>
-      <button class="btn btn-secondary" id="btn-room-toggle" style="flex:1">Switch to ranked</button>
-    </div>
-    <p class="muted small center" style="margin-top:14px">This is a pass-and-play room: hand your device to your opponent — they sign in with their account on this device and join the room, then you both play on the same screen.</p>
-    <div class="stack" style="margin-top:10px">
-      <button class="btn btn-block" id="btn-room-start">Opponent ready — start match</button>
-      <button class="btn btn-ghost btn-block" id="btn-room-cancel">Cancel</button>
+  </div>
+</div>
+
+<!-- Incoming friendly 1v1 challenge (mirrors the 2v2 duo-invite modal) -->
+<div class="modal-overlay" id="modal-challenge-invite">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2 style="margin:0 0 6px">Friendly Challenge</h2>
+    <p class="muted small" id="challenge-invite-body" style="margin:0 0 14px">A friend challenged you to a friendly game.</p>
+    <div class="stack">
+      <button class="btn btn-block" id="btn-challenge-accept">Accept &amp; play</button>
+      <button class="btn btn-ghost btn-block" id="btn-challenge-decline">Decline</button>
     </div>
   </div>
 </div>
@@ -1205,12 +1201,8 @@
 <div class="modal-overlay" id="modal-invite">
   <div class="modal">
     <div class="handle"></div>
-    <h2>Invite to play</h2>
-    <p class="muted small" style="margin:4px 0 14px">Share this code or link with your opponent. They open it on their device to join the match.</p>
-    <div class="card center" style="padding:20px 14px">
-      <div id="invite-code" style="font-family:monospace;font-size:36px;letter-spacing:6px;font-weight:800;color:var(--accent)">------</div>
-      <div class="muted small" style="margin-top:6px">Match code</div>
-    </div>
+    <h2>Invite friends</h2>
+    <p class="muted small" style="margin:4px 0 14px">Share this link so friends can join ChessTrophies. Once they sign up, add each other as friends to play.</p>
     <div class="card" style="padding:10px 12px">
       <div class="muted small" style="margin-bottom:4px">Shareable link</div>
       <div id="invite-link" style="font-family:monospace;font-size:11px;word-break:break-all;color:var(--text)">—</div>
@@ -1218,27 +1210,9 @@
     <div class="row" style="gap:8px;margin-top:10px">
       <button class="btn" id="btn-invite-share" style="flex:1">Share</button>
       <button class="btn btn-secondary" id="btn-invite-copy-link" style="flex:1">Copy link</button>
-      <button class="btn btn-secondary" id="btn-invite-copy-code" style="flex:1">Copy code</button>
     </div>
-    <p class="muted small center" style="margin-top:14px">Friendly match by default. Tap below to switch to ranked.</p>
-    <div class="row" style="gap:8px">
-      <button class="btn btn-secondary" id="btn-invite-toggle" style="flex:1">Switch to ranked</button>
-      <button class="btn btn-ghost" id="btn-invite-cancel" style="flex:1">Done</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-overlay" id="modal-join-room">
-  <div class="modal">
-    <div class="handle"></div>
-    <h2>Join a room</h2>
-    <p class="muted small" style="margin:4px 0 12px">Enter the 6-character code from your opponent.</p>
-    <label>Room code</label>
-    <input type="text" id="join-code" autocomplete="off" maxlength="6" style="text-transform:uppercase;letter-spacing:4px;font-family:monospace;font-size:18px">
-    <div class="error" id="join-error"></div>
-    <div class="stack" style="margin-top:14px">
-      <button class="btn btn-block" id="btn-join-go">Join match</button>
-      <button class="btn btn-ghost btn-block" id="btn-join-cancel">Cancel</button>
+    <div class="row" style="gap:8px;margin-top:10px">
+      <button class="btn btn-ghost btn-block" id="btn-invite-cancel">Done</button>
     </div>
   </div>
 </div>

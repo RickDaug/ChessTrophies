@@ -148,9 +148,14 @@ app.post('/api/auth/resend-verification', authLimiter, requireAuth, async (req, 
 app.post('/api/auth/login', authLimiter, async (req, res, next) => {
   try {
     const body = req.body || {};
-    const email = requireStringField(body, 'email', { min: 3, max: 254 });
+    // Accept `{ identifier, password }` where identifier may be a username OR an
+    // email. Stay backward-compatible with the legacy `{ email, password }` body
+    // by treating `email` as the identifier when `identifier` is absent. We no
+    // longer require the '@' email regex here (a username won't match it).
+    const rawId = typeof body.identifier === 'string' ? body.identifier : body.email;
+    const identifier = requireStringField({ identifier: rawId }, 'identifier', { min: 3, max: 254 });
     const password = requireStringField(body, 'password', { min: 1, max: 128 });
-    const token = await login({ email, password });
+    const token = await login({ identifier, password });
     res.json({ token });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });

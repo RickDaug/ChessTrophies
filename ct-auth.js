@@ -47,7 +47,6 @@
         if (typeof u.isPremium !== 'boolean') u.isPremium = false;
         if (typeof u.premiumSince === 'undefined') u.premiumSince = null;
       }
-      if (!merged.rooms) merged.rooms = {};
       return merged;
     } catch (e) {
       return defaultDB();
@@ -63,7 +62,7 @@
     }
   }
   function defaultDB() {
-    return { users: {}, rooms: {}, version: 1 };
+    return { users: {}, version: 1 };
   }
   function getSession() {
     const v = sessionStorage.getItem(SESSION_KEY) || localStorage.getItem(SESSION_KEY);

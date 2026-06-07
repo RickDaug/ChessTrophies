@@ -53,13 +53,20 @@ export async function signup({ email, username, password, region, invitedBy }) {
   return { token: makeToken(id), verification };
 }
 
-export async function login({ email, password }) {
-  const normalizedEmail = normalizeString(email, 'email', { min: 3, max: 254 }).toLowerCase();
+// Login by either a USERNAME or an EMAIL. The single `identifier` field may be
+// either; we route on whether it contains '@'. Username lookups are
+// case-insensitive (store.getUserByUsername does LOWER(username), mirroring
+// /api/friends/add). The generic error message + dummy-bcrypt-compare on a
+// missing user keep account-enumeration hardening intact.
+export async function login({ identifier, password }) {
+  const id = normalizeString(identifier, 'identifier', { min: 3, max: 254 });
   const safePassword = typeof password === 'string' ? password : '';
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizedEmail)) throw new Error('Email or password is incorrect.');
-  const u = await store.getUserByEmail(normalizedEmail);
+  const lower = id.toLowerCase();
+  const u = id.includes('@')
+    ? await store.getUserByEmail(lower)
+    : await store.getUserByUsername(lower);
   const ok = await bcrypt.compare(safePassword, u ? u.pw_hash : DUMMY_HASH);
-  if (!ok || !u) throw new Error('Email or password is incorrect.');
+  if (!ok || !u) throw new Error('Email/username or password is incorrect.');
   return makeToken(u.id);
 }
 

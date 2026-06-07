@@ -124,6 +124,11 @@
     socket.on('duo_invite_expired', function (data) { emit('duoInviteExpired', data); });
     socket.on('duo_err', function (data) { emit('duoErr', data); });
 
+    // Friendly 1v1 challenge lifecycle (the accepted match arrives via match_found)
+    socket.on('challenge_received', function (data) { emit('challengeReceived', data); });
+    socket.on('challenge_declined', function (data) { emit('challengeDeclined', data); });
+    socket.on('challenge_cancelled', function (data) { emit('challengeCancelled', data); });
+
     socket.on('friend_request', function (data) { emit('friendRequest', data); });
     socket.on('friend_accepted', function (data) { emit('friendAccepted', data); });
   }
@@ -218,6 +223,30 @@
     return true;
   }
 
+  // --- Friendly 1v1 challenge (online, unrated) ---
+  // The accept handshake makes the server emit the SAME `match_found` event the
+  // matchmaker uses, so the existing matchFound handler starts the game.
+  function inviteChallenge(friendId, tc) {
+    if (!ready) return false;
+    socket.emit('challenge_invite', { friendId: friendId, tc: tc || 'unlimited' });
+    return true;
+  }
+  function acceptChallenge(inviteId) {
+    if (!ready) return false;
+    socket.emit('challenge_accept', { inviteId: inviteId });
+    return true;
+  }
+  function declineChallenge(inviteId) {
+    if (!ready) return false;
+    socket.emit('challenge_decline', { inviteId: inviteId });
+    return true;
+  }
+  function cancelChallenge(inviteId) {
+    if (!ready) return false;
+    socket.emit('challenge_cancel', { inviteId: inviteId });
+    return true;
+  }
+
   window.CTNet = {
     connect: connect,
     disconnect: disconnect,
@@ -235,6 +264,10 @@
     acceptDuo: acceptDuo,
     declineDuo: declineDuo,
     cancelDuo: cancelDuo,
+    inviteChallenge: inviteChallenge,
+    acceptChallenge: acceptChallenge,
+    declineChallenge: declineChallenge,
+    cancelChallenge: cancelChallenge,
     on: on,
     off: off,
   };

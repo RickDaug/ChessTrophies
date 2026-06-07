@@ -34,6 +34,14 @@ const activeTeamGames = new Map(); // gameId -> team game object (see startTeamG
 const userActiveTeamGame = new Map(); // uid -> gameId (so we can find which game on resign/move)
 const teamMmBuckets = new Map();   // uid -> token bucket
 
+// --- 1v1 FRIENDLY challenge state ---
+// Online unrated 1v1 invite to a specific FRIEND. ALWAYS casual — never ranked
+// (ranked 1v1 stays random-matchmaking-only; see startChallengeGame which forces
+// mode='casual'). Modeled on duoInvites.
+// inviteId -> { id, fromId, fromSocketId, toId, tc, createdAt, expiresAt, expireTimer }.
+const challengeInvites = new Map();
+const CHALLENGE_INVITE_TTL_MS = 60_000;
+
 // Module-level io handle so non-socket code (e.g. Express friend-request routes
 // via notifyUser) can push events to a specific connected user.
 let ioRef = null;
@@ -158,6 +166,28 @@ function timeoutFinishTeamGame(io, tg, flagColor) {
 function newGameId() { return 'g_' + crypto.randomBytes(6).toString('hex'); }
 function newDuoInviteId() { return 'di_' + crypto.randomBytes(5).toString('hex'); }
 function newTeamEntryId() { return 'tq_' + crypto.randomBytes(5).toString('hex'); }
+function newChallengeInviteId() { return 'ci_' + crypto.randomBytes(5).toString('hex'); }
+
+// Are two users confirmed friends? Mirrors /api/friends/add: a confirmed
+// friendship is stored as a row in `friendships`. Backend-agnostic via the store
+// facade so it works on SQLite and Postgres.
+async function areFriends(a, b) {
+  const row = await store.get('SELECT 1 FROM friendships WHERE user_id = ? AND friend_id = ?', [a, b]);
+  return !!row;
+}
+
+// Is this user currently mid-game (1v1 or 2v2, in-memory path)?
+function isUserInGame(uid) {
+  return userActiveGame.has(uid) || userActiveTeamGame.has(uid);
+}
+
+// Tear down a challenge invite (drop its record + cancel its expire timer).
+function clearChallengeInvite(inviteId) {
+  const inv = challengeInvites.get(inviteId);
+  if (!inv) return;
+  if (inv.expireTimer) clearTimeout(inv.expireTimer);
+  challengeInvites.delete(inviteId);
+}
 
 function consumeBucket(map, key, burst, refillPerSecond) {
   const now = Date.now();
@@ -458,6 +488,103 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       if (guestSock) io.sockets.sockets.get(guestSock)?.emit('duo_cancelled', { inviteId });
     });
 
+    // --- 1v1 FRIENDLY challenge lifecycle (ALWAYS unrated/casual) ----------
+    // Mirrors the duo invite design but starts a normal 1v1 game (via the same
+    // startGameWithColors machinery as matchmaking, so the existing `match_found`
+    // in-game flow just works). INTEGRITY: the game mode is forced to 'casual'
+    // here on the server — no client value can make a challenge ranked. Ranked
+    // 1v1 remains random-matchmaking-only.
+    socket.on('challenge_invite', async ({ friendId, tc }) => {
+      const uid = socket.data.userId; if (!uid) return;
+      if (typeof friendId !== 'string' || friendId === uid) {
+        socket.emit('challenge_err', { error: 'invalid opponent' }); return;
+      }
+      const friend = await readUser(friendId);
+      if (!friend) { socket.emit('challenge_err', { error: 'user not found' }); return; }
+      // Must be confirmed friends (not just any user).
+      if (!(await areFriends(uid, friendId))) { socket.emit('challenge_err', { error: 'not friends' }); return; }
+      // Never pair players who have blocked each other (store.areBlocked checks
+      // both directions).
+      if (await store.areBlocked(uid, friendId)) { socket.emit('challenge_err', { error: 'unavailable' }); return; }
+      // Invitee must be online (single-instance reachability).
+      const friendSocketId = userSocket.get(friendId);
+      if (!friendSocketId) { socket.emit('challenge_err', { error: 'friend offline' }); return; }
+      // Neither side may be mid-game.
+      if (isUserInGame(uid)) { socket.emit('challenge_err', { error: 'you are in a game' }); return; }
+      if (isUserInGame(friendId)) { socket.emit('challenge_err', { error: 'friend is in a game' }); return; }
+      const inviteTc = normalizeTc(tc);
+      const inviteId = newChallengeInviteId();
+      const me = await readUser(uid);
+      const invite = {
+        id: inviteId,
+        fromId: uid,
+        fromSocketId: socket.id,
+        toId: friendId,
+        tc: inviteTc,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + CHALLENGE_INVITE_TTL_MS,
+        expireTimer: null,
+      };
+      challengeInvites.set(inviteId, invite);
+      io.sockets.sockets.get(friendSocketId)?.emit('challenge_received', {
+        inviteId,
+        fromId: uid,
+        fromName: me.username,
+        fromElo: me.elo,
+        tc: inviteTc,
+      });
+      socket.emit('challenge_sent', { inviteId, toId: friendId, toName: friend.username, tc: inviteTc });
+      // Auto-expire a stale invite (mirrors the duo invite TTL).
+      invite.expireTimer = setTimeout(() => {
+        if (!challengeInvites.has(inviteId)) return;
+        challengeInvites.delete(inviteId);
+        const fromSock = userSocket.get(invite.fromId);
+        if (fromSock) io.sockets.sockets.get(fromSock)?.emit('challenge_expired', { inviteId });
+        const toSock = userSocket.get(invite.toId);
+        if (toSock) io.sockets.sockets.get(toSock)?.emit('challenge_expired', { inviteId });
+      }, CHALLENGE_INVITE_TTL_MS);
+      if (typeof invite.expireTimer.unref === 'function') invite.expireTimer.unref();
+    });
+
+    socket.on('challenge_accept', async ({ inviteId }) => {
+      const uid = socket.data.userId; if (!uid) return;
+      const invite = challengeInvites.get(inviteId);
+      if (!invite || invite.toId !== uid) return;
+      // Re-validate at accept time: both still online and neither mid-game.
+      const fromSocketId = userSocket.get(invite.fromId);
+      if (!fromSocketId) { clearChallengeInvite(inviteId); socket.emit('challenge_err', { error: 'challenger offline' }); return; }
+      if (isUserInGame(invite.fromId) || isUserInGame(invite.toId)) {
+        clearChallengeInvite(inviteId);
+        socket.emit('challenge_err', { error: 'someone is already in a game' });
+        return;
+      }
+      clearChallengeInvite(inviteId);
+      try {
+        await startChallengeGame(io, invite.fromId, fromSocketId, invite.toId, socket.id, invite.tc);
+      } catch (e) {
+        console.error('[challenge] start failed', e && e.message);
+        socket.emit('challenge_err', { error: 'could not start game' });
+      }
+    });
+
+    socket.on('challenge_decline', async ({ inviteId }) => {
+      const uid = socket.data.userId; if (!uid) return;
+      const invite = challengeInvites.get(inviteId);
+      if (!invite || invite.toId !== uid) return;
+      clearChallengeInvite(inviteId);
+      const fromSock = userSocket.get(invite.fromId);
+      if (fromSock) io.sockets.sockets.get(fromSock)?.emit('challenge_declined', { inviteId });
+    });
+
+    socket.on('challenge_cancel', async ({ inviteId }) => {
+      const uid = socket.data.userId; if (!uid) return;
+      const invite = challengeInvites.get(inviteId);
+      if (!invite || invite.fromId !== uid) return;
+      clearChallengeInvite(inviteId);
+      const toSock = userSocket.get(invite.toId);
+      if (toSock) io.sockets.sockets.get(toSock)?.emit('challenge_cancelled', { inviteId });
+    });
+
     // Game moves -- now dispatches to either 1v1 or 2v2 session.
     socket.on('move', async ({ gameId, from, to, promotion }) => {
       const uid = socket.data.userId;
@@ -624,6 +751,15 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
             const other = inv.hostId === uid ? inv.guestId : inv.hostId;
             const otherSock = userSocket.get(other);
             if (otherSock) io.sockets.sockets.get(otherSock)?.emit('duo_cancelled', { inviteId: iid });
+          }
+        }
+        // Cancel any pending 1v1 challenge invites this user sent or received.
+        for (const [iid, inv] of challengeInvites) {
+          if (inv.fromId === uid || inv.toId === uid) {
+            clearChallengeInvite(iid);
+            const other = inv.fromId === uid ? inv.toId : inv.fromId;
+            const otherSock = userSocket.get(other);
+            if (otherSock) io.sockets.sockets.get(otherSock)?.emit('challenge_cancelled', { inviteId: iid });
           }
         }
         // Clear any pending rematch offers involving this user; notify the other side.
@@ -799,6 +935,18 @@ async function startGameWithColors(io, white, black) {
     tc,
     clock: clockSnapshotForStart(clock, parsed),
   });
+}
+
+// Start an online FRIENDLY 1v1 from a challenge invite. ALWAYS unrated: mode is
+// forced to 'casual' here (NOT from any client value), so finishGame's ELO path
+// (ranked-only) never touches ratings for these games — preserving ranked
+// integrity. Colors are randomized; both players get the SAME `match_found`
+// payload shape matchmaking sends, so the normal in-game flow just works.
+async function startChallengeGame(io, fromId, fromSocketId, toId, toSocketId, tc) {
+  const a = { uid: fromId, socketId: fromSocketId, elo: 0, mode: 'casual', tc };
+  const b = { uid: toId, socketId: toSocketId, elo: 0, mode: 'casual', tc };
+  const [white, black] = Math.random() < 0.5 ? [a, b] : [b, a];
+  await startGameWithColors(io, white, black);
 }
 
 async function finishGame(io, game, override = {}) {

@@ -241,38 +241,6 @@
     db.users[me.id] = me;
     saveDB(db);
   }
-  // Room codes for private matches
-  function generateRoomCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let s = '';
-    for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
-    return s;
-  }
-  function createRoom(hostId, mode) {
-    const db = loadDB();
-    db.rooms = db.rooms || {};
-    let code;
-    do { code = generateRoomCode(); } while (db.rooms[code]);
-    db.rooms[code] = { code, hostId, mode, createdAt: Date.now() };
-    saveDB(db);
-    return code;
-  }
-  function updateRoom(code, patch) {
-    const db = loadDB();
-    db.rooms = db.rooms || {};
-    if (db.rooms[code]) {
-      db.rooms[code] = Object.assign({}, db.rooms[code], patch);
-      saveDB(db);
-    }
-  }
-  function getRoom(code) {
-    const db = loadDB();
-    return (db.rooms || {})[(code || '').toUpperCase()];
-  }
-  function deleteRoom(code) {
-    const db = loadDB();
-    if (db.rooms && db.rooms[code]) { delete db.rooms[code]; saveDB(db); }
-  }
   function findUserByEmail(db, email) {
     email = email.toLowerCase().trim();
     return Object.values(db.users).find(u => u.email === email);
@@ -330,11 +298,20 @@
     setSession({ userId: user.id, offline: true });
     return user;
   }
-  async function login(email, password) {
-    if (!isValidEmail(email)) throw new Error('Enter a valid email address.');
+  // Look up a local account by email OR username (offline fallback for login).
+  function findLocalAccount(db, identifier) {
+    const id = (identifier || '').trim();
+    if (!id) return null;
+    return findUserByEmail(db, id) || findUserByUsername(db, id) || null;
+  }
+  async function login(identifier, password) {
+    identifier = (identifier || '').trim();
+    if (!identifier) throw new Error('Enter your email or username.');
 
     try {
-      const { token } = await serverAuth('/api/auth/login', { email, password });
+      // Server accepts `identifier` (email or username); send legacy `email` too so
+      // an older backend that only reads `email` still works for email logins.
+      const { token } = await serverAuth('/api/auth/login', { identifier, email: identifier, password });
       setSession({ userId: null, token });
       const profile = await fetchMe();
       const user = syncRemoteProfile(profile);
@@ -345,7 +322,7 @@
       // trust it -- never silently sign in to a stale local-only account, which is
       // exactly what traps a user "offline" with no way to play online.
       if (!serverErr.transient) {
-        const local = findUserByEmail(loadDB(), email);
+        const local = findLocalAccount(loadDB(), identifier);
         // Only nudge to Sign Up when this really is a local-only account whose
         // password matches here (not a server-synced cache or a wrong password).
         if (local && local.pwHash) {
@@ -354,11 +331,11 @@
             throw new Error('This account was only saved on this device. Tap Sign Up to register it online and play.');
           }
         }
-        throw serverErr; // genuine wrong email / password
+        throw serverErr; // genuine wrong identifier / password
       }
       // Server unreachable -> allow offline login to a local account if present.
       const db = loadDB();
-      const u = findUserByEmail(db, email);
+      const u = findLocalAccount(db, identifier);
       if (!u) throw new Error('Cannot reach the server. Check your connection and try again.');
       const h = await hashPassword(password, u.salt);
       if (h !== u.pwHash) throw new Error('Incorrect password.');
@@ -1549,12 +1526,12 @@ function renderFriendsSummary() {
     state.selectedFriendId = friendId;
     state.selectedFriendName = friend.username;
     $('#fc-title').textContent = 'Challenge ' + friend.username;
-    $('#fc-sub').textContent = 'ELO ' + friend.elo + ' · ' + (friend.region || 'no region') + ' · friend will be your 2v2 teammate';
+    $('#fc-sub').textContent = 'ELO ' + friend.elo + ' · ' + (friend.region || 'no region');
     openModal('friend-challenge');
   }
   $('#btn-fc-friendly').addEventListener('click', () => {
     closeModal('friend-challenge');
-    startFriendChallenge('friendly');
+    inviteFriendlyChallenge();
   });
   $('#btn-fc-ranked').addEventListener('click', () => {
     closeModal('friend-challenge');
@@ -1585,100 +1562,58 @@ function renderFriendsSummary() {
   });
   $('#btn-fc-cancel').addEventListener('click', () => closeModal('friend-challenge'));
 
-  function startFriendChallenge(mode) {
-    var db = loadDB();
-    var friend = db.users[state.selectedFriendId];
-    if (!friend) return;
-    closeModal('friend-challenge');
-    state.opponent = {
-      id: friend.id,
-      username: friend.username,
-      elo: friend.elo,
-      avatar: friend.avatar,
-      avatarStock: friend.avatarStock,
-      isAI: false,
-      isGuest: false
-    };
-    state.pendingChallenge = null;
-    startGame('unranked');
+  // Send an ONLINE friendly (unrated) 1v1 challenge to the selected friend. The
+  // friend (if online + authed against the same backend) gets a popup; on accept
+  // the server emits the SAME `match_found` the matchmaker uses, which the existing
+  // handleServerMatchFound starts automatically (we flag _waitingForServerMatch so
+  // it accepts the incoming match).
+  function inviteFriendlyChallenge() {
+    const friendId = state.selectedFriendId;
+    if (!friendId) return;
+    if (!window.CTNet || !window.CTNet.isReady()) {
+      toast('Server unavailable — a friendly challenge needs a connection. Try again shortly.');
+      return;
+    }
+    const tc = state.selectedTc || TC_DEFAULT;
+    try {
+      window.CTNet.inviteChallenge(friendId, tc);
+    } catch (e) {
+      console.error('[Challenge] invite failed', e);
+      toast('Could not send the challenge. Try again.');
+      return;
+    }
+    state._pendingChallenge = { role: 'host', friendId: friendId, friendName: state.selectedFriendName };
+    state._waitingForServerMatch = true; // so the match_found from acceptance is honored
+    const body = $('#challenge-wait-body');
+    if (body) body.textContent = 'Waiting for ' + (state.selectedFriendName || 'your friend') + ' to accept…';
+    openModal('challenge-wait');
   }
 
-  // Private rooms
-  $('#btn-create-room').addEventListener('click', () => {
-    state.currentRoom = { mode: 'friendly', code: createRoom(state.user.id, 'friendly') };
-    $('#room-code').textContent = state.currentRoom.code;
-    $('#room-mode-label').textContent = "Friendly · doesn't count";
-    $('#btn-room-toggle').textContent = 'Switch to ranked';
-    openModal('create-room');
-  });
-  $('#btn-room-toggle').addEventListener('click', () => {
-    if (!state.currentRoom) return;
-    state.currentRoom.mode = state.currentRoom.mode === 'friendly' ? 'ranked' : 'friendly';
-    updateRoom(state.currentRoom.code, { mode: state.currentRoom.mode });
-    $('#room-mode-label').textContent = state.currentRoom.mode === 'friendly'
-      ? "Friendly · doesn't count" : 'Ranked · affects ELO';
-    $('#btn-room-toggle').textContent = state.currentRoom.mode === 'friendly'
-      ? 'Switch to ranked' : 'Switch to friendly';
-  });
-  $('#btn-room-copy').addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(state.currentRoom.code);
-      toast('Copied!');
-    } catch (e) {
-      toast('Code: ' + state.currentRoom.code);
-    }
-  });
-  $('#btn-room-start').addEventListener('click', () => {
-    // Host needs opponent to sign in on this device
-    closeModal('create-room');
-    state.pendingChallenge = { mode: state.currentRoom.mode, roomCode: state.currentRoom.code };
-    $('#opp-email').value = '';
-    $('#opp-password').value = '';
-    $('#opp-error').textContent = '';
-    openModal('opponent');
-  });
-  $('#btn-room-cancel').addEventListener('click', () => {
-    if (state.currentRoom) deleteRoom(state.currentRoom.code);
-    state.currentRoom = null;
-    closeModal('create-room');
-  });
-
-  // Invite & Share — one-click flow that creates a room + shows shareable link/code
-  let currentInvite = null;
+  // Invite & Share — shares a referral link so friends can join the app. (The old
+  // private-room/pass-and-play code path was removed; play is online-only now.)
   $('#btn-invite').addEventListener('click', () => {
-    const code = createRoom(state.user.id, 'friendly');
-    currentInvite = { code, mode: 'friendly' };
     state.user.invitesSent = state.user.invitesSent || [];
-    state.user.invitesSent.push(code);
+    // Keep populating invitesSent so the Recruiter trophy still tracks shares.
+    state.user.invitesSent.push('share_' + Date.now().toString(36));
     const db = loadDB(); db.users[state.user.id] = state.user; saveDB(db);
     const baseUrl = window.location.href.split('?')[0];
-    const url = baseUrl + '?join=' + code + '&invitedBy=' + encodeURIComponent(state.user.id);
-    $('#invite-code').textContent = code;
+    const url = baseUrl + '?invitedBy=' + encodeURIComponent(state.user.id);
     $('#invite-link').textContent = url;
-    $('#btn-invite-toggle').textContent = 'Switch to ranked';
     openModal('invite');
   });
-  $('#btn-invite-toggle').addEventListener('click', () => {
-    if (!currentInvite) return;
-    currentInvite.mode = currentInvite.mode === 'friendly' ? 'ranked' : 'friendly';
-    updateRoom(currentInvite.code, { mode: currentInvite.mode });
-    $('#btn-invite-toggle').textContent = currentInvite.mode === 'friendly' ? 'Switch to ranked' : 'Switch to friendly';
-    toast(currentInvite.mode === 'friendly' ? 'Friendly mode — doesn\'t count' : 'Ranked mode — affects ELO');
-  });
   $('#btn-invite-share').addEventListener('click', async () => {
-    if (!currentInvite) return;
     const url = $('#invite-link').textContent;
-    const text = `Play me on ChessTrophies! Code: ${currentInvite.code}`;
+    const text = 'Play chess with me on ChessTrophies!';
     if (navigator.share) {
       try {
-        await navigator.share({ title: 'ChessTrophies Match', text, url });
+        await navigator.share({ title: 'ChessTrophies', text, url });
       } catch (e) { /* user cancelled */ }
     } else {
       try {
         await navigator.clipboard.writeText(text + '\n' + url);
         toast('Copied invite to clipboard');
       } catch (e) {
-        toast('Code: ' + currentInvite.code);
+        toast('Link: ' + url);
       }
     }
   });
@@ -1688,36 +1623,8 @@ function renderFriendsSummary() {
       toast('Link copied!');
     } catch (e) { toast('Link: ' + $('#invite-link').textContent); }
   });
-  $('#btn-invite-copy-code').addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(currentInvite.code);
-      toast('Code copied!');
-    } catch (e) { toast('Code: ' + currentInvite.code); }
-  });
   $('#btn-invite-cancel').addEventListener('click', () => { closeModal('invite'); });
 
-  $('#btn-join-room').addEventListener('click', () => {
-    $('#join-code').value = '';
-    $('#join-error').textContent = '';
-    openModal('join-room');
-    setTimeout(() => $('#join-code').focus(), 100);
-  });
-  $('#btn-join-cancel').addEventListener('click', () => closeModal('join-room'));
-  $('#btn-join-go').addEventListener('click', () => {
-    const code = ($('#join-code').value || '').toUpperCase().trim();
-    $('#join-error').textContent = '';
-    const room = getRoom(code);
-    if (!room) { $('#join-error').textContent = 'No room with that code.'; return; }
-    if (room.hostId === state.user.id) { $('#join-error').textContent = "That's your own room. Have your opponent sign in first."; return; }
-    const db = loadDB();
-    const host = db.users[room.hostId];
-    if (!host) { $('#join-error').textContent = 'Host not found.'; return; }
-    closeModal('join-room');
-    // Set up game: you are the joiner; host is opponent
-    state.opponent = { username: host.username, elo: host.elo, isAI: false, userId: host.id };
-    deleteRoom(code);
-    startGame(room.mode === 'ranked' ? 'ranked' : 'friendly');
-  });
   $$('[data-go]').forEach(el => {
     el.addEventListener('click', () => showScreen(el.dataset.go));
   });
@@ -1804,7 +1711,6 @@ function findMatch() {
         if (state.pendingChallenge.friendId && state.pendingChallenge.friendId !== opp.id) {
           throw new Error('Sign in as the friend you challenged.');
         }
-        if (state.pendingChallenge.roomCode) deleteRoom(state.pendingChallenge.roomCode);
         mode = state.pendingChallenge.mode === 'friendly' ? 'friendly' : 'ranked';
         state.pendingChallenge = null;
       }
@@ -1992,6 +1898,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
     if (mmGiveUpTimer) { clearTimeout(mmGiveUpTimer); mmGiveUpTimer = null; }
     closeModal('matchmaking');
+    // Friendly-challenge handshake (if any) resolved into a real match.
+    closeModal('challenge-wait');
+    closeModal('challenge-invite');
+    state._pendingChallenge = null;
     // A new game is starting — tear down the result modal + rematch/status UI.
     closeModal('result');
     clearNetUI();
@@ -2219,6 +2129,22 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       window.CTNet.on('duoCancelled', (d) => { toast('Duo invite cancelled.'); state._pendingDuoInvite = null; closeModal('duo-invite'); });
       window.CTNet.on('duoInviteExpired', (d) => { toast('Duo invite expired.'); state._pendingDuoInvite = null; closeModal('duo-invite'); });
       window.CTNet.on('duoErr', (d) => toast('Duo error: ' + (d && d.error || 'unknown')));
+
+      // Friendly 1v1 challenge lifecycle
+      window.CTNet.on('challengeReceived', handleChallengeReceived);
+      window.CTNet.on('challengeDeclined', (d) => {
+        toast('Your friendly challenge was declined.');
+        state._pendingChallenge = null;
+        state._waitingForServerMatch = false;
+        closeModal('challenge-wait');
+      });
+      window.CTNet.on('challengeCancelled', (d) => {
+        toast('Friendly challenge cancelled.');
+        state._pendingChallenge = null;
+        state._waitingForServerMatch = false;
+        closeModal('challenge-invite');
+        closeModal('challenge-wait');
+      });
 
       // Real-time friend requests: pop a window asking the recipient to accept/reject.
       window.CTNet.on('friendRequest', handleFriendRequestPush);
@@ -2493,6 +2419,36 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       if (state._inTeamQueue && window.CTNet && window.CTNet.isReady()) window.CTNet.leaveTeamQueue();
       state._inTeamQueue = false;
       closeModal('team-queue');
+    }); }
+
+  // --- Friendly 1v1 challenge: incoming + waiting modal wiring ---
+  function handleChallengeReceived(data) {
+    if (!data || !data.inviteId) return;
+    state._pendingChallenge = { role: 'guest', inviteId: data.inviteId, from: { id: data.fromId, name: data.fromName, elo: data.fromElo }, tc: data.tc };
+    const body = $('#challenge-invite-body');
+    if (body) body.textContent = (data.fromName || 'A friend') + ' (ELO ' + (data.fromElo || '?') + ') challenged you to a friendly (unrated) game.';
+    openModal('challenge-invite');
+  }
+  { const b = $('#btn-challenge-accept'); if (b) b.addEventListener('click', () => {
+      const pc = state._pendingChallenge;
+      if (!pc || pc.role !== 'guest' || !window.CTNet || !window.CTNet.isReady()) { closeModal('challenge-invite'); return; }
+      // Accepting: the server starts the game and emits match_found to both sides.
+      state._waitingForServerMatch = true;
+      window.CTNet.acceptChallenge(pc.inviteId);
+      closeModal('challenge-invite');
+    }); }
+  { const b = $('#btn-challenge-decline'); if (b) b.addEventListener('click', () => {
+      const pc = state._pendingChallenge;
+      if (pc && pc.role === 'guest' && window.CTNet && window.CTNet.isReady()) window.CTNet.declineChallenge(pc.inviteId);
+      state._pendingChallenge = null;
+      closeModal('challenge-invite');
+    }); }
+  { const b = $('#btn-challenge-cancel'); if (b) b.addEventListener('click', () => {
+      const pc = state._pendingChallenge;
+      if (pc && pc.role === 'host' && pc.inviteId && window.CTNet && window.CTNet.isReady()) window.CTNet.cancelChallenge(pc.inviteId);
+      state._pendingChallenge = null;
+      state._waitingForServerMatch = false;
+      closeModal('challenge-wait');
     }); }
 
   // ---------------------------------------------------------------------------
@@ -3790,19 +3746,6 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     showScreen('lobby');
     // Native AdMob banner: shown for free users, suppressed for premium. No-op on web.
     try { if (window.CT_Ads) window.CT_Ads.refresh(!!(state.user && state.user.isPremium)); } catch (e) {}
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('join');
-    if (code) {
-      setTimeout(() => {
-        $('#join-code').value = code.toUpperCase();
-        $('#join-error').textContent = '';
-        openModal('join-room');
-      }, 400);
-      try {
-        const cleanUrl = window.location.href.split('?')[0];
-        history.replaceState({}, '', cleanUrl);
-      } catch (e) {}
-    }
   }
   async function init() {
     const session = getSession();
