@@ -3704,6 +3704,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     wins:     { label: 'Wins',    key: u => u.wins,                           unit: 'W' },
     trophies: { label: 'Trophies', key: u => u.streakTrophies.length + u.achievements.length, unit: '🏆' },
     streak:   { label: 'Best',    key: u => u.bestStreak,                     unit: '' },
+    checkers8:  { label: 'Checkers 8×8',  key: u => u.eloCheckers8,  unit: '' },
+    checkers10: { label: 'Checkers 10×10', key: u => u.eloCheckers10, unit: '' },
   };
 
   // Score a normalized player by the active metric.
@@ -3711,6 +3713,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     if (metric === 'wins') return u.wins || 0;
     if (metric === 'trophies') return u.trophies || 0;
     if (metric === 'streak') return u.bestStreak || 0;
+    if (metric === 'checkers8') return u.eloCheckers8 || 1200;
+    if (metric === 'checkers10') return u.eloCheckers10 || 1200;
     return u.elo || 0;
   }
   // Normalize a server rankings row (snake_case + computed trophies) to a common shape.
@@ -3719,6 +3723,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       id: p.id, username: p.username || 'Player', region: p.region || '',
       elo: p.elo || 1200, wins: p.wins || 0, losses: p.losses || 0,
       bestStreak: p.best_streak || 0, trophies: p.trophies || 0,
+      eloCheckers8: p.elo_checkers_8 || 1200, eloCheckers10: p.elo_checkers_10 || 1200,
     };
   }
   // Normalize a local-DB user to the same shape (guests/offline fallback only).
@@ -3728,6 +3733,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       elo: u.elo || 1200, wins: u.wins || 0, losses: u.losses || 0,
       bestStreak: u.bestStreak || 0,
       trophies: ((u.streakTrophies && u.streakTrophies.length) || 0) + ((u.achievements && u.achievements.length) || 0),
+      eloCheckers8: (u.checkers && u.checkers.elo8) || 1200, eloCheckers10: (u.checkers && u.checkers.elo10) || 1200,
     };
   }
 
