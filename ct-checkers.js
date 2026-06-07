@@ -373,16 +373,25 @@
     var elo = (s.opponent && s.opponent.aiElo) || 1200;
     var A = ai();
     if (!A) { s.aiThinking = false; return; }
-    // Yield to the main thread (engine is sync but bounded; mirror chess's setTimeout).
-    setTimeout(function () {
-      if (s.game !== g || g.isGameOver()) { s.aiThinking = false; return; }
-      var move;
-      try { move = A.chooseMove(g, elo); } catch (e) { console.error('[CK] ai', e); s.aiThinking = false; return; }
+    function applyAi(move) {
       s.aiThinking = false;
       if (!move || s.game !== g || g.isGameOver()) return;
       var applied = g.move(move);
       if (applied) afterMove(applied, false);
-    }, 20);
+    }
+    // Run the search OFF the UI thread via the Web Worker (mirrors chess's
+    // chooseMoveAsync); the worker reconstructs the position from serialize().
+    // Falls back to the synchronous engine when Workers are unavailable/hang.
+    if (typeof A.chooseMoveAsync === 'function') {
+      A.chooseMoveAsync(g.serialize(), elo).then(applyAi, function (e) { console.error('[CK] ai', e); s.aiThinking = false; });
+    } else {
+      setTimeout(function () {
+        if (s.game !== g || g.isGameOver()) { s.aiThinking = false; return; }
+        var move;
+        try { move = A.chooseMove(g, elo); } catch (e) { console.error('[CK] ai', e); s.aiThinking = false; return; }
+        applyAi(move);
+      }, 20);
+    }
   }
 
   // ---------------------------------------------------------------------------
