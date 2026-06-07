@@ -2976,20 +2976,29 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const g = state.game;                       // capture: skip if a new game starts mid-think
     const fen = g.fen();
     const aiElo = state.opponent.aiElo || 1200;
+    // In 960 the engine may return a real Chess960 castle descriptor (king + rook
+    // hop) instead of a chess.js move; pass the 960 start FEN so it can find them.
+    const startFen960 = state.is960 ? state.startFen960 : undefined;
     const apply = (m) => {
       state.aiThinking = false;
       // Bail if the game was reset/left while the worker was thinking, or the move
       // is no longer legal (defensive — the worker ran on a snapshot FEN).
       if (!m || state.game !== g || g.game_over()) return;
+      // 960 castle descriptor: apply via FEN surgery, not chess.js .move().
+      if (m.castle && m.kingFrom && window.CT_960Castle) {
+        const move = window.CT_960Castle.applyCastleDescriptor(g, m);
+        if (move) afterMove(move);
+        return;
+      }
       const move = g.move({ from: m.from, to: m.to, promotion: m.promotion || 'q' });
       if (move) afterMove(move);
     };
     // Prefer the off-thread (Web Worker) search so the UI never freezes; fall back
     // to the synchronous engine if Workers are unavailable.
     if (window.CT_AI && window.CT_AI.chooseMoveAsync) {
-      window.CT_AI.chooseMoveAsync(fen, aiElo).then(apply, () => { state.aiThinking = false; });
+      window.CT_AI.chooseMoveAsync(fen, aiElo, startFen960).then(apply, () => { state.aiThinking = false; });
     } else if (window.CT_AI) {
-      apply(window.CT_AI.chooseMove(g, aiElo));
+      apply(window.CT_AI.chooseMove(g, aiElo, startFen960));
     } else {
       state.aiThinking = false;
     }

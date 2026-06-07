@@ -4,6 +4,12 @@
 (function () {
   'use strict';
 
+  // Resolve the host global: `window` on the main thread, `self` inside a Web
+  // Worker (ct-ai-worker.js importScripts this file and has no DOM/window). All
+  // public API below is attached to G so both contexts see CT_960*. `Chess`
+  // itself stays a bare global reference — it resolves to window/self/sandbox.
+  var G = (typeof window !== 'undefined') ? window : (typeof self !== 'undefined' ? self : this);
+
   // Build the back-rank for a given index 0..959 using the standard
   // numbering scheme (original work, derived from the well-known rules).
   function backRank(idx) {
@@ -80,8 +86,8 @@
 
   function random960Fen() { return fen960(Math.floor(Math.random() * 960)); }
 
-  window.CT_960Fen = fen960;
-  window.CT_random960Fen = random960Fen;
+  G.CT_960Fen = fen960;
+  G.CT_random960Fen = random960Fen;
 
   // ===========================================================================
   // Chess960 castling — REAL Fischer Random castling on top of chess.js 0.x.
@@ -376,7 +382,7 @@
     return null;
   }
 
-  window.CT_960Castle = {
+  G.CT_960Castle = {
     legalCastlingMoves: legalCastlingMoves,
     canCastle: canCastle,
     applyCastle: applyCastle,
@@ -385,7 +391,7 @@
   };
 
   // Sanity helper used by tests: validate a back-rank is legal.
-  window.CT_960Valid = function (idx) {
+  G.CT_960Valid = function (idx) {
     var s = backRank(idx);
     if (s.filter(function (x) { return x === 'b'; }).length !== 2) return false;
     var bishops = [];

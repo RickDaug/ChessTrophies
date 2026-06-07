@@ -5,6 +5,13 @@
 import { Chess } from 'chess.js';
 import crypto from 'crypto';
 import { db, getUserById } from './db.js';
+import * as store from './store.js';
+
+// Backend-agnostic single-user read: sync SQLite (unchanged) or awaited Postgres
+// facade. All callers here are already async.
+function readUser(uid) {
+  return store.usingPostgres ? store.getUserById(uid) : getUserById(uid);
+}
 
 const TK = {
   tqueue: 'ct:tq',
@@ -52,11 +59,11 @@ async function teamEntryOfUid(R, uid) { const all = await R.hgetall(TK.tqueue); 
 // ---- duo invites ----
 export async function duoInvite(io, R, uid, friendId) {
   if (typeof friendId !== 'string' || friendId === uid) return;
-  const friend = getUserById(friendId);
+  const friend = await readUser(friendId);
   if (!friend) { io.to(userRoom(uid)).emit('duo_err', { error: 'friend not found' }); return; }
   const inviteId = newDuoInviteId();
   await R.set(TK.invite(inviteId), JSON.stringify({ id: inviteId, hostId: uid, guestId: friendId, accepted: false, entryId: null }), 'PX', DUO_INVITE_TTL_MS);
-  io.to(userRoom(friendId)).emit('duo_invite_received', { inviteId, from: publicUser(getUserById(uid)) });
+  io.to(userRoom(friendId)).emit('duo_invite_received', { inviteId, from: publicUser(await readUser(uid)) });
   io.to(userRoom(uid)).emit('duo_invite_sent', { inviteId, to: publicUser(friend) });
   const t = setTimeout(async () => { try { const raw = await R.get(TK.invite(inviteId)); if (raw && !JSON.parse(raw).accepted) { await R.del(TK.invite(inviteId)); io.to(userRoom(uid)).to(userRoom(friendId)).emit('duo_invite_expired', { inviteId }); } } catch {} }, DUO_INVITE_TTL_MS);
   if (typeof t.unref === 'function') t.unref();
@@ -64,8 +71,8 @@ export async function duoInvite(io, R, uid, friendId) {
 export async function duoAccept(io, R, uid, inviteId) {
   const raw = await R.get(TK.invite(inviteId)); if (!raw) return; const inv = JSON.parse(raw); if (inv.guestId !== uid) return;
   inv.accepted = true; await R.set(TK.invite(inviteId), JSON.stringify(inv), 'PX', DUO_INVITE_TTL_MS);
-  io.to(userRoom(inv.hostId)).emit('duo_accepted', { inviteId, partner: publicUser(getUserById(uid)) });
-  io.to(userRoom(uid)).emit('duo_ready', { inviteId, partner: publicUser(getUserById(inv.hostId)) });
+  io.to(userRoom(inv.hostId)).emit('duo_accepted', { inviteId, partner: publicUser(await readUser(uid)) });
+  io.to(userRoom(uid)).emit('duo_ready', { inviteId, partner: publicUser(await readUser(inv.hostId)) });
 }
 export async function duoDecline(io, R, uid, inviteId) {
   const raw = await R.get(TK.invite(inviteId)); if (!raw) return; const inv = JSON.parse(raw); if (inv.guestId !== uid) return;
@@ -79,7 +86,7 @@ export async function duoCancel(io, R, uid, inviteId) {
 
 // ---- team matchmaking ----
 export async function joinTeamQueue(io, R, uid, { inviteId, tc }) {
-  const user = getUserById(uid); if (!user) return;
+  const user = await readUser(uid); if (!user) return;
   const entryTc = normalizeTc(tc);
   if (await teamEntryOfUid(R, uid)) return;
   if (inviteId) {
@@ -152,7 +159,7 @@ async function startTeamGame(io, R, picked, tc) {
   const whiteByUid = {}, blackByUid = {};
   whiteMembers.forEach((u, i) => { whiteByUid[u] = i; });
   blackMembers.forEach((u, i) => { blackByUid[u] = i; });
-  const wU = whiteMembers.map(getUserById), bU = blackMembers.map(getUserById);
+  const wU = await Promise.all(whiteMembers.map(readUser)), bU = await Promise.all(blackMembers.map(readUser));
   const tg = {
     id, mode: 'team-ranked', tc: normTc, pgn: '', clock,
     whiteMembers, blackMembers, whiteByUid, blackByUid, turnCount: { w: 0, b: 0 },
@@ -233,15 +240,29 @@ async function finishTeam(io, R, tg, override, chess) {
   const wDelta = Math.round(Kf * (whiteScore - expectedW)), bDelta = -wDelta;
   const whiteUids = tg.whiteMembers, blackUids = tg.blackMembers;
   const wWin = isDraw ? 0 : (winnerColor === 'w' ? 1 : 0), wLoss = isDraw ? 0 : (winnerColor === 'w' ? 0 : 1), wDraw = isDraw ? 1 : 0;
-  try {
-    db.transaction(() => {
-      const up = db.prepare(`UPDATE users SET elo_2v2 = elo_2v2 + ?, wins_2v2 = wins_2v2 + ?, losses_2v2 = losses_2v2 + ?, draws_2v2 = draws_2v2 + ? WHERE id = ?`);
-      for (const u of whiteUids) up.run(wDelta, wWin, wLoss, wDraw, u);
-      for (const u of blackUids) up.run(bDelta, 1 - wWin - wDraw, 1 - wLoss - wDraw, wDraw, u);
-      db.prepare(`INSERT INTO team_games (id, white_p1_id, white_p2_id, black_p1_id, black_p2_id, mode, result, winner_color, pgn, white_avg_elo_before, black_avg_elo_before, white_elo_delta, black_elo_delta, created_at, ended_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-        .run(tg.id, whiteUids[0], whiteUids[1], blackUids[0], blackUids[1], tg.mode, reason, winnerColor || null, chess.pgn(), wAvg, bAvg, wDelta, bDelta, tg.started, Date.now());
-    })();
-  } catch (e) { console.error('[scale] team finish persist failed', e && e.message); }
+  const teamInsertSql = `INSERT INTO team_games (id, white_p1_id, white_p2_id, black_p1_id, black_p2_id, mode, result, winner_color, pgn, white_avg_elo_before, black_avg_elo_before, white_elo_delta, black_elo_delta, created_at, ended_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`;
+  const teamInsertParams = [tg.id, whiteUids[0], whiteUids[1], blackUids[0], blackUids[1], tg.mode, reason, winnerColor || null, chess.pgn(), wAvg, bAvg, wDelta, bDelta, tg.started, Date.now()];
+  const up2v2 = `UPDATE users SET elo_2v2 = elo_2v2 + ?, wins_2v2 = wins_2v2 + ?, losses_2v2 = losses_2v2 + ?, draws_2v2 = draws_2v2 + ? WHERE id = ?`;
+  // Atomic 4 ELO updates + game-record persist, backend-branched (SQLite sync /
+  // Postgres async via store.runTransaction).
+  if (store.usingPostgres) {
+    try {
+      await store.runTransaction(async (tx) => {
+        for (const u of whiteUids) await tx.run(up2v2, [wDelta, wWin, wLoss, wDraw, u]);
+        for (const u of blackUids) await tx.run(up2v2, [bDelta, 1 - wWin - wDraw, 1 - wLoss - wDraw, wDraw, u]);
+        await tx.run(teamInsertSql, teamInsertParams);
+      });
+    } catch (e) { console.error('[scale] team finish pg persist failed', e && e.message); }
+  } else {
+    try {
+      db.transaction(() => {
+        const up = db.prepare(up2v2);
+        for (const u of whiteUids) up.run(wDelta, wWin, wLoss, wDraw, u);
+        for (const u of blackUids) up.run(bDelta, 1 - wWin - wDraw, 1 - wLoss - wDraw, wDraw, u);
+        db.prepare(teamInsertSql).run(...teamInsertParams);
+      })();
+    } catch (e) { console.error('[scale] team finish persist failed', e && e.message); }
+  }
   const perPlayerDelta = {};
   for (const u of whiteUids) perPlayerDelta[u] = wDelta;
   for (const u of blackUids) perPlayerDelta[u] = bDelta;

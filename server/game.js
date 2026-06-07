@@ -5,6 +5,7 @@
 import { Chess } from 'chess.js';
 import crypto from 'crypto';
 import { db, getUserById, areBlocked } from './db.js';
+import * as store from './store.js';
 import * as scale from './scale-store.js';
 import * as scaleTeam from './scale-team.js';
 
@@ -214,6 +215,14 @@ function startTimeoutSweep(io) {
 // Redis client for multi-instance mode (null in single-instance mode).
 let scaleR = null;
 
+// Backend-agnostic single-user read for the in-memory path's display/elo reads.
+// SQLite stays synchronous via the resolved value; Postgres awaits the facade.
+// (The proven SQLite path is unchanged — sqlite.getUserById is wrapped in an
+// already-resolved promise, so existing behavior is byte-for-byte.)
+function readUser(uid) {
+  return store.usingPostgres ? store.getUserById(uid) : getUserById(uid);
+}
+
 export function attachSocketHandlers(io, verifyToken, redisClient = null) {
   ioRef = io; // expose io to notifyUser() for friend-request pushes
   scaleR = redisClient || null;
@@ -235,7 +244,7 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
         if (socket.data.authFails >= 5) { socket.emit('auth_err', { error: 'Too many attempts' }); socket.disconnect(true); }
         return;
       }
-      const user = getUserById(payload.uid);
+      const user = await readUser(payload.uid);
       if (!user) {
         socket.data.authFails += 1;
         socket.emit('auth_err', { error: 'User missing' });
@@ -277,8 +286,8 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
             fen: game.chess.fen(),
             mode: game.mode,
             yourColor,
-            white: publicUser(getUserById(game.white)),
-            black: publicUser(getUserById(game.black)),
+            white: publicUser(await readUser(game.white)),
+            black: publicUser(await readUser(game.black)),
             clock: clockSnap,
           });
         }
@@ -293,7 +302,7 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
         return;
       }
       if (scaleR) { try { await scale.joinQueue(io, scaleR, uid, { mode, tc }); } catch (e) { console.error('[scale] joinQueue', e && e.message); } return; }
-      const user = getUserById(uid);
+      const user = await readUser(uid);
       matchmakingQueue.set(uid, { socketId: socket.id, elo: user.elo, joinedAt: Date.now(), mode: normalizeMode(mode), tc: normalizeTc(tc) });
       tryMatchmake(io);
     });
@@ -314,7 +323,7 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       const entryTc = normalizeTc(tc);
       // If user is already queued (solo or as part of a duo), ignore.
       if (findTeamQueueEntryByUid(uid)) return;
-      const user = getUserById(uid);
+      const user = await readUser(uid);
       if (!user) return;
       if (inviteId) {
         // Joining as part of a friend-duo. inviteId must reference an accepted duo
@@ -380,7 +389,7 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       const uid = socket.data.userId; if (!uid) return;
       if (scaleR) { try { await scaleTeam.duoInvite(io, scaleR, uid, friendId); } catch (e) { console.error('[scale] duo_invite', e && e.message); } return; }
       if (typeof friendId !== 'string' || friendId === uid) return;
-      const friend = getUserById(friendId);
+      const friend = await readUser(friendId);
       if (!friend) { socket.emit('duo_err', { error: 'friend not found' }); return; }
       const friendSocketId = userSocket.get(friendId);
       if (!friendSocketId) { socket.emit('duo_err', { error: 'friend offline' }); return; }
@@ -396,7 +405,7 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
         expiresAt: Date.now() + 60_000,
       };
       duoInvites.set(inviteId, invite);
-      const me = getUserById(uid);
+      const me = await readUser(uid);
       io.sockets.sockets.get(friendSocketId)?.emit('duo_invite_received', {
         inviteId,
         from: publicUser(me),
@@ -423,9 +432,9 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       // Tell host they can queue; both will then send team_mm_join with inviteId.
       io.sockets.sockets.get(invite.hostSocketId)?.emit('duo_accepted', {
         inviteId,
-        partner: publicUser(getUserById(uid)),
+        partner: publicUser(await readUser(uid)),
       });
-      socket.emit('duo_ready', { inviteId, partner: publicUser(getUserById(invite.hostId)) });
+      socket.emit('duo_ready', { inviteId, partner: publicUser(await readUser(invite.hostId)) });
     });
 
     socket.on('duo_decline', async ({ inviteId }) => {
@@ -528,7 +537,7 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       }
       // If the opponent already has a standing offer -> start the rematch now.
       if (offer.offers.has(opponentUid)) {
-        startRematch(io, gameId);
+        Promise.resolve(startRematch(io, gameId)).catch((e) => console.error('[rematch] failed', e && e.message));
         return;
       }
       offer.offers.add(uid);
@@ -547,7 +556,7 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       if (typeof offer.expireTimer.unref === 'function') offer.expireTimer.unref();
       // Notify the opponent of the standing offer.
       const oppSock = userSocket.get(opponentUid);
-      if (oppSock) io.sockets.sockets.get(oppSock)?.emit('rematch_offered', { gameId, from: publicUser(getUserById(uid)) });
+      if (oppSock) io.sockets.sockets.get(oppSock)?.emit('rematch_offered', { gameId, from: publicUser(await readUser(uid)) });
     });
 
     socket.on('rematch_accept', async ({ gameId }) => {
@@ -566,7 +575,7 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
         o.offers.add(uid);
         return;
       }
-      startRematch(io, gameId);
+      Promise.resolve(startRematch(io, gameId)).catch((e) => console.error('[rematch] failed', e && e.message));
     });
 
     socket.on('rematch_decline', async ({ gameId }) => {
@@ -683,6 +692,13 @@ function publicUser(u) {
 }
 
 function tryMatchmake(io) {
+  // SQLite: keep the proven synchronous matchmaking sweep byte-for-byte (the
+  // areBlocked check runs inside .find()). Postgres needs awaited areBlocked, so
+  // it uses the async variant below — branch, don't force one path.
+  if (store.usingPostgres) {
+    tryMatchmakePg(io).catch((e) => console.error('[tryMatchmake] pg failed', e && e.message));
+    return;
+  }
   const players = Array.from(matchmakingQueue.entries())
     .map(([uid, info]) => ({ uid, ...info }))
     .sort((a, b) => a.joinedAt - b.joinedAt);
@@ -704,21 +720,58 @@ function tryMatchmake(io) {
   }
 }
 
+// Postgres matchmaking: same FIFO/tolerance logic, but the block check is awaited
+// (hoisted out of the .find() predicate, which can't be async).
+async function tryMatchmakePg(io) {
+  const players = Array.from(matchmakingQueue.entries())
+    .map(([uid, info]) => ({ uid, ...info }))
+    .sort((a, b) => a.joinedAt - b.joinedAt);
+  for (const a of players) {
+    if (!matchmakingQueue.has(a.uid)) continue;
+    const tolerance = Math.min(500, 50 + Math.floor((Date.now() - a.joinedAt) / 1000) * 25);
+    let match = null;
+    for (const b of players) {
+      if (b.uid === a.uid || !matchmakingQueue.has(b.uid)) continue;
+      if (Math.abs(a.elo - b.elo) > tolerance || a.mode !== b.mode || a.tc !== b.tc) continue;
+      if (await store.areBlocked(a.uid, b.uid)) continue; // never pair blocked players
+      match = b; break;
+    }
+    if (match) {
+      matchmakingQueue.delete(a.uid);
+      matchmakingQueue.delete(match.uid);
+      startGame(io, a, match);
+    }
+  }
+}
+
 function startGame(io, a, b) {
   const [white, black] = Math.random() < 0.5 ? [a, b] : [b, a];
-  startGameWithColors(io, white, black);
+  // Fire-and-forget: startGameWithColors is async only to await PG reads; any
+  // failure is logged rather than surfaced to the (sync) matchmaking caller.
+  Promise.resolve(startGameWithColors(io, white, black)).catch((e) =>
+    console.error('[startGame] failed', e && e.message));
 }
 
 // Color-forced game start: `white`/`black` are {uid, socketId, elo, mode, tc}.
 // Used by the rematch path (to swap colors deterministically) and by startGame
 // (after it has randomized which entry is white).
-function startGameWithColors(io, white, black) {
+async function startGameWithColors(io, white, black) {
   const a = white; // keep `a` for tc/mode reads below (matches old startGame)
   const gameId = newGameId();
   const chess = new Chess();
   const tc = normalizeTc(a.tc);
   const parsed = parseTc(tc);
   const clock = makeClock(parsed);
+  // Read both players. Branch on backend: sync SQLite (unchanged) vs awaited
+  // facade reads on Postgres so eloBefore is read from the scalable store.
+  let whiteUser, blackUser;
+  if (store.usingPostgres) {
+    whiteUser = await store.getUserById(white.uid);
+    blackUser = await store.getUserById(black.uid);
+  } else {
+    whiteUser = getUserById(white.uid);
+    blackUser = getUserById(black.uid);
+  }
   const game = {
     id: gameId,
     white: white.uid,
@@ -728,8 +781,8 @@ function startGameWithColors(io, white, black) {
     started: Date.now(),
     tc,
     clock,
-    whiteEloBefore: getUserById(white.uid).elo,
-    blackEloBefore: getUserById(black.uid).elo,
+    whiteEloBefore: whiteUser.elo,
+    blackEloBefore: blackUser.elo,
   };
   activeGames.set(gameId, game);
   userActiveGame.set(white.uid, gameId);
@@ -738,8 +791,6 @@ function startGameWithColors(io, white, black) {
   const bSock = io.sockets.sockets.get(black.socketId);
   if (wSock) wSock.join(gameId);
   if (bSock) bSock.join(gameId);
-  const whiteUser = getUserById(white.uid);
-  const blackUser = getUserById(black.uid);
   io.to(gameId).emit('match_found', {
     gameId,
     white: publicUser(whiteUser),
@@ -750,7 +801,7 @@ function startGameWithColors(io, white, black) {
   });
 }
 
-function finishGame(io, game, override = {}) {
+async function finishGame(io, game, override = {}) {
   if (game._ended) return;
   game._ended = true;
   // Don't leak a pending disconnect grace timer if the game ends another way.
@@ -762,46 +813,96 @@ function finishGame(io, game, override = {}) {
     winnerId = chess.turn() === 'w' ? game.black : game.white;
   }
   const isDraw = !winnerId;
-  const whiteUser = getUserById(game.white);
-  const blackUser = getUserById(game.black);
+  // Read the two players for the ELO computation. Branch on backend: the proven
+  // sync SQLite path stays untouched; on Postgres we await the facade reads.
+  let whiteUser, blackUser;
+  if (store.usingPostgres) {
+    try {
+      whiteUser = await store.getUserById(game.white);
+      blackUser = await store.getUserById(game.black);
+    } catch (e) { console.error('[finishGame] pg read failed', e && e.message); }
+  } else {
+    whiteUser = getUserById(game.white);
+    blackUser = getUserById(game.black);
+  }
   let wd = 0, bd = 0;
-  if (game.mode === 'ranked') {
+  if (game.mode === 'ranked' && whiteUser && blackUser) {
     const whiteScore = isDraw ? 0.5 : (winnerId === game.white ? 1 : 0);
     wd = eloDelta(whiteUser.elo, blackUser.elo, whiteScore);
     bd = eloDelta(blackUser.elo, whiteUser.elo, 1 - whiteScore);
   }
   // Apply ELO updates + persist game record atomically so a crash can't leave
-  // half-applied results.
-  db.transaction(() => {
-    if (game.mode === 'ranked') {
-      const up = db.prepare(`UPDATE users SET elo = elo + ?,
-          wins = wins + ?, losses = losses + ?, draws = draws + ?,
-          current_streak = CASE WHEN ? THEN current_streak + 1 ELSE 0 END,
-          best_streak = MAX(best_streak, CASE WHEN ? THEN current_streak + 1 ELSE 0 END)
-        WHERE id = ?`);
-      up.run(wd,
-        isDraw ? 0 : (winnerId === game.white ? 1 : 0),
-        isDraw ? 0 : (winnerId === game.white ? 0 : 1),
-        isDraw ? 1 : 0,
-        isDraw ? 0 : (winnerId === game.white ? 1 : 0),
-        isDraw ? 0 : (winnerId === game.white ? 1 : 0),
-        game.white);
-      up.run(bd,
-        isDraw ? 0 : (winnerId === game.black ? 1 : 0),
-        isDraw ? 0 : (winnerId === game.black ? 0 : 1),
-        isDraw ? 1 : 0,
-        isDraw ? 0 : (winnerId === game.black ? 1 : 0),
-        isDraw ? 0 : (winnerId === game.black ? 1 : 0),
-        game.black);
-    }
-    db.prepare(`INSERT INTO games (id, white_id, black_id, mode, result, winner_id, pgn,
-                                   white_elo_before, black_elo_before, white_elo_delta, black_elo_delta,
-                                   created_at, ended_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(game.id, game.white, game.black, game.mode, reason, winnerId, chess.pgn(),
+  // half-applied results. Backend-branched: SQLite keeps the synchronous
+  // better-sqlite3 transaction (cannot span await); Postgres uses the async
+  // store.runTransaction (BEGIN/COMMIT on one pooled client).
+  if (store.usingPostgres) {
+    try {
+      await store.runTransaction(async (tx) => {
+        if (game.mode === 'ranked') {
+          // Postgres CASE WHEN needs a boolean predicate (SQLite accepts a 0/1
+          // integer); the win flag is passed as 1/0, so compare `= 1`. GREATEST
+          // replaces SQLite's 2-arg MAX (Postgres MAX is aggregate-only).
+          const up = `UPDATE users SET elo = elo + ?,
+              wins = wins + ?, losses = losses + ?, draws = draws + ?,
+              current_streak = CASE WHEN ? = 1 THEN current_streak + 1 ELSE 0 END,
+              best_streak = GREATEST(best_streak, CASE WHEN ? = 1 THEN current_streak + 1 ELSE 0 END)
+            WHERE id = ?`;
+          await tx.run(up, [wd,
+            isDraw ? 0 : (winnerId === game.white ? 1 : 0),
+            isDraw ? 0 : (winnerId === game.white ? 0 : 1),
+            isDraw ? 1 : 0,
+            isDraw ? 0 : (winnerId === game.white ? 1 : 0),
+            isDraw ? 0 : (winnerId === game.white ? 1 : 0),
+            game.white]);
+          await tx.run(up, [bd,
+            isDraw ? 0 : (winnerId === game.black ? 1 : 0),
+            isDraw ? 0 : (winnerId === game.black ? 0 : 1),
+            isDraw ? 1 : 0,
+            isDraw ? 0 : (winnerId === game.black ? 1 : 0),
+            isDraw ? 0 : (winnerId === game.black ? 1 : 0),
+            game.black]);
+        }
+        await tx.run(`INSERT INTO games (id, white_id, black_id, mode, result, winner_id, pgn,
+                                         white_elo_before, black_elo_before, white_elo_delta, black_elo_delta,
+                                         created_at, ended_at)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [game.id, game.white, game.black, game.mode, reason, winnerId, chess.pgn(),
            game.whiteEloBefore, game.blackEloBefore, wd, bd,
-           game.started, Date.now());
-  })();
+           game.started, Date.now()]);
+      });
+    } catch (e) { console.error('[finishGame] pg persist failed', e && e.message); }
+  } else {
+    db.transaction(() => {
+      if (game.mode === 'ranked') {
+        const up = db.prepare(`UPDATE users SET elo = elo + ?,
+            wins = wins + ?, losses = losses + ?, draws = draws + ?,
+            current_streak = CASE WHEN ? THEN current_streak + 1 ELSE 0 END,
+            best_streak = MAX(best_streak, CASE WHEN ? THEN current_streak + 1 ELSE 0 END)
+          WHERE id = ?`);
+        up.run(wd,
+          isDraw ? 0 : (winnerId === game.white ? 1 : 0),
+          isDraw ? 0 : (winnerId === game.white ? 0 : 1),
+          isDraw ? 1 : 0,
+          isDraw ? 0 : (winnerId === game.white ? 1 : 0),
+          isDraw ? 0 : (winnerId === game.white ? 1 : 0),
+          game.white);
+        up.run(bd,
+          isDraw ? 0 : (winnerId === game.black ? 1 : 0),
+          isDraw ? 0 : (winnerId === game.black ? 0 : 1),
+          isDraw ? 1 : 0,
+          isDraw ? 0 : (winnerId === game.black ? 1 : 0),
+          isDraw ? 0 : (winnerId === game.black ? 1 : 0),
+          game.black);
+      }
+      db.prepare(`INSERT INTO games (id, white_id, black_id, mode, result, winner_id, pgn,
+                                     white_elo_before, black_elo_before, white_elo_delta, black_elo_delta,
+                                     created_at, ended_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(game.id, game.white, game.black, game.mode, reason, winnerId, chess.pgn(),
+             game.whiteEloBefore, game.blackEloBefore, wd, bd,
+             game.started, Date.now());
+    })();
+  }
   io.to(game.id).emit('game_over', {
     gameId: game.id,
     winnerId,
@@ -837,7 +938,7 @@ function clearRematchOffer(gameId) {
 
 // Start a rematch for a recent 1v1 game: same players, same mode/tc, colors
 // swapped. Reuses the normal startGame path so both clients get match_found.
-function startRematch(io, gameId) {
+async function startRematch(io, gameId) {
   const rg = recentGames.get(gameId);
   if (!rg) return;
   // Consume the offer + recent snapshot up front so we can't double-fire.
@@ -851,15 +952,22 @@ function startRematch(io, gameId) {
   const wSock = userSocket.get(newWhiteUid);
   const bSock = userSocket.get(newBlackUid);
   if (!wSock || !bSock) return; // a player went offline; abort silently
-  const wUser = getUserById(newWhiteUid);
-  const bUser = getUserById(newBlackUid);
+  // Branch on backend for the existence/elo reads (sync SQLite vs awaited PG).
+  let wUser, bUser;
+  if (store.usingPostgres) {
+    wUser = await store.getUserById(newWhiteUid);
+    bUser = await store.getUserById(newBlackUid);
+  } else {
+    wUser = getUserById(newWhiteUid);
+    bUser = getUserById(newBlackUid);
+  }
   if (!wUser || !bUser) return;
   // startGame randomizes colors internally, so pre-bias by passing the desired
   // White first and Black second is not enough. Force the order by giving
   // startGame two entries and overriding its randomization via fixed seats:
   // we pass them so a is White-intended; startGame still flips 50/50, so we
   // call a color-forced variant.
-  startGameWithColors(io,
+  await startGameWithColors(io,
     { uid: newWhiteUid, socketId: wSock, elo: wUser.elo, mode: rg.mode, tc: rg.tc },
     { uid: newBlackUid, socketId: bSock, elo: bUser.elo, mode: rg.mode, tc: rg.tc });
 }
@@ -967,10 +1075,11 @@ function tryTeamMatchmake(io) {
   if (Math.random() < 0.5) whiteMembers.reverse();
   if (Math.random() < 0.5) blackMembers.reverse();
 
-  startTeamGame(io, whiteMembers, blackMembers, matchedTc);
+  Promise.resolve(startTeamGame(io, whiteMembers, blackMembers, matchedTc)).catch((e) =>
+    console.error('[startTeamGame] failed', e && e.message));
 }
 
-function startTeamGame(io, whiteMembers, blackMembers, tc = 'unlimited') {
+async function startTeamGame(io, whiteMembers, blackMembers, tc = 'unlimited') {
   const gameId = newGameId();
   const chess = new Chess();
   const normTc = normalizeTc(tc);
@@ -980,8 +1089,16 @@ function startTeamGame(io, whiteMembers, blackMembers, tc = 'unlimited') {
   const blackByUid = {};
   whiteMembers.forEach((m, i) => { whiteByUid[m.uid] = i; });
   blackMembers.forEach((m, i) => { blackByUid[m.uid] = i; });
-  const whiteUsers = whiteMembers.map(m => getUserById(m.uid));
-  const blackUsers = blackMembers.map(m => getUserById(m.uid));
+  // Branch on backend: sync .map(getUserById) on SQLite (unchanged); awaited
+  // facade reads on Postgres so the avg-ELO-before snapshot uses the scalable store.
+  let whiteUsers, blackUsers;
+  if (store.usingPostgres) {
+    whiteUsers = await Promise.all(whiteMembers.map(m => store.getUserById(m.uid)));
+    blackUsers = await Promise.all(blackMembers.map(m => store.getUserById(m.uid)));
+  } else {
+    whiteUsers = whiteMembers.map(m => getUserById(m.uid));
+    blackUsers = blackMembers.map(m => getUserById(m.uid));
+  }
   const tg = {
     id: gameId,
     chess,
@@ -1074,7 +1191,7 @@ function applyTeamMove(io, socket, tg, uid, { from, to, promotion }) {
   if (tg.chess.isGameOver()) finishTeamGame(io, tg);
 }
 
-function finishTeamGame(io, tg, override = {}) {
+async function finishTeamGame(io, tg, override = {}) {
   if (tg._ended) return;
   tg._ended = true;
   const chess = tg.chess;
@@ -1099,27 +1216,46 @@ function finishTeamGame(io, tg, override = {}) {
   const wLoss = isDraw ? 0 : (winnerColor === 'w' ? 0 : 1);
   const wDraw = isDraw ? 1 : 0;
 
-  // Apply the four elo_2v2 updates + persist game record atomically.
-  try {
-    db.transaction(() => {
-      const update2v2 = db.prepare(`UPDATE users SET elo_2v2 = elo_2v2 + ?,
-          wins_2v2 = wins_2v2 + ?, losses_2v2 = losses_2v2 + ?, draws_2v2 = draws_2v2 + ?
-        WHERE id = ?`);
-      for (const u of whiteUids) update2v2.run(wDelta, wWin, wLoss, wDraw, u);
-      for (const u of blackUids) update2v2.run(bDelta, 1 - wWin - wDraw, 1 - wLoss - wDraw, wDraw, u);
-      db.prepare(`INSERT INTO team_games (id, white_p1_id, white_p2_id, black_p1_id, black_p2_id,
-                                          mode, result, winner_color, pgn,
-                                          white_avg_elo_before, black_avg_elo_before,
-                                          white_elo_delta, black_elo_delta,
-                                          created_at, ended_at)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        tg.id, whiteUids[0], whiteUids[1], blackUids[0], blackUids[1],
-        tg.mode, reason, winnerColor || null, chess.pgn(),
-        wAvg, bAvg, wDelta, bDelta,
-        tg.started, Date.now());
-    })();
-  } catch (e) {
-    console.error('[team-game] persist failed', e);
+  // Apply the four elo_2v2 updates + persist game record atomically. Backend-
+  // branched like finishGame: SQLite uses the synchronous better-sqlite3
+  // transaction; Postgres uses the async store.runTransaction.
+  const teamInsertSql = `INSERT INTO team_games (id, white_p1_id, white_p2_id, black_p1_id, black_p2_id,
+                                        mode, result, winner_color, pgn,
+                                        white_avg_elo_before, black_avg_elo_before,
+                                        white_elo_delta, black_elo_delta,
+                                        created_at, ended_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  const teamInsertParams = [
+    tg.id, whiteUids[0], whiteUids[1], blackUids[0], blackUids[1],
+    tg.mode, reason, winnerColor || null, chess.pgn(),
+    wAvg, bAvg, wDelta, bDelta,
+    tg.started, Date.now()];
+  if (store.usingPostgres) {
+    try {
+      await store.runTransaction(async (tx) => {
+        const update2v2 = `UPDATE users SET elo_2v2 = elo_2v2 + ?,
+            wins_2v2 = wins_2v2 + ?, losses_2v2 = losses_2v2 + ?, draws_2v2 = draws_2v2 + ?
+          WHERE id = ?`;
+        for (const u of whiteUids) await tx.run(update2v2, [wDelta, wWin, wLoss, wDraw, u]);
+        for (const u of blackUids) await tx.run(update2v2, [bDelta, 1 - wWin - wDraw, 1 - wLoss - wDraw, wDraw, u]);
+        await tx.run(teamInsertSql, teamInsertParams);
+      });
+    } catch (e) {
+      console.error('[team-game] pg persist failed', e && e.message);
+    }
+  } else {
+    try {
+      db.transaction(() => {
+        const update2v2 = db.prepare(`UPDATE users SET elo_2v2 = elo_2v2 + ?,
+            wins_2v2 = wins_2v2 + ?, losses_2v2 = losses_2v2 + ?, draws_2v2 = draws_2v2 + ?
+          WHERE id = ?`);
+        for (const u of whiteUids) update2v2.run(wDelta, wWin, wLoss, wDraw, u);
+        for (const u of blackUids) update2v2.run(bDelta, 1 - wWin - wDraw, 1 - wLoss - wDraw, wDraw, u);
+        db.prepare(teamInsertSql).run(...teamInsertParams);
+      })();
+    } catch (e) {
+      console.error('[team-game] persist failed', e);
+    }
   }
 
   // Per-side delta map so each client can show its own ELO change.

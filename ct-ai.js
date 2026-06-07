@@ -182,19 +182,67 @@
     return { depth: 6, budget: 3800, noise: 0, slackN: 1, slackP: 0 };
   }
 
+  // Resolve the CT_960Castle API on whichever global is live (window or worker
+  // self). Returns null when chess960.js isn't loaded — callers must tolerate it.
+  function _castleApi() {
+    var g = (typeof window !== 'undefined') ? window : (typeof self !== 'undefined' ? self : null);
+    return (g && g.CT_960Castle) ? g.CT_960Castle : null;
+  }
+
+  // For a 960 castle descriptor, build the position that RESULTS from playing it
+  // (FEN surgery via applyCastleDescriptor on a throwaway clone) so the existing
+  // minimax can score it exactly like any normal child node.
+  function _fenAfterCastle(fen, desc) {
+    try {
+      var clone = new (_ChessCtor())(fen);
+      _castleApi().applyCastleDescriptor(clone, desc);
+      return clone.fen();
+    } catch (e) { return null; }
+  }
+
   // Choose a move for the side to move in `chess`, strength scaled by `aiElo`.
-  function chooseMove(chess, aiElo) {
+  // `startFen960` (optional) enables real Chess960 castling: when supplied AND
+  // chess960.js is loaded, legal 960 castles are added to the ROOT candidate set
+  // and scored against the normal moves. When it is undefined the function takes
+  // the byte-for-byte original standard-chess path (no castle augmentation).
+  function chooseMove(chess, aiElo, startFen960) {
     aiElo = aiElo || 1200;
     var moves = chess.moves({ verbose: true });
-    if (moves.length === 0) return null;
+    // 960 castle candidates (only when a 960 start FEN is supplied AND the
+    // castling helper is present). These are descriptor objects, not chess.js
+    // moves — they are scored by FEN surgery, never by chess.move()/undo().
+    var castleDescs = [];
+    var castleApi = startFen960 ? _castleApi() : null;
+    if (castleApi) {
+      try { castleDescs = castleApi.legalCastlingMoves(chess, startFen960) || []; }
+      catch (e) { castleDescs = []; }
+      // Tag each descriptor so a chosen castle is recognisable downstream and add
+      // from/to (the king's hop) so it mirrors a verbose chess.js move's shape.
+      castleDescs.forEach(function (d) { d.castle = true; d.from = d.kingFrom; d.to = d.kingTo; d.piece = 'k'; });
+    }
+    if (moves.length === 0 && castleDescs.length === 0) return null;
     var cfg = difficultyFor(aiElo);
     var turn = chess.turn();
     var maximizing = turn === 'w';
     var sign = maximizing ? 1 : -1;
     var start = Date.now();
+    var rootFen = chess.fen();
+    // Score a single 960 castle descriptor at the given search depth by searching
+    // the resulting position. Returns the white-positive minimax value, or null
+    // if the castle can't be applied (defensive — then it's simply dropped).
+    function scoreCastle(desc, depth) {
+      var afterFen = _fenAfterCastle(rootFen, desc);
+      if (!afterFen) return null;
+      try {
+        var c = new (_ChessCtor())(afterFen);
+        // After the castle it's the opponent to move; search one ply shallower
+        // (the castle itself is the root ply) exactly as a normal child would be.
+        return minimax(c, depth - 1, -Infinity, Infinity, !maximizing, 1);
+      } catch (e) { return null; }
+    }
     // Mild root randomisation so identical positions don't always play the same line.
     var ordered = orderMoves(moves.slice().sort(function () { return Math.random() - 0.5; }));
-    var bestMove = ordered[0];
+    var bestMove = ordered[0] || (castleDescs.length ? castleDescs[0] : null);
     var lastScored = null; // scores from the last FULLY-completed iteration
     for (var depth = 1; depth <= cfg.depth; depth++) {
       if (Date.now() - start > cfg.budget) break;
@@ -211,6 +259,14 @@
         scored.push({ move: m, val: val });
         if (Date.now() - start > cfg.budget) { aborted = true; break; }
       }
+      // 960 castle candidates: scored by FEN surgery (never chess.move). Kept in
+      // the same `scored` list so they compete with normal moves on equal terms.
+      // A descriptor that can't be applied returns null and is dropped.
+      for (var ci = 0; ci < castleDescs.length && !aborted; ci++) {
+        var cval = scoreCastle(castleDescs[ci], depth);
+        if (cval !== null) scored.push({ move: castleDescs[ci], val: cval, castle: true });
+        if (Date.now() - start > cfg.budget) { aborted = true; break; }
+      }
       // DX-11: only adopt results from a fully-completed iteration. A partial
       // depth has only scored a prefix of moves and may pick a worse move than
       // the previous complete depth, so discard it.
@@ -219,7 +275,9 @@
       // Reorder so the best move is searched first next iteration (PV move).
       scored.sort(function (a, b) { return sign * (b.val - a.val); });
       bestMove = scored[0].move;
-      ordered = scored.map(function (s) { return s.move; });
+      // Re-seed `ordered` with normal moves only (castles are regenerated each
+      // iteration via scoreCastle); descriptors must never reach chess.move().
+      ordered = scored.filter(function (s) { return !s.castle; }).map(function (s) { return s.move; });
     }
     // Apply the difficulty weakening to the best fully-completed iteration's scores.
     if (lastScored && (cfg.noise > 0 || cfg.slackN > 1)) {
@@ -305,21 +363,22 @@
       } catch (e) { _worker = null; }
       return _worker;
     }
-    function _syncFromFen(fen, aiElo) {
-      try { return chooseMove(new window.Chess(fen), aiElo); } catch (e) { return null; }
+    function _syncFromFen(fen, aiElo, startFen960) {
+      try { return chooseMove(new window.Chess(fen), aiElo, startFen960); } catch (e) { return null; }
     }
     // fen is serializable for postMessage; the worker reconstructs the position.
-    api.chooseMoveAsync = function (fen, aiElo) {
+    // startFen960 (optional) is forwarded so the worker can offer 960 castling.
+    api.chooseMoveAsync = function (fen, aiElo, startFen960) {
       return new Promise(function (resolve) {
         var w = _ensureWorker();
-        if (!w) { resolve(_syncFromFen(fen, aiElo)); return; }
+        if (!w) { resolve(_syncFromFen(fen, aiElo, startFen960)); return; }
         var id = _nextId++;
         var timer = setTimeout(function () {
-          if (_pending[id]) { delete _pending[id]; resolve(_syncFromFen(fen, aiElo)); }
+          if (_pending[id]) { delete _pending[id]; resolve(_syncFromFen(fen, aiElo, startFen960)); }
         }, 12000);
         _pending[id] = function (move) { clearTimeout(timer); resolve(move); };
-        try { w.postMessage({ id: id, fen: fen, aiElo: aiElo }); }
-        catch (e) { clearTimeout(timer); delete _pending[id]; resolve(_syncFromFen(fen, aiElo)); }
+        try { w.postMessage({ id: id, fen: fen, aiElo: aiElo, startFen960: startFen960 }); }
+        catch (e) { clearTimeout(timer); delete _pending[id]; resolve(_syncFromFen(fen, aiElo, startFen960)); }
       });
     };
   }
