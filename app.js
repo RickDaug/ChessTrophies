@@ -617,7 +617,7 @@
       <div class="ad-label">${cfg.label} · ${cfg.size}</div>
       <div class="ad-body">
         <div class="ad-copy">${cfg.copy}</div>
-        <button class="ad-upgrade" onclick="window.CT && window.CT.openPremium()">Remove ads</button>
+        <button class="ad-upgrade" data-act="open-premium">Remove ads</button>
       </div>
     </div>`;
   }
@@ -3833,6 +3833,28 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   if ($('#btn-premium-cancel-paid')) $('#btn-premium-cancel-paid').addEventListener('click', () => { setPremium(false); closeModal('premium'); });
   if ($('#btn-premium-close')) $('#btn-premium-close').addEventListener('click', () => closeModal('premium'));
 
+  // Static handlers formerly inline on* attributes in index.html. Removing
+  // 'unsafe-inline' from the CSP script-src blocks on* attributes, so we wire
+  // them here. Functions defined outside this IIFE (openAvatarEditor, signOut,
+  // renderFriendSearchResults) are referenced via window.* inside the handler so
+  // they resolve at click time (after the window.* assignments at file end run).
+  if ($('#lobby-premium-card')) $('#lobby-premium-card').addEventListener('click', () => openPremium());
+  if ($('#btn-open-avatar-editor')) $('#btn-open-avatar-editor').addEventListener('click', () => window.openAvatarEditor && window.openAvatarEditor());
+  if ($('#btn-view-profile')) $('#btn-view-profile').addEventListener('click', () => showScreen('profile'));
+  if ($('#btn-sign-out')) $('#btn-sign-out').addEventListener('click', () => window.signOut && window.signOut());
+  if ($('#toggle-sounds')) $('#toggle-sounds').addEventListener('change', function () { localStorage.setItem('ct_sounds', this.checked); });
+  if ($('#friend-search-input')) $('#friend-search-input').addEventListener('input', function () { window.renderFriendSearchResults && window.renderFriendSearchResults(this.value); });
+
+  // Document-level delegation for dynamically-rendered controls that aren't part
+  // of a dedicated modal container (e.g. the ad-slot "Remove ads" button which
+  // renderAdSlot() injects into the lobby/various screens). Inline onclick was
+  // removed for CSP, so dispatch on data-act here.
+  document.addEventListener('click', function (e) {
+    const t = e.target.closest('[data-act]');
+    if (!t) return;
+    if (t.getAttribute('data-act') === 'open-premium') openPremium();
+  });
+
   // Expose for academy.js
   window.CT = {
     get state(){ return state; },
@@ -3979,15 +4001,27 @@ function openChat(roomId, label) {
   overlay.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#1a2438;border-bottom:1px solid #2d3a52;">
       <span style="font-weight:600;color:#cdd3e6;font-size:13px;">💬 ${escapeHTML(label||'Chat')}</span>
-      <button onclick="document.getElementById('ct-chat-overlay').remove()" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer;line-height:1;">×</button>
+      <button data-act="chat-close" style="background:none;border:none;color:#888;font-size:18px;cursor:pointer;line-height:1;">×</button>
     </div>
     <div id="ct-chat-box" style="flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;"></div>
     <div style="padding:8px;border-top:1px solid #2d3a52;display:flex;gap:6px;">
       <input id="ct-chat-input" type="text" maxlength="500" placeholder="Type a message…" style="flex:1;background:#0d1422;border:1px solid #2d3a52;border-radius:8px;padding:7px 10px;color:#f0f0f0;font-size:13px;outline:none;"
-        onkeydown="if(event.key==='Enter'){window._sendChat();}">
-      <button onclick="window._sendChat()" style="background:#3b425a;border:none;border-radius:8px;color:#fff;padding:7px 12px;cursor:pointer;font-size:13px;">Send</button>
+        data-act="chat-input">
+      <button data-act="chat-send" style="background:#3b425a;border:none;border-radius:8px;color:#fff;padding:7px 12px;cursor:pointer;font-size:13px;">Send</button>
     </div>
   `;
+  // Delegated click + keydown for this overlay (CSP blocks inline on* handlers).
+  overlay.addEventListener('click', function (e) {
+    const t = e.target.closest('[data-act]');
+    if (!t || !overlay.contains(t)) return;
+    const act = t.getAttribute('data-act');
+    if (act === 'chat-close') overlay.remove();
+    else if (act === 'chat-send') window._sendChat && window._sendChat();
+  });
+  overlay.addEventListener('keydown', function (e) {
+    const t = e.target.closest('[data-act="chat-input"]');
+    if (t && e.key === 'Enter') window._sendChat && window._sendChat();
+  });
   document.body.appendChild(overlay);
   window._sendChat = function() {
     const inp = document.getElementById('ct-chat-input');
@@ -4043,14 +4077,14 @@ function openAvatarEditor() {
   modal.id = 'ct-avatar-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:#0009;z-index:9999;display:flex;align-items:center;justify-content:center;';
   const stockGrid = STOCK_AVATARS.map(av =>
-    `<button onclick="window._selectStockAvatar('${av.id}')" title="${av.label}"
+    `<button data-act="avatar-stock" data-id="${escapeHTML(av.id)}" title="${escapeHTML(av.label)}"
       style="width:52px;height:52px;border-radius:50%;background:${av.bg};border:${(user.avatarStock===av.id&&!user.avatarDataUrl)?'3px solid #6eb5ff':'2px solid #2d3a52'};cursor:pointer;font-size:26px;display:flex;align-items:center;justify-content:center;">${av.emoji}</button>`
   ).join('');
   modal.innerHTML = `
     <div style="background:#141d2b;border-radius:16px;padding:24px;width:340px;max-width:95vw;color:#f0f0f0;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
         <h3 style="margin:0;font-size:16px;">Edit Profile Picture</h3>
-        <button onclick="document.getElementById('ct-avatar-modal').remove()" style="background:none;border:none;color:#888;font-size:22px;cursor:pointer;">×</button>
+        <button data-act="avatar-close" style="background:none;border:none;color:#888;font-size:22px;cursor:pointer;">×</button>
       </div>
       <div style="text-align:center;margin-bottom:18px;">
         <div id="ct-avatar-preview" style="display:inline-block;">${getAvatarHTML(user, 72)}</div>
@@ -4061,18 +4095,32 @@ function openAvatarEditor() {
       </div>
       <div style="margin-bottom:16px;">
         <div style="font-size:12px;color:#888;margin-bottom:8px;">UPLOAD YOUR OWN (max 1MB)</div>
-        <input type="file" id="ct-avatar-upload" accept="image/*" style="display:none;" onchange="window._handleAvatarUpload(this)">
-        <button onclick="document.getElementById('ct-avatar-upload').click()"
+        <input type="file" id="ct-avatar-upload" accept="image/*" style="display:none;" data-act="avatar-upload">
+        <button data-act="avatar-choose"
           style="width:100%;padding:9px;background:#1a2438;border:1px dashed #3b425a;border-radius:8px;color:#aaa;cursor:pointer;font-size:13px;">
           📁 Choose Image…
         </button>
       </div>
       <div style="display:flex;gap:10px;margin-top:8px;">
-        <button onclick="window._clearCustomAvatar()" style="flex:1;padding:9px;background:#2d1a1a;border:none;border-radius:8px;color:#f0a0a0;cursor:pointer;font-size:13px;">Remove Custom</button>
-        <button onclick="document.getElementById('ct-avatar-modal').remove()" style="flex:1;padding:9px;background:#3b425a;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;">Done</button>
+        <button data-act="avatar-clear" style="flex:1;padding:9px;background:#2d1a1a;border:none;border-radius:8px;color:#f0a0a0;cursor:pointer;font-size:13px;">Remove Custom</button>
+        <button data-act="avatar-close" style="flex:1;padding:9px;background:#3b425a;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;">Done</button>
       </div>
     </div>
   `;
+  // Delegated handler for this modal (CSP blocks inline on* handlers).
+  modal.addEventListener('click', function (e) {
+    const t = e.target.closest('[data-act]');
+    if (!t || !modal.contains(t)) return;
+    const act = t.getAttribute('data-act');
+    if (act === 'avatar-close') modal.remove();
+    else if (act === 'avatar-stock') window._selectStockAvatar && window._selectStockAvatar(t.getAttribute('data-id'));
+    else if (act === 'avatar-choose') { const up = document.getElementById('ct-avatar-upload'); if (up) up.click(); }
+    else if (act === 'avatar-clear') window._clearCustomAvatar && window._clearCustomAvatar();
+  });
+  modal.addEventListener('change', function (e) {
+    const t = e.target.closest('[data-act="avatar-upload"]');
+    if (t) window._handleAvatarUpload && window._handleAvatarUpload(t);
+  });
   document.body.appendChild(modal);
 
   window._selectStockAvatar = function(avId) {
@@ -4084,8 +4132,8 @@ function openAvatarEditor() {
     ctSyncAvatar(state.user);
     document.getElementById('ct-avatar-preview').innerHTML = getAvatarHTML(state.user, 72);
     // Refresh stock grid borders
-    document.querySelectorAll('#ct-avatar-modal button[onclick*="_selectStockAvatar"]').forEach(btn => {
-      const id = btn.getAttribute('onclick').match(/'([^']+)'/)[1];
+    document.querySelectorAll('#ct-avatar-modal button[data-act="avatar-stock"]').forEach(btn => {
+      const id = btn.getAttribute('data-id');
       btn.style.border = (id === avId) ? '3px solid #6eb5ff' : '2px solid #2d3a52';
     });
     toast('Avatar updated!', true);
@@ -4152,7 +4200,7 @@ function openReportDialog(targetUserId, targetUsername) {
   modal.id = 'ct-report-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:#0009;z-index:9999;display:flex;align-items:center;justify-content:center;';
   const reasonOpts = REPORT_REASONS.map((r,i) =>
-    `<label style="display:flex;align-items:center;gap:8px;padding:6px;border-radius:6px;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background='#1a2438'" onmouseout="this.style.background=''" >
+    `<label data-act="report-reason-row" style="display:flex;align-items:center;gap:8px;padding:6px;border-radius:6px;cursor:pointer;transition:background 0.15s;">
       <input type="radio" name="ct-report-reason" value="${i}" style="accent-color:#6eb5ff;"> <span style="font-size:13px;">${escapeHTML(r)}</span>
     </label>`
   ).join('');
@@ -4160,7 +4208,7 @@ function openReportDialog(targetUserId, targetUsername) {
     <div style="background:#141d2b;border-radius:16px;padding:24px;width:360px;max-width:95vw;color:#f0f0f0;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
         <h3 style="margin:0;font-size:15px;">🚩 Report User</h3>
-        <button onclick="document.getElementById('ct-report-modal').remove()" style="background:none;border:none;color:#888;font-size:22px;cursor:pointer;">×</button>
+        <button data-act="report-close" style="background:none;border:none;color:#888;font-size:22px;cursor:pointer;">×</button>
       </div>
       <p style="color:#aaa;font-size:13px;margin:0 0 14px;">Reporting: <strong style="color:#f0f0f0;">${escapeHTML(targetUsername||targetUserId)}</strong></p>
       <div style="margin-bottom:14px;">
@@ -4173,11 +4221,27 @@ function openReportDialog(targetUserId, targetUsername) {
           style="width:100%;box-sizing:border-box;background:#0d1422;border:1px solid #2d3a52;border-radius:8px;padding:8px;color:#f0f0f0;font-size:13px;resize:vertical;outline:none;"></textarea>
       </div>
       <div style="display:flex;gap:10px;">
-        <button onclick="document.getElementById('ct-report-modal').remove()" style="flex:1;padding:10px;background:#1a2438;border:1px solid #2d3a52;border-radius:8px;color:#aaa;cursor:pointer;font-size:13px;">Cancel</button>
-        <button onclick="window._submitReport('${escapeHTML(targetUserId)}','${escapeHTML(targetUsername||targetUserId)}')" style="flex:1;padding:10px;background:#8b2020;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">Submit Report</button>
+        <button data-act="report-close" style="flex:1;padding:10px;background:#1a2438;border:1px solid #2d3a52;border-radius:8px;color:#aaa;cursor:pointer;font-size:13px;">Cancel</button>
+        <button data-act="report-submit" data-id="${escapeHTML(targetUserId)}" data-username="${escapeHTML(targetUsername||targetUserId)}" style="flex:1;padding:10px;background:#8b2020;border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600;">Submit Report</button>
       </div>
     </div>
   `;
+  // Delegated handlers for this modal (CSP blocks inline on* handlers).
+  modal.addEventListener('click', function (e) {
+    const t = e.target.closest('[data-act]');
+    if (!t || !modal.contains(t)) return;
+    const act = t.getAttribute('data-act');
+    if (act === 'report-close') modal.remove();
+    else if (act === 'report-submit') window._submitReport && window._submitReport(t.getAttribute('data-id'), t.getAttribute('data-username'));
+  });
+  modal.addEventListener('mouseover', function (e) {
+    const t = e.target.closest('[data-act="report-reason-row"]');
+    if (t && modal.contains(t)) t.style.background = '#1a2438';
+  });
+  modal.addEventListener('mouseout', function (e) {
+    const t = e.target.closest('[data-act="report-reason-row"]');
+    if (t && modal.contains(t)) t.style.background = '';
+  });
   document.body.appendChild(modal);
 
   window._submitReport = function(tid, tname) {

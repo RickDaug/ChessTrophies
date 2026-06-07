@@ -15,6 +15,7 @@ cd "$SCRIPT_DIR/.."
 FILES=(
   index.html app.js academy.js daily-challenge.js sounds.js stockfish-ai.js
   chess.min.js chess960.js config.js ct-auth.js ct-net.js ct-ai.js ct-ai-worker.js ct-duo.js
+  ct-onerror.js ct-chess-check.js ct-socket-fallback.js ct-sw-register.js
   trophy-data.js
   review.js trophy-extras.js learn-library.js ct-ads.js sw.js manifest.json
   terms.html privacy.html
@@ -63,7 +64,9 @@ else
 fi
 
 # --- Patch 2: guard service-worker registration against Capacitor (idempotent) ---
-# Use whichever Python is on PATH (python3 on most systems, python on Windows).
+# The SW registration was externalized from index.html into ct-sw-register.js
+# (so the CSP can drop script-src 'unsafe-inline'), so this patch now targets
+# that file. Use whichever Python is on PATH (python3 most places, python on Win).
 if command -v python3 >/dev/null 2>&1; then
   PYTHON=python3
 elif command -v python >/dev/null 2>&1; then
@@ -75,7 +78,7 @@ fi
 
 "$PYTHON" - <<'PYEOF'
 import sys
-p = 'www/index.html'
+p = 'www/ct-sw-register.js'
 s = open(p, encoding='utf-8').read()
 guarded = "if (!window.Capacitor && 'serviceWorker' in navigator) {"
 plain = "if ('serviceWorker' in navigator) {"

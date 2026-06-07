@@ -1,11 +1,15 @@
 /* ChessTrophies Service Worker — offline-first PWA shell. */
-const CACHE = 'chesstrophies-v19';
+const CACHE = 'chesstrophies-v20';
 const ASSETS = [
   './',
   './index.html',
   './app.js',
   './academy.js',
   './sounds.js',
+  './ct-onerror.js',
+  './ct-chess-check.js',
+  './ct-socket-fallback.js',
+  './ct-sw-register.js',
   './manifest.json',
   './icon.svg',
   'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'

@@ -2,17 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<script>
-  // Global error visibility — surface field failures that would otherwise be silent.
-  window.addEventListener('error', function (e) {
-    try { console.error('[CT error]', (e && e.message) || e, e && e.filename, e && e.lineno); } catch (_) {}
-  });
-  window.addEventListener('unhandledrejection', function (e) {
-    try { console.error('[CT error] unhandled rejection:', e && e.reason); } catch (_) {}
-  });
-</script>
+<!-- Global error visibility — installs error/unhandledrejection handlers before
+     anything else. Externalized to a same-origin file so script-src can drop
+     'unsafe-inline'. Must stay the FIRST script and load synchronously. -->
+<script src="ct-onerror.js?v=20260606c"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://chesstrophies-production.up.railway.app wss://chesstrophies-production.up.railway.app; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';" />
+<!-- Content-Security-Policy: script-src is hardened to 'self' (+ cdnjs for
+     socket.io) — NO 'unsafe-inline', so injected inline scripts/handlers can't
+     execute. All formerly-inline scripts are externalized and all on* handlers
+     are wired via addEventListener / delegation. NOTE: style-src intentionally
+     KEEPS 'unsafe-inline' because the app generates HTML with many inline
+     style="" attributes; removing that is a separate CSS refactor. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://chesstrophies-production.up.railway.app wss://chesstrophies-production.up.railway.app; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';" />
 <meta name="theme-color" content="#f5c451" />
 <title>ChessTrophies</title>
 <meta name="description" content="Play ranked online chess (1v1 & 2v2), climb the ELO ladder, earn trophies, practice vs the computer, and learn with free lessons. Jump in free." />
@@ -588,7 +589,7 @@
     <div id="daily-card"></div>
 
     <div id="lobby-ad-slot"></div>
-    <div class="premium-card" id="lobby-premium-card" onclick="window.CT && window.CT.openPremium()">
+    <div class="premium-card" id="lobby-premium-card">
       <div class="pc-row">
         <div class="pc-icon">⭐</div>
         <div style="flex:1">
@@ -846,10 +847,10 @@
         <!-- PROFILE PERSONALIZATION -->
         <div class="settings-section">
           <h3>👤 Profile</h3>
-          <button onclick="openAvatarEditor()" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:8px;">
+          <button id="btn-open-avatar-editor" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:8px;">
             🖼️ &nbsp; Change Profile Picture
           </button>
-          <button onclick="showScreen('profile')" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;">
+          <button id="btn-view-profile" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;">
             ✏️ &nbsp; View My Profile
           </button>
         </div>
@@ -860,7 +861,7 @@
           <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;">
             <span style="font-size:14px;color:var(--text);">Game sounds</span>
             <label style="position:relative;display:inline-block;width:42px;height:24px;">
-              <input type="checkbox" id="toggle-sounds" checked style="opacity:0;width:0;height:0;" onchange="localStorage.setItem('ct_sounds', this.checked)">
+              <input type="checkbox" id="toggle-sounds" checked style="opacity:0;width:0;height:0;">
               <span id="toggle-sounds-track" style="position:absolute;cursor:pointer;inset:0;background:var(--accent);border-radius:24px;transition:.2s;"></span>
               <span id="toggle-sounds-thumb" style="position:absolute;content:'';height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.2s;"></span>
             </label>
@@ -874,7 +875,7 @@
           <button id="btn-change-password" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:8px;">
             🔑 &nbsp; Change Password
           </button>
-          <button onclick="signOut()" style="width:100%;padding:11px;background:#8b2020;border:none;border-radius:10px;color:#fff;font-size:14px;cursor:pointer;font-weight:600;">Sign Out</button>
+          <button id="btn-sign-out" style="width:100%;padding:11px;background:#8b2020;border:none;border-radius:10px;color:#fff;font-size:14px;cursor:pointer;font-weight:600;">Sign Out</button>
         </div>
 
       </div>
@@ -887,8 +888,7 @@
       <div style="padding:12px 16px 0;">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center;">
           <input id="friend-search-input" type="text" placeholder="Search by username…"
-            style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;"
-            oninput="renderFriendSearchResults(this.value)">
+            style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;">
           <button class="btn btn-secondary small" id="btn-add-friend" style="padding:10px 14px;white-space:nowrap;">+ Add friend</button>
         </div>
         <div id="friend-search-results" style="margin-bottom:16px;"></div>
@@ -1244,105 +1244,26 @@
 </div>
 
 <!-- chess.js (move validation, check/mate detection) -->
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-      if (typeof Chess === 'undefined') {
-        const warn = document.createElement('div');
-      warn.style.cssText = 'max-width:480px;margin:0 auto;padding:24px 18px;color:#fff;font-family:Inter,Arial,sans-serif;line-height:1.5;';
-      warn.textContent = 'Chess.js failed to load. Please refresh the page or check your network connection.';
-      document.body.appendChild(warn);
-      }
-    });
-  </script>
+<script src="ct-chess-check.js?v=20260606c"></script>
 <script src="chess.min.js?v=20260530m"></script>
 <script src="chess960.js?v=20260606b"></script>
 <script src="sounds.js?v=20260530m"></script>
 <script src="stockfish-ai.js?v=20260530m"></script>
 <script src="config.js?v=20260531d"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script>
-  // Fallback: if the CDN copy of socket.io failed to load (blocked/offline/CDN
-  // outage), synchronously inject the locally-bundled client so realtime play
-  // still works. document.write keeps it in-order before app scripts run.
-  if (typeof window.io === 'undefined') {
-    document.write('<script src="vendor/socket.io.min.js?v=20260606a"><\/script>');
-  }
-</script>
+<script src="ct-socket-fallback.js?v=20260606c"></script>
 <script src="ct-auth.js?v=20260603a"></script>
 <script src="ct-net.js?v=20260601a"></script>
 <script src="ct-ai.js?v=20260604a"></script>
 <script src="trophy-data.js?v=20260603a"></script>
 <script src="ct-duo.js?v=20260603a"></script>
 <script src="ct-ads.js?v=20260603a"></script>
-  <script src="app.js?v=20260606b"></script>
+  <script src="app.js?v=20260606c"></script>
 <script src="academy.js?v=20260531c"></script>
 <script src="daily-challenge.js?v=20260606a"></script>
     <script src="review.js?v=20260604a"></script>
     <script src="trophy-extras.js?v=20260531a"></script>
     <script src="learn-library.js?v=20260531c"></script>
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js').then(function (registration) {
-        // Detect a newly-installed worker waiting to take over and prompt the user
-        // to reload, so they don't keep running stale cached code.
-        function trackInstalling(worker) {
-          if (!worker) return;
-          worker.addEventListener('statechange', function () {
-            // A new worker reaching "installed" while one already controls the page
-            // means an update is ready (first install has no controller, so skip it).
-            if (worker.state === 'installed' && navigator.serviceWorker.controller) {
-              showUpdateBanner(registration);
-            }
-          });
-        }
-        if (registration.waiting && navigator.serviceWorker.controller) showUpdateBanner(registration);
-        trackInstalling(registration.installing);
-        registration.addEventListener('updatefound', function () {
-          trackInstalling(registration.installing);
-        });
-      }).catch(function (err) {
-        console.warn('Service worker registration skipped:', err);
-      });
-
-      // Reload once a NEW worker takes control (after SKIP_WAITING). Guard on a
-      // controller already existing at load: on a first visit the SW claims an
-      // uncontrolled page, which ALSO fires controllerchange — reloading then
-      // would bounce every first visit (and breaks anything mid-run, e.g. Game
-      // Review). Only auto-reload when an existing controller is replaced.
-      var hadController = !!navigator.serviceWorker.controller;
-      var refreshing = false;
-      navigator.serviceWorker.addEventListener('controllerchange', function () {
-        if (!hadController || refreshing) return;
-        refreshing = true;
-        window.location.reload();
-      });
-    });
-  }
-
-  // Small, non-blocking "new version available" banner. Tapping Reload tells the
-  // waiting worker to activate (sw.js handles {type:'SKIP_WAITING'}), then the
-  // controllerchange listener above reloads the page.
-  function showUpdateBanner(registration) {
-    if (document.getElementById('sw-update-banner')) return;
-    var bar = document.createElement('div');
-    bar.id = 'sw-update-banner';
-    bar.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(72px + env(safe-area-inset-bottom));z-index:1300;display:flex;align-items:center;gap:12px;background:#17223b;border:1px solid #f5c451;color:#e8eefc;padding:10px 14px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.4);font-size:14px;max-width:90%;font-family:Inter,-apple-system,sans-serif;';
-    var msg = document.createElement('span');
-    msg.textContent = 'A new version is available.';
-    var btn = document.createElement('button');
-    btn.textContent = 'Reload';
-    btn.style.cssText = 'background:#f5c451;color:#1a1300;border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer;font-family:inherit;';
-    btn.addEventListener('click', function () {
-      var w = registration.waiting;
-      if (w) w.postMessage({ type: 'SKIP_WAITING' });
-      btn.disabled = true;
-      btn.textContent = 'Updating…';
-    });
-    bar.appendChild(msg);
-    bar.appendChild(btn);
-    document.body.appendChild(bar);
-  }
-</script>
+<script src="ct-sw-register.js?v=20260606c"></script>
 </body>
 </html>
