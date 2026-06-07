@@ -53,7 +53,7 @@ const TAIL = ['app.js', 'academy.js', 'review.js', 'trophy-extras.js', 'learn-li
 
 // Extra same-origin runtime JS not in index.html's <script> list but loaded at
 // runtime — must exist in dist by exact name. The worker importScripts these.
-const RUNTIME_JS = ['sw.js', 'ct-ai-worker.js'];
+const RUNTIME_JS = ['sw.js', 'ct-ai-worker.js', 'checkers-ai-worker.js'];
 
 // Non-JS assets / pages referenced by index.html (and the PWA) to copy verbatim.
 const COPY_ASSETS = [

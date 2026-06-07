@@ -246,6 +246,47 @@
     difficultyFor: difficultyFor,
   };
 
+  // Worker-backed async search — ONLY on the main thread (window + Worker present).
+  // Moves the search OFF the UI thread so the board never freezes. Mirrors
+  // ct-ai.js: falls back to the synchronous engine if Workers are unavailable,
+  // error, or hang. `position` is a CT_Checkers.serialize() string (postMessage-
+  // safe); the worker reconstructs the game via CT_Checkers.load().
+  if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
+    var _worker = null, _nextId = 1, _pending = {};
+    function _ensureWorker() {
+      if (_worker) return _worker;
+      try {
+        _worker = new Worker('checkers-ai-worker.js');
+        _worker.onmessage = function (e) {
+          var d = e.data || {}; var cb = _pending[d.id];
+          if (cb) { delete _pending[d.id]; cb(d.move); }
+        };
+        _worker.onerror = function () { _worker = null; }; // next call falls back to sync
+      } catch (e) { _worker = null; }
+      return _worker;
+    }
+    function _syncFromPosition(position, aiElo) {
+      try {
+        var E = _engine();
+        if (!E) return null;
+        return chooseMove(E.load(position), aiElo);
+      } catch (e) { return null; }
+    }
+    api.chooseMoveAsync = function (position, aiElo) {
+      return new Promise(function (resolve) {
+        var w = _ensureWorker();
+        if (!w) { resolve(_syncFromPosition(position, aiElo)); return; }
+        var id = _nextId++;
+        var timer = setTimeout(function () {
+          if (_pending[id]) { delete _pending[id]; resolve(_syncFromPosition(position, aiElo)); }
+        }, 12000);
+        _pending[id] = function (move) { clearTimeout(timer); resolve(move); };
+        try { w.postMessage({ id: id, position: position, aiElo: aiElo }); }
+        catch (e) { clearTimeout(timer); delete _pending[id]; resolve(_syncFromPosition(position, aiElo)); }
+      });
+    };
+  }
+
   // --- Dual-environment export ----------------------------------------------
   var G = (typeof window !== 'undefined') ? window : (typeof self !== 'undefined' ? self : globalThis);
   G.CT_CheckersAI = api;
