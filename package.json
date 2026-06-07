@@ -31,7 +31,8 @@
     "@capacitor-community/admob": "^8.0.0",
     "@capacitor/android": "^8.3.4",
     "@capacitor/cli": "^8.3.4",
-    "@capacitor/core": "^8.3.4"
+    "@capacitor/core": "^8.3.4",
+    "@vercel/analytics": "^2.0.1"
   },
   "devDependencies": {
     "esbuild": "^0.28.0",
