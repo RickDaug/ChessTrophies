@@ -233,6 +233,9 @@
     if (!duo.online || duo.gameId !== data.gameId) return;
     duo.ended = true; duo.over = true;
     clockStop();
+    // Count today toward the daily play streak (online 2v2 finished). app.js owns
+    // the streak logic; idempotent per day so calling from here is safe.
+    try { if (window.CT && window.CT.recordDailyPlay) window.CT.recordDailyPlay(); } catch (e) {}
     const winnerColor = data.winnerColor || null;
     const isDraw = !winnerColor;
     const youWon = winnerColor === duo.youColor;

@@ -22,7 +22,7 @@ COPY server/ ./
 # (e.g. the removed puzzles.js/puzzles-data.js) or the build breaks.
 RUN mkdir -p ./public
 COPY index.html admin.html config.js app.js academy.js learn-library.js review.js trophy-extras.js chess960.js chess.min.js sounds.js stockfish-ai.js sw.js manifest.json icon.svg icon-192.png icon-512.png icon-1024.png og-image.png privacy.html terms.html \
-     ct-onerror.js ct-boot.js ct-chess-check.js ct-socket-fallback.js ct-auth.js ct-net.js ct-ai.js ct-ai-worker.js trophy-data.js ct-duo.js ct-ads.js daily-challenge.js ct-sw-register.js \
+     ct-onerror.js ct-boot.js ct-chess-check.js ct-socket-fallback.js ct-auth.js ct-net.js ct-ai.js ct-ai-worker.js trophy-data.js ct-duo.js ct-ads.js ct-sw-register.js \
      ./public/
 COPY vendor/ ./public/vendor/
 

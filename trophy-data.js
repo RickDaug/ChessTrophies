@@ -65,6 +65,11 @@
     { id: 'hidden_phoenix',     family: 'Hidden Feats', type: 'flag', flag: 'phoenixRises',    threshold: 1, tier: 1, icon: '🔥', name: 'Phoenix Rises',    desc: 'Win immediately after losing 3 ranked games in a row.', hidden: true },
     { id: 'hidden_pawn_promo',  family: 'Hidden Feats', type: 'flag', flag: 'pawnPromotions',  threshold: 10, tier: 1, icon: '👶', name: 'Pawn Pusher',      desc: 'Promote 10 pawns across all your games.', hidden: true },
     { id: 'hidden_bongcloud',   family: 'Hidden Feats', type: 'flag', flag: 'bongcloudWins',   threshold: 1, tier: 1, icon: '☁️', name: 'The Bongcloud',    desc: 'Win after playing 1.e4 and 2.Ke2 (the Bongcloud).', hidden: true },
+    // Hidden daily play-streak trophies — consecutive days the user finishes any game
+    { id: 'hidden_play_streak_7',   family: 'Hidden Feats', type: 'flag', flag: 'dailyPlayStreak', threshold: 7,   tier: 1, icon: '📅', name: 'Seven-Day Habit',  desc: 'Play a game on 7 days in a row.',   hidden: true },
+    { id: 'hidden_play_streak_30',  family: 'Hidden Feats', type: 'flag', flag: 'dailyPlayStreak', threshold: 30,  tier: 1, icon: '📆', name: 'Monthly Regular',  desc: 'Play a game on 30 days in a row.',  hidden: true },
+    { id: 'hidden_play_streak_90',  family: 'Hidden Feats', type: 'flag', flag: 'dailyPlayStreak', threshold: 90,  tier: 1, icon: '🗓️', name: 'Quarter Devotion', desc: 'Play a game on 90 days in a row.',  hidden: true },
+    { id: 'hidden_play_streak_365', family: 'Hidden Feats', type: 'flag', flag: 'dailyPlayStreak', threshold: 365, tier: 1, icon: '🏆', name: 'Year of Chess',    desc: 'Play a game on 365 days in a row.', hidden: true },
     // Embarrassing fail trophies
     { id: 'oops_whoops',        family: 'Oops', type: 'flag', flag: 'fastLosses',          threshold: 1, tier: 1, icon: '🤦', name: 'Whoops',                desc: 'Get checkmated in 10 moves or fewer.', embarrassing: true },
     { id: 'oops_punching_bag',  family: 'Oops', type: 'flag', flag: 'sameOppLossStreak',   threshold: 5, tier: 1, icon: '🥊', name: 'Punching Bag',          desc: 'Lose 5 ranked games in a row to the same opponent.', embarrassing: true },

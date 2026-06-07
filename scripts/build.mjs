@@ -15,11 +15,11 @@
  *     loader:'js' preserves their semantics exactly — only smaller. This keeps
  *     load order, file count and the importScripts() contract identical.
  *   - Additionally concatenate the order-safe trailing tail
- *       app.js -> academy.js -> daily-challenge.js -> review.js
+ *       app.js -> academy.js -> review.js
  *       -> trophy-extras.js -> learn-library.js
  *     (verified contiguous in index.html, all order-safe window globals, none
  *     importScripts'd by the worker) into ONE minified dist/app.bundle.js, and
- *     collapse those 6 tags in dist/index.html to a single <script>. This cuts
+ *     collapse those 5 tags in dist/index.html to a single <script>. This cuts
  *     requests without changing semantics. ct-ai.js, chess960.js, chess.min.js
  *     and everything else stay individual files (the worker importScripts the
  *     dist copies of ct-ai.js / chess960.js by exact name).
@@ -44,7 +44,7 @@ const DIST = path.join(ROOT, 'dist');
 const STAMP = 'b' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
 // The contiguous, order-safe trailing tail to concatenate into app.bundle.js.
-const TAIL = ['app.js', 'academy.js', 'daily-challenge.js', 'review.js', 'trophy-extras.js', 'learn-library.js'];
+const TAIL = ['app.js', 'academy.js', 'review.js', 'trophy-extras.js', 'learn-library.js'];
 
 // Extra same-origin runtime JS not in index.html's <script> list but loaded at
 // runtime — must exist in dist by exact name. The worker importScripts these.
@@ -135,7 +135,7 @@ async function main() {
     }
     const res = await esbuild.transform(parts.join('\n'), { minify: true, loader: 'js', legalComments: 'none' });
     await fsp.writeFile(path.join(DIST, 'app.bundle.js'), res.code, 'utf8');
-    bundleReport = { name: 'app.bundle.js', in: rawTotal, out: Buffer.byteLength(res.code), kind: 'BUNDLE (tail x6)' };
+    bundleReport = { name: 'app.bundle.js', in: rawTotal, out: Buffer.byteLength(res.code), kind: 'BUNDLE (tail x5)' };
   }
 
   // 3) Runtime JS not in index.html (sw.js, ct-ai-worker.js) — minify by name.
