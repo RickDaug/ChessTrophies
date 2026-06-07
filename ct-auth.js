@@ -65,14 +65,29 @@
     return { users: {}, version: 1 };
   }
   function getSession() {
-    const v = sessionStorage.getItem(SESSION_KEY) || localStorage.getItem(SESSION_KEY);
-    if (!v) return null;
-    try { return JSON.parse(v); } catch (e) { return null; }
+    let ss = null, ls = null;
+    try { const v = sessionStorage.getItem(SESSION_KEY); ss = v ? JSON.parse(v) : null; } catch (e) { ss = null; }
+    try { const v = localStorage.getItem(SESSION_KEY); ls = v ? JSON.parse(v) : null; } catch (e) { ls = null; }
+    // Prefer a TOKEN-BEARING session. A guest session lives in sessionStorage
+    // (tokenless) and used to be read first — so after a guest -> sign-in/sign-up
+    // it shadowed the real localStorage token, making every authed request 401
+    // (resend verification, verify, friends, online play). Preferring the token
+    // fixes that and recovers already-stuck tabs without a re-login.
+    if (ss && ss.token) return ss;
+    if (ls && ls.token) return ls;
+    return ss || ls || null;
   }
   function setSession(s) {
     try {
-      if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s));
-      else localStorage.removeItem(SESSION_KEY);
+      if (s) {
+        localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+        // A real (token-bearing) sign-in supersedes any guest session; clear the
+        // sessionStorage guest entry so it can't shadow the token later.
+        if (s.token) { try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {} }
+      } else {
+        localStorage.removeItem(SESSION_KEY);
+        try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
+      }
     } catch (e) {
       // Safari private mode / quota-exceeded / storage-disabled: don't let a
       // failed persist throw and break login.

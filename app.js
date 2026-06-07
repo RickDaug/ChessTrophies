@@ -882,6 +882,19 @@
     });
   }
 
+  // A 401 from an authed call means our stored token is no longer valid (e.g. it
+  // predates a server JWT_SECRET change, or expired). Clear it and send the user
+  // back to sign in rather than dead-ending on a raw "Unauthorized".
+  function handleAuthExpired(msg) {
+    setSession(null);
+    state.user = null;
+    if (window.CTNet) { try { window.CTNet.disconnect(); } catch (e) {} }
+    state._netHandlersRegistered = false;
+    showNav(false);
+    showScreen('auth');
+    toast(msg || 'Your session expired — please sign in again.');
+  }
+
   // Email verification (soft nudge) -----------------------------------
   // Resend the verification email for the signed-in user. `noteEl` (optional)
   // gets a dev-fallback hint when the server isn't configured to send email.
@@ -907,6 +920,7 @@
         toast('Verification requested. If email is configured, check your inbox.');
       }
     } catch (err) {
+      if (err && err.status === 401) { handleAuthExpired('Your session expired — please sign in again to verify your email.'); return; }
       toast(err.message || 'Could not resend verification.');
     } finally {
       if (btn) btn.disabled = false;
@@ -953,6 +967,7 @@
       toast('Email verified — thank you! ✓', true);
       await refreshVerifiedStatus();
     } catch (err) {
+      if (err && err.status === 401) { closeModal('verify-email'); handleAuthExpired('Your session expired — please sign in again to verify your email.'); return; }
       $('#verify-error').textContent = err.message;
     } finally {
       verifySubmit.disabled = false;
