@@ -12,7 +12,8 @@
     "test:login": "node test/login.mjs",
     "test:verify": "node test/verify-email.mjs",
     "test:review": "node test/review-eval.mjs",
-    "test:rankings": "node test/rankings.mjs"
+    "test:rankings": "node test/rankings.mjs",
+    "test:session": "node test/session.mjs"
   },
   "repository": {
     "type": "git",
