@@ -10,7 +10,11 @@ const TOKEN_EXPIRY = '30d';
 function resolveSecret() {
   if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
   if (process.env.NODE_ENV === 'production') {
-    console.error('JWT_SECRET is required in production. Aborting startup.');
+    console.error(
+      'FATAL: JWT_SECRET is required in production but is not set — aborting startup.\n' +
+      '  Set it in your host\'s environment variables (e.g. Railway -> service -> Variables).\n' +
+      '  Generate one with:  node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'base64url\'))"'
+    );
     process.exit(1);
   }
   const generated = crypto.randomBytes(48).toString('hex');
