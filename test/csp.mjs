@@ -242,17 +242,17 @@ async function main() {
       await page.waitForFunction(() => !document.getElementById('ct-chat-overlay'), { timeout: 5000 });
     });
 
-    // ----- 12) Daily challenge -------------------------------------------
-    await step('open daily challenge screen', async () => {
+    // ----- 12) Daily play streak ------------------------------------------
+    await step('render the daily play-streak card', async () => {
       await page.evaluate(() => window.CT.showScreen('lobby'));
       await page.waitForFunction(() => document.querySelector('#screen-lobby.active'), { timeout: 5000 });
-      // Daily card is rendered into #daily-card; navigating to the daily screen
-      // is enough to exercise its render path. Go directly to be robust.
-      const hasDaily = await page.evaluate(() => !!document.getElementById('screen-daily'));
-      if (hasDaily) {
-        await page.evaluate(() => window.CT.showScreen('daily'));
-        await page.waitForFunction(() => document.querySelector('#screen-daily.active'), { timeout: 5000 }).catch(() => {});
-      }
+      // The play-streak card is rendered into #playstreak-card by renderLobby.
+      // Exercise its render path and confirm it produced content (no inline JS).
+      await page.evaluate(() => window.CT.renderPlayStreak && window.CT.renderPlayStreak());
+      await page.waitForFunction(() => {
+        const el = document.getElementById('playstreak-card');
+        return el && /play streak|play a game/i.test(el.textContent || '');
+      }, { timeout: 5000 }).catch(() => {});
     });
 
     // ----- 13) Practice vs Computer + make a move ------------------------

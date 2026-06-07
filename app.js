@@ -549,6 +549,107 @@
   }
 
   // ---------------------------------------------------------------------------
+  // DAILY PLAY STREAK
+  // ---------------------------------------------------------------------------
+  // Consecutive calendar days (LOCAL date, YYYY-MM-DD) on which the user FINISHED
+  // any game — online 1v1/2v2, vs computer, pass-and-play, friendly, chess960.
+  // The pure transition lives in computePlayStreak (no DOM), exposed via window.CT
+  // for testing. recordDailyPlay() wires it into state + persistence + trophies.
+
+  // Local calendar day as YYYY-MM-DD (so "today" matches the user's clock).
+  function todayKey(d) {
+    d = d || new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+  // The date BEFORE the given YYYY-MM-DD key (used for the streak transition).
+  function yesterdayKeyOf(key) {
+    const parts = String(key).split('-').map(Number);
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    d.setDate(d.getDate() - 1);
+    return todayKey(d);
+  }
+  // Pure streak transition (no DOM). Returns the new { streak, best, lastDate }.
+  //   prev.lastDate === todayKey            -> unchanged (already counted today)
+  //   prev.lastDate === yesterday(todayKey) -> streak + 1
+  //   otherwise                              -> streak resets to 1
+  function computePlayStreak(prev, todayK) {
+    const cur = {
+      streak: (prev && typeof prev.streak === 'number') ? prev.streak : 0,
+      best: (prev && typeof prev.best === 'number') ? prev.best : 0,
+      lastDate: (prev && prev.lastDate) || null,
+    };
+    if (cur.lastDate === todayK) {
+      return { streak: cur.streak, best: cur.best, lastDate: cur.lastDate };
+    }
+    let streak;
+    if (cur.lastDate && cur.lastDate === yesterdayKeyOf(todayK)) {
+      streak = cur.streak + 1;
+    } else {
+      streak = 1;
+    }
+    const best = Math.max(cur.best || 0, streak);
+    return { streak, best, lastDate: todayK };
+  }
+
+  // Record that the user finished a game today. Idempotent per day (the helper
+  // no-ops if today is already counted), so it's safe to call from every
+  // game-end path. Persists, mirrors the flag, checks trophies, syncs + redraws.
+  function recordDailyPlay() {
+    const u = state.user;
+    if (!u) return;
+    const prev = u.playStreak || { streak: 0, best: 0, lastDate: null };
+    const today = todayKey();
+    const next = computePlayStreak(prev, today);
+    u.playStreak = { streak: next.streak, best: next.best, lastDate: next.lastDate };
+    // Mirror the current streak into the flag the flag-based trophy check reads.
+    u.flags = u.flags || {};
+    u.flags.dailyPlayStreak = next.streak;
+    // Persist the user record (same loadDB/saveDB pattern as finishGame).
+    const db = loadDB();
+    if (db.users[u.id]) { db.users[u.id] = u; saveDB(db); }
+    checkAchievementsFor(u);
+    if (window.CT_syncProgress) window.CT_syncProgress();
+    renderPlayStreak();
+  }
+
+  // Lobby play-streak card. current = streak only if lastDate is today/yesterday
+  // (a missed day breaks the live streak to 0 until they play again).
+  function renderPlayStreak() {
+    const wrap = $('#playstreak-card');
+    if (!wrap) return;
+    const u = state.user;
+    if (!u) { wrap.innerHTML = ''; return; }
+    const ps = u.playStreak || { streak: 0, best: 0, lastDate: null };
+    const today = todayKey();
+    const yest = yesterdayKeyOf(today);
+    const best = ps.best || 0;
+    const isToday = ps.lastDate === today;
+    const isYesterday = ps.lastDate === yest;
+    const current = (isToday || isYesterday) ? (ps.streak || 0) : 0;
+    let line;
+    if (current >= 1 && isToday) {
+      line = '🔥 ' + current + '-day play streak' + (best > current ? ' · best ' + best : '');
+    } else if (current >= 1 && isYesterday) {
+      line = '🔥 ' + current + '-day streak — play today to keep it going!';
+    } else {
+      line = '🔥 Play a game today to start a daily streak.';
+    }
+    wrap.innerHTML =
+      '<div class="card" style="border:1px solid var(--accent);background:linear-gradient(135deg, rgba(245,196,81,.10), var(--panel))">' +
+        '<div class="pc-row" style="display:flex;align-items:center;gap:12px">' +
+          '<div class="pc-icon" style="font-size:26px">🔥</div>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="pc-title" style="font-weight:800;font-size:16px">Daily Play Streak</div>' +
+            '<div class="small" style="margin-top:4px;color:var(--accent);font-weight:700">' + escapeHTML(line) + '</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  // ---------------------------------------------------------------------------
   // ELO
   // ---------------------------------------------------------------------------
   // Dynamic K-factor (FIDE/USCF style): new players converge fast,
@@ -1076,8 +1177,8 @@
     const premiumBadge = $('#premium-badge');
     if (premiumBadge) premiumBadge.style.display = u.isPremium ? '' : 'none';
     updateVerifyBanner();
-    // Daily Challenge card (day-1/day-7 return hook). Lives in daily-challenge.js.
-    if (window.CT_Daily && window.CT_Daily.render) window.CT_Daily.render();
+    // Daily play-streak card (consecutive days the user finished any game).
+    renderPlayStreak();
   }
 
   // Soft email-verification nudge: shown only for server-logged-in users whose
@@ -2192,13 +2293,13 @@ $('#btn-mm-cancel').addEventListener('click', () => {
 
   function gatherLocalProgress() {
     const puzzles = readPuzzleProgress();
-    // Ride the Daily Challenge streak on the existing /api/progress sync. The
-    // server (server.js POST /api/progress) only persists `lessonsCompleted` and
-    // the `puzzles` object — within `puzzles`, unknown keys survive (last-write
-    // wins). So we tuck daily state under puzzles.daily to follow the user across
-    // web/Android. applyServerProgress merges the maxes back so a stale device
-    // never erases a higher streak.
-    if (state.user && state.user.daily) puzzles.daily = state.user.daily;
+    // Ride the daily PLAY STREAK on the existing /api/progress sync. The server
+    // (server.js POST /api/progress) only persists `lessonsCompleted` and the
+    // `puzzles` object — within `puzzles`, unknown keys survive (last-write
+    // wins). So we tuck the play-streak state under puzzles.playStreak to follow
+    // the user across web/Android. applyServerProgress merges the maxes back so a
+    // stale device never erases a higher streak.
+    if (state.user && state.user.playStreak) puzzles.playStreak = state.user.playStreak;
     return {
       lessonsCompleted: (state.user && state.user.lessonsCompleted) || [],
       puzzles,
@@ -2224,23 +2325,27 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       merged.solved = Math.max(local.solved || 0, p.puzzles.solved || 0);
       merged.best = Math.max(local.best || 0, p.puzzles.best || 0);
       try { localStorage.setItem(PUZZLE_PROGRESS_KEY, JSON.stringify(merged)); } catch (e) {}
-      // Daily Challenge streak rides in puzzles.daily. Merge so the most-recent
-      // solve date wins and best never regresses (avoids a stale device clobber).
-      const remoteDaily = p.puzzles.daily;
-      if (state.user && remoteDaily && typeof remoteDaily === 'object') {
-        const localDaily = state.user.daily || { streak: 0, best: 0, lastDate: null };
-        const lDate = localDaily.lastDate || '';
-        const rDate = remoteDaily.lastDate || '';
+      // Daily PLAY STREAK rides in puzzles.playStreak. Merge so the most-recent
+      // play date wins and best never regresses (avoids a stale device clobber).
+      const remoteStreak = p.puzzles.playStreak;
+      if (state.user && remoteStreak && typeof remoteStreak === 'object') {
+        const localStreak = state.user.playStreak || { streak: 0, best: 0, lastDate: null };
+        const lDate = localStreak.lastDate || '';
+        const rDate = remoteStreak.lastDate || '';
         // Newer lastDate carries the authoritative current streak; best is the max.
-        const winner = rDate > lDate ? remoteDaily : localDaily;
-        state.user.daily = {
+        const winner = rDate > lDate ? remoteStreak : localStreak;
+        state.user.playStreak = {
           streak: winner.streak || 0,
-          best: Math.max(localDaily.best || 0, remoteDaily.best || 0, winner.streak || 0),
+          best: Math.max(localStreak.best || 0, remoteStreak.best || 0, winner.streak || 0),
           lastDate: winner.lastDate || null,
         };
+        // Mirror the current streak into the flag the trophy check reads.
+        state.user.flags = state.user.flags || {};
+        state.user.flags.dailyPlayStreak = state.user.playStreak.streak;
         const db = loadDB();
         if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
-        if (window.CT_Daily && window.CT_Daily.render) window.CT_Daily.render();
+        checkAchievementsFor(state.user);
+        renderPlayStreak();
       }
     }
     // Refresh any visible rank/academy UI now that counts may have grown.
@@ -2996,6 +3101,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const me = state.user;
     state.gameEnded = true;
     clockStop();
+    // Count today toward the daily play streak (any finished game qualifies:
+    // practice, pass-and-play, online 1v1, friendly, resign). Idempotent per day.
+    recordDailyPlay();
     // Game ended — drop any disconnect/reconnect status banners + their timers.
     netBanner(null);
     oppBanner(null);
@@ -3848,6 +3956,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     hasAchievement, unlockAchievement, checkAchievementsFor, tierColor,
     renderLobby, renderProfile, renderBoard,
     openPremium, setPremium, renderAdSlot,
+    recordDailyPlay, renderPlayStreak,
+    // Pure daily-play-streak helpers, exposed for testing.
+    _streak: { todayKey, yesterdayKeyOf, computePlayStreak },
   };
 
   if (document.readyState === 'loading') {
