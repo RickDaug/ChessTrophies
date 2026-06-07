@@ -16,14 +16,16 @@ $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location (Join-Path $scriptDir '..')
 
+# Keep this list in sync with FILES in refresh-www.sh (the canonical one).
 $files = @(
   'index.html','app.js','academy.js','sounds.js','stockfish-ai.js',
-  'chess.min.js','chess960.js','config.js','ct-net.js',
+  'chess.min.js','chess960.js','config.js','ct-auth.js','ct-net.js','ct-ai.js','ct-ai-worker.js','ct-duo.js',
   'checkers.js','checkers-ai.js','checkers-ai-worker.js','ct-checkers.js',
-  'puzzles-data.js','puzzles.js',
-  'review.js','trophy-extras.js','learn-library.js','sw.js','manifest.json',
+  'ct-onerror.js','ct-boot.js','ct-chess-check.js','ct-socket-fallback.js','ct-sw-register.js',
+  'trophy-data.js',
+  'review.js','trophy-extras.js','learn-library.js','ct-ads.js','sw.js','manifest.json',
   'terms.html','privacy.html',
-  'icon.svg','icon-192.png','icon-512.png','icon-1024.png'
+  'icon.svg','icon-192.png','icon-512.png','icon-1024.png','og-image.png'
 )
 
 # Verify every source file exists before clearing www/
@@ -41,6 +43,14 @@ New-Item -ItemType Directory -Path 'www' | Out-Null
 # Copy-Item is byte-for-byte (binary safe), so we preserve UTF-8 verbatim here.
 foreach ($f in $files) { Copy-Item -LiteralPath $f -Destination "www/$f" }
 Write-Host ("    copied {0} files into www/" -f $files.Count)
+
+# Vendor fallback assets live in a subdir, referenced by index.html as vendor/...
+# (e.g. the local socket.io fallback used when the CDN is blocked).
+if (Test-Path 'vendor') {
+  New-Item -ItemType Directory -Path 'www/vendor' -Force | Out-Null
+  Copy-Item -LiteralPath 'vendor/*' -Destination 'www/vendor/'
+  Write-Host "    copied vendor/ fallback assets into www/vendor/"
+}
 
 # --- Patch 1: ensure Vercel origin in CSP connect-src (idempotent) ---
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -61,19 +71,23 @@ if ($idx -like '*playchesstrophies.com*') {
 }
 
 # --- Patch 2: guard service-worker registration against Capacitor (idempotent) ---
-$idx = [System.IO.File]::ReadAllText($indexPath, $utf8NoBom)
+# The SW registration was externalized from index.html into ct-sw-register.js
+# (so the CSP can drop script-src 'unsafe-inline'), so this patch targets that
+# file -- matching refresh-www.sh.
+$swRegPath = (Resolve-Path 'www/ct-sw-register.js').Path
+$swReg = [System.IO.File]::ReadAllText($swRegPath, $utf8NoBom)
 $plain   = "if ('serviceWorker' in navigator) {"
 $guarded = "if (!window.Capacitor && 'serviceWorker' in navigator) {"
-if ($idx.Contains($guarded)) {
+if ($swReg.Contains($guarded)) {
   Write-Host "==> SW guard: already present, skipping"
 } else {
-  $occurrences = ([regex]::Matches($idx, [regex]::Escape($plain))).Count
+  $occurrences = ([regex]::Matches($swReg, [regex]::Escape($plain))).Count
   if ($occurrences -ne 1) {
     Write-Host "ERROR: SW registration block not found in expected form (count=$occurrences)"
     exit 1
   }
-  $idx = $idx.Replace($plain, $guarded)
-  [System.IO.File]::WriteAllText($indexPath, $idx, $utf8NoBom)
+  $swReg = $swReg.Replace($plain, $guarded)
+  [System.IO.File]::WriteAllText($swRegPath, $swReg, $utf8NoBom)
   Write-Host "==> SW guard: wrapped service worker registration"
 }
 
