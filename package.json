@@ -18,7 +18,8 @@
     "test:admin": "node test/admin.mjs",
     "test:checkers": "node test/checkers-engine.mjs",
     "test:checkers-ai": "node test/checkers-ai.mjs",
-    "test:checkers-online": "node test/checkers-online.mjs"
+    "test:checkers-online": "node test/checkers-online.mjs",
+    "test:checkers-friend": "node test/checkers-friend.mjs"
   },
   "repository": {
     "type": "git",

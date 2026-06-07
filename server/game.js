@@ -57,6 +57,15 @@ const teamMmBuckets = new Map();   // uid -> token bucket
 const challengeInvites = new Map();
 const CHALLENGE_INVITE_TTL_MS = 60_000;
 
+// --- CHECKERS FRIENDLY challenge state (additive) ---
+// Dedicated invite map for the FRIEND checkers challenge the client emits via the
+// `checkers_challenge_*` events (parallel to, and independent from, the chess
+// `challengeInvites` above). ALWAYS casual / UNRATED on accept (mode forced to
+// 'casual' server-side; ranked checkers stays matchmaking-only). Same TTL/expiry
+// + disconnect-cleanup behavior as the chess challenge invites.
+// inviteId -> { id, fromId, fromSocketId, toId, size, rules, createdAt, expiresAt, expireTimer }.
+const checkersChallengeInvites = new Map();
+
 // ===========================================================================
 // CHECKERS (additive — fully parallel to the chess lifecycle above)
 // ===========================================================================
@@ -246,6 +255,15 @@ function clearChallengeInvite(inviteId) {
   if (!inv) return;
   if (inv.expireTimer) clearTimeout(inv.expireTimer);
   challengeInvites.delete(inviteId);
+}
+
+// Tear down a checkers-challenge invite (drop its record + cancel its expire
+// timer). Mirrors clearChallengeInvite for the dedicated checkers invite map.
+function clearCheckersChallengeInvite(inviteId) {
+  const inv = checkersChallengeInvites.get(inviteId);
+  if (!inv) return;
+  if (inv.expireTimer) clearTimeout(inv.expireTimer);
+  checkersChallengeInvites.delete(inviteId);
 }
 
 function consumeBucket(map, key, burst, refillPerSecond) {
@@ -793,6 +811,118 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       finishCheckersGame(io, cg, { reason: 'resignation', winnerId, winnerColor });
     });
 
+    // --- CHECKERS FRIENDLY challenge lifecycle (ALWAYS unrated/casual) -------
+    // Dedicated to the client's `checkers_challenge_*` events. Mirrors the chess
+    // `challenge_*` validation + bookkeeping exactly (friends, not blocked, online,
+    // not double-booked across chess+checkers) but starts a CHECKERS game on accept
+    // via startCheckersGameWithColors (mode 'casual' => UNRATED; it emits the
+    // existing `checkers_match_found` to both players). INTEGRITY: the mode is
+    // forced to 'casual' here on the server — no client value can make a checkers
+    // challenge ranked. Ranked checkers stays matchmaking-only (`checkers_mm_*`).
+    socket.on('checkers_challenge_invite', async ({ friendId, size, rules, tc } = {}) => {
+      const uid = socket.data.userId; if (!uid) return;
+      if (!CT_Checkers) { socket.emit('checkers_err', { error: 'checkers unavailable' }); return; }
+      if (typeof friendId !== 'string' || friendId === uid) {
+        socket.emit('checkers_err', { error: 'invalid opponent' }); return;
+      }
+      const friend = await readUser(friendId);
+      if (!friend) { socket.emit('checkers_err', { error: 'user not found' }); return; }
+      // Must be confirmed friends (reuses the same friendship check the chess
+      // challenge uses).
+      if (!(await areFriends(uid, friendId))) { socket.emit('checkers_err', { error: 'not friends' }); return; }
+      // Never pair players who have blocked each other (both directions).
+      if (await store.areBlocked(uid, friendId)) { socket.emit('checkers_err', { error: 'unavailable' }); return; }
+      // Invitee must be online (single-instance reachability).
+      const friendSocketId = userSocket.get(friendId);
+      if (!friendSocketId) { socket.emit('checkers_err', { error: 'friend offline' }); return; }
+      // Neither side may already be mid-game (chess 1v1/2v2 OR checkers).
+      if (isUserInAnyGame(uid)) { socket.emit('checkers_err', { error: 'you are in a game' }); return; }
+      if (isUserInAnyGame(friendId)) { socket.emit('checkers_err', { error: 'friend is in a game' }); return; }
+      // Normalise size/rules the same way the ranked checkers path does (size in
+      // {8,10}; rules snap to the official ruleset for the size, or 'casual').
+      const ckSize = normalizeCheckersSize(size);
+      const ckRules = normalizeCheckersRules(rules, ckSize);
+      const inviteTc = normalizeTc(tc);
+      const inviteId = newChallengeInviteId();
+      const me = await readUser(uid);
+      const invite = {
+        id: inviteId,
+        fromId: uid,
+        fromSocketId: socket.id,
+        toId: friendId,
+        size: ckSize,
+        rules: ckRules,
+        tc: inviteTc,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + CHALLENGE_INVITE_TTL_MS,
+        expireTimer: null,
+      };
+      checkersChallengeInvites.set(inviteId, invite);
+      io.sockets.sockets.get(friendSocketId)?.emit('checkers_challenge_received', {
+        inviteId,
+        fromId: uid,
+        fromName: me.username,
+        fromElo: checkersEloOf(me, ckSize), // inviter's checkers Elo for the chosen size
+        size: ckSize,
+        rules: ckRules,
+      });
+      socket.emit('checkers_challenge_sent', { inviteId, toId: friendId, toName: friend.username, size: ckSize, rules: ckRules });
+      // Auto-expire a stale invite (mirrors the chess challenge invite TTL).
+      invite.expireTimer = setTimeout(() => {
+        if (!checkersChallengeInvites.has(inviteId)) return;
+        checkersChallengeInvites.delete(inviteId);
+        const fromSock = userSocket.get(invite.fromId);
+        if (fromSock) io.sockets.sockets.get(fromSock)?.emit('checkers_challenge_cancelled', { inviteId });
+        const toSock = userSocket.get(invite.toId);
+        if (toSock) io.sockets.sockets.get(toSock)?.emit('checkers_challenge_cancelled', { inviteId });
+      }, CHALLENGE_INVITE_TTL_MS);
+      if (typeof invite.expireTimer.unref === 'function') invite.expireTimer.unref();
+    });
+
+    socket.on('checkers_challenge_accept', async ({ inviteId } = {}) => {
+      const uid = socket.data.userId; if (!uid) return;
+      const invite = checkersChallengeInvites.get(inviteId);
+      if (!invite || invite.toId !== uid) return;
+      // Re-validate at accept time: both still online and neither mid-game.
+      const fromSocketId = userSocket.get(invite.fromId);
+      if (!fromSocketId) { clearCheckersChallengeInvite(inviteId); socket.emit('checkers_err', { error: 'challenger offline' }); return; }
+      if (isUserInAnyGame(invite.fromId) || isUserInAnyGame(invite.toId)) {
+        clearCheckersChallengeInvite(inviteId);
+        socket.emit('checkers_err', { error: 'someone is already in a game' });
+        return;
+      }
+      clearCheckersChallengeInvite(inviteId); // consume the invite
+      try {
+        // Friend checkers: ALWAYS casual / UNRATED. Random colors. Emits the
+        // existing `checkers_match_found` to both players.
+        await startCheckersGameWithColors(io,
+          { uid: invite.fromId, socketId: fromSocketId },
+          { uid: invite.toId, socketId: socket.id },
+          { size: invite.size, rules: invite.rules, mode: 'casual' });
+      } catch (e) {
+        console.error('[checkers-challenge] start failed', e && e.message);
+        socket.emit('checkers_err', { error: 'could not start game' });
+      }
+    });
+
+    socket.on('checkers_challenge_decline', ({ inviteId } = {}) => {
+      const uid = socket.data.userId; if (!uid) return;
+      const invite = checkersChallengeInvites.get(inviteId);
+      if (!invite || invite.toId !== uid) return;
+      clearCheckersChallengeInvite(inviteId);
+      const fromSock = userSocket.get(invite.fromId);
+      if (fromSock) io.sockets.sockets.get(fromSock)?.emit('checkers_challenge_declined', { inviteId });
+    });
+
+    socket.on('checkers_challenge_cancel', ({ inviteId } = {}) => {
+      const uid = socket.data.userId; if (!uid) return;
+      const invite = checkersChallengeInvites.get(inviteId);
+      if (!invite || invite.fromId !== uid) return;
+      clearCheckersChallengeInvite(inviteId);
+      const toSock = userSocket.get(invite.toId);
+      if (toSock) io.sockets.sockets.get(toSock)?.emit('checkers_challenge_cancelled', { inviteId });
+    });
+
     // --- Rematch (1v1 only) ---
     socket.on('rematch_offer', async ({ gameId }) => {
       const uid = socket.data.userId; if (!uid) return;
@@ -917,6 +1047,15 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
             const other = inv.fromId === uid ? inv.toId : inv.fromId;
             const otherSock = userSocket.get(other);
             if (otherSock) io.sockets.sockets.get(otherSock)?.emit('challenge_cancelled', { inviteId: iid });
+          }
+        }
+        // Cancel any pending CHECKERS challenge invites this user sent or received.
+        for (const [iid, inv] of checkersChallengeInvites) {
+          if (inv.fromId === uid || inv.toId === uid) {
+            clearCheckersChallengeInvite(iid);
+            const other = inv.fromId === uid ? inv.toId : inv.fromId;
+            const otherSock = userSocket.get(other);
+            if (otherSock) io.sockets.sockets.get(otherSock)?.emit('checkers_challenge_cancelled', { inviteId: iid });
           }
         }
         // Clear any pending rematch offers involving this user; notify the other side.
