@@ -111,10 +111,15 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_stock TEXT NOT NULL DEFAULT 'av_knight',
   avatar_data_url TEXT NOT NULL DEFAULT '',
   email_verified INTEGER NOT NULL DEFAULT 0,
-  last_seen BIGINT NOT NULL DEFAULT 0
+  last_seen BIGINT NOT NULL DEFAULT 0,
+  elo_checkers_8 INTEGER NOT NULL DEFAULT 1200,
+  elo_checkers_10 INTEGER NOT NULL DEFAULT 1200
 );
 -- Idempotent for pre-existing Postgres databases created before last_seen.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen BIGINT NOT NULL DEFAULT 0;
+-- Checkers ratings (additive; NEVER touch the chess elo column).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS elo_checkers_8 INTEGER NOT NULL DEFAULT 1200;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS elo_checkers_10 INTEGER NOT NULL DEFAULT 1200;
 
 CREATE TABLE IF NOT EXISTS friendships (
   user_id TEXT NOT NULL,
@@ -139,9 +144,14 @@ CREATE TABLE IF NOT EXISTS games (
   black_elo_delta INTEGER,
   created_at BIGINT NOT NULL,
   ended_at BIGINT,
+  game_type TEXT NOT NULL DEFAULT 'chess',
+  variant TEXT NOT NULL DEFAULT '',
   FOREIGN KEY (white_id) REFERENCES users(id),
   FOREIGN KEY (black_id) REFERENCES users(id)
 );
+-- Additive game-type tags so the games table can also record checkers rows.
+ALTER TABLE games ADD COLUMN IF NOT EXISTS game_type TEXT NOT NULL DEFAULT 'chess';
+ALTER TABLE games ADD COLUMN IF NOT EXISTS variant TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS team_games (
   id TEXT PRIMARY KEY,
@@ -313,10 +323,14 @@ export async function topByMetric(metric, limit = 100) {
     streak: 'best_streak', best_streak: 'best_streak',
     invites_accepted: 'invites_accepted',
     trophies: trophiesExpr,
+    // Checkers leaderboards (additive). Each sorts by the matching checkers Elo.
+    checkers8: 'elo_checkers_8',
+    checkers10: 'elo_checkers_10',
   };
   const orderExpr = allowed[metric] || 'elo';
   const { rows } = await pool.query(
     `SELECT id, username, region, elo, wins, losses, best_streak, is_premium,
+            elo_checkers_8, elo_checkers_10,
             ${trophiesExpr} AS trophies
      FROM users ORDER BY ${orderExpr} DESC, elo DESC LIMIT $1`,
     [limit]

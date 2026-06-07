@@ -19,6 +19,7 @@ Set-Location (Join-Path $scriptDir '..')
 $files = @(
   'index.html','app.js','academy.js','sounds.js','stockfish-ai.js',
   'chess.min.js','chess960.js','config.js','ct-net.js',
+  'checkers.js','checkers-ai.js','ct-checkers.js',
   'puzzles-data.js','puzzles.js',
   'review.js','trophy-extras.js','learn-library.js','sw.js','manifest.json',
   'terms.html','privacy.html',

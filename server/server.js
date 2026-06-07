@@ -214,6 +214,8 @@ app.get('/api/me', requireAuth, (req, res) => {
     invitesAccepted: u.invites_accepted, isPremium: !!u.is_premium,
     avatarStock: u.avatar_stock || 'av_knight', avatarDataUrl: u.avatar_data_url || '',
     emailVerified: !!u.email_verified,
+    // Checkers ratings (additive; separate from the chess `elo` above).
+    eloCheckers8: u.elo_checkers_8 ?? 1200, eloCheckers10: u.elo_checkers_10 ?? 1200,
   });
 });
 

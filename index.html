@@ -594,10 +594,16 @@
       <a href="#" id="link-verify-code" class="muted small" style="white-space:nowrap">Enter code</a>
     </div>
 
-    <div class="stat-grid">
+    <div class="stat-grid" id="stat-grid-chess">
       <div class="stat" title="ELO is your chess rating — it goes up when you win ranked games and down when you lose. Higher is stronger."><div class="v" id="stat-elo">1200</div><div class="l">ELO</div></div>
       <div class="stat"><div class="v" id="stat-wins">0</div><div class="l">Wins</div></div>
       <div class="stat"><div class="v" id="stat-streak">0</div><div class="l">Streak</div></div>
+    </div>
+    <!-- Checkers stats (toggled in when the Checkers game-type is selected). -->
+    <div class="stat-grid" id="stat-grid-checkers" style="display:none">
+      <div class="stat" title="Your checkers rating — best of your 8x8 and 10x10 ELO."><div class="v" id="ck-stat-elo">1200</div><div class="l">CK ELO</div></div>
+      <div class="stat"><div class="v" id="ck-stat-wins">0</div><div class="l">CK Wins</div></div>
+      <div class="stat"><div class="v" id="ck-stat-streak">0</div><div class="l">CK Streak</div></div>
     </div>
 
     <!-- Daily play-streak card (rendered by renderLobby in app.js). Sits above the
@@ -617,6 +623,34 @@
     </div>
 
     <h2 style="margin-top:18px">Play</h2>
+
+    <!-- GAME-TYPE selector: Chess (default) or Checkers. Selecting Checkers
+         reveals board-size + rule-set pickers and swaps the Play cards. -->
+    <div class="tabs" id="gametype-tabs" style="margin-bottom:12px">
+      <div class="tab active" data-gametype="chess">♟ Chess</div>
+      <div class="tab" data-gametype="checkers">⛀ Checkers</div>
+    </div>
+
+    <!-- Checkers options (hidden until Checkers is selected). Mirrors the lobby
+         styling + data-* conventions used elsewhere. -->
+    <div id="checkers-options" style="display:none">
+      <div class="card" style="padding:12px 14px">
+        <h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:0 0 8px">Board size</h4>
+        <div class="tc-grid" id="ck-size-grid">
+          <div class="tc-opt selected" data-cksize="8"><span>8 × 8</span><span class="tc-sub">Standard</span></div>
+          <div class="tc-opt" data-cksize="10"><span>10 × 10</span><span class="tc-sub">International</span></div>
+        </div>
+        <h4 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:14px 0 8px">Rule set</h4>
+        <div class="tc-grid" id="ck-rules-grid" style="grid-template-columns:repeat(3,1fr)">
+          <div class="tc-opt selected" data-ckrules="acf"><span>ACF</span><span class="tc-sub">English</span></div>
+          <div class="tc-opt" data-ckrules="international"><span>Intl</span><span class="tc-sub">FMJD 10×10</span></div>
+          <div class="tc-opt" data-ckrules="casual"><span>Casual</span><span class="tc-sub">Relaxed</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== CHESS PLAY CARDS ===================== -->
+    <div id="chess-play-cards">
     <div class="card">
       <h3 style="margin-bottom:8px">Ranked 1v1</h3>
       <p class="muted small" style="margin:0 0 12px">We match you with a random opponent near your rating (within ±100 ELO). Counts toward your ELO, wins, and streaks.</p>
@@ -650,6 +684,30 @@
           <p class="muted small" style="margin:10px 0 0">Want a friend on your team? Open the Friends tab, tap a friend, and choose &ldquo;Invite to 2v2&rdquo; — your opponents are still random.</p>
         </div>
       </section>
+    </div><!-- /#chess-play-cards -->
+
+    <!-- ===================== CHECKERS PLAY CARDS ===================== -->
+    <div id="checkers-play-cards" style="display:none">
+      <div class="card">
+        <h3 style="margin-bottom:8px">Ranked checkers</h3>
+        <p class="muted small" style="margin:0 0 12px">Match with an opponent near your checkers rating. Counts toward your checkers ELO, wins, and streaks.</p>
+        <button class="btn btn-block" id="ck-btn-find-match">Find ranked checkers opponent</button>
+        <p class="muted small" style="margin:8px 0 0">Want to play a specific friend? Open the Friends tab and send a checkers challenge — friend games are always unrated.</p>
+      </div>
+      <div class="card">
+        <h3 style="margin-bottom:8px">Practice vs computer</h3>
+        <p class="muted small" style="margin:0 0 12px">Play offline against the computer. Always unrated — never affects your rating.</p>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px;flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:700;">Computer Strength</div>
+            <div class="muted small">Set the AI's Elo rating from 100 to 2800.</div>
+          </div>
+          <div id="ck-practice-elo-label" class="pill gold" style="min-width:80px;text-align:center;">1200</div>
+        </div>
+        <input type="range" id="ck-practice-elo" min="100" max="2800" step="100" value="1200" style="width:100%;margin-bottom:12px;">
+        <button class="btn btn-block" id="ck-btn-start-practice">Start Checkers Practice</button>
+      </div>
+    </div>
 
 
   </section>
@@ -689,6 +747,42 @@
         <div class="captured" id="pb-captured"></div>
       </div>
       <div class="clock" id="pb-clock" style="display:none"></div>
+    </div>
+  </section>
+
+  <!-- CHECKERS GAME (mirrors #screen-game; board drawn by ct-checkers.js) -->
+  <section id="screen-checkers" class="screen">
+    <div class="row between" style="padding:4px 0 6px">
+      <button class="btn btn-ghost small" id="ck-btn-back">← Back</button>
+      <div class="pill" id="ck-game-status">Your move</div>
+      <button class="btn btn-ghost small" id="ck-btn-flip">Flip</button>
+    </div>
+    <div class="muted small center" id="ck-variant-sub" style="margin:0 0 6px">8x8 · ACF</div>
+
+    <div class="player-card" id="ck-player-top">
+      <div class="avatar" id="ck-pt-avatar">?</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600" id="ck-pt-name">—</div>
+        <div class="muted small" id="ck-pt-elo">—</div>
+        <div class="ck-captured" id="ck-pt-captured"></div>
+      </div>
+    </div>
+
+    <div class="board-wrap">
+      <div id="checkers-board"></div>
+    </div>
+
+    <div class="player-card active" id="ck-player-bot">
+      <div class="avatar" id="ck-pb-avatar">?</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600" id="ck-pb-name">—</div>
+        <div class="muted small" id="ck-pb-elo">—</div>
+        <div class="ck-captured" id="ck-pb-captured"></div>
+      </div>
+    </div>
+    <div class="row between" style="margin-top:8px">
+      <button class="btn btn-ghost small" id="ck-btn-resign">Resign</button>
+      <span></span>
     </div>
   </section>
 
@@ -976,6 +1070,44 @@
     </div>
   </div>
 </div>
+<!-- CHECKERS matchmaking (mirrors #modal-matchmaking) -->
+<div class="modal-overlay" id="modal-ck-matchmaking">
+  <div class="modal">
+    <div class="handle"></div>
+    <div style="text-align:center;padding:8px 0">
+      <div style="font-size:44px;line-height:1;animation:mm-pulse 1.2s ease-in-out infinite">⛀</div>
+      <h2 style="margin:12px 0 4px">Searching for a checkers opponent…</h2>
+      <p class="muted small" id="ck-mm-sub" style="margin:0">Looking for a player near your rating…</p>
+      <div class="pill" id="ck-mm-timer" style="margin:14px auto 0;display:inline-block">0:00</div>
+    </div>
+    <div class="stack" style="margin-top:16px">
+      <button class="btn btn-ghost btn-block" id="ck-btn-mm-cancel">Cancel search</button>
+    </div>
+  </div>
+</div>
+<!-- CHECKERS friendly challenge sent (host waiting) -->
+<div class="modal-overlay" id="modal-ck-challenge-wait">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2 style="margin:0 0 6px">Checkers challenge sent</h2>
+    <p class="muted small" id="ck-challenge-wait-body" style="margin:0 0 14px">Waiting for your friend to accept…</p>
+    <div class="stack">
+      <button class="btn btn-ghost btn-block" id="ck-btn-challenge-wait-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<!-- CHECKERS incoming friendly challenge -->
+<div class="modal-overlay" id="modal-ck-challenge-invite">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2 style="margin:0 0 6px">Checkers Challenge</h2>
+    <p class="muted small" id="ck-challenge-invite-body" style="margin:0 0 14px">A friend challenged you to a checkers game.</p>
+    <div class="stack">
+      <button class="btn btn-block" id="ck-btn-challenge-accept">Accept &amp; play</button>
+      <button class="btn btn-ghost btn-block" id="ck-btn-challenge-decline">Decline</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="modal-team-queue">
   <div class="modal">
     <div class="handle"></div>
@@ -1139,7 +1271,8 @@
     <h2 id="fc-title">Challenge a friend</h2>
     <p class="muted small" style="margin:4px 0 14px" id="fc-sub">—</p>
     <div class="stack">
-      <button class="btn btn-block" id="btn-fc-friendly">Friendly 1v1 (unrated)</button>
+      <button class="btn btn-block" id="btn-fc-friendly">Friendly chess 1v1 (unrated)</button>
+      <button class="btn btn-secondary btn-block" id="btn-fc-checkers">Friendly checkers (unrated)</button>
       <button class="btn btn-secondary btn-block" id="btn-fc-ranked">Invite to 2v2 (random opponents)</button>
       <button class="btn btn-ghost btn-block" id="btn-fc-remove" style="color:var(--danger)">Remove friend</button>
       <button class="btn btn-ghost btn-block" id="btn-fc-block" style="color:var(--danger)">Block player</button>
@@ -1230,10 +1363,14 @@
 <script src="ct-auth.js?v=20260603a"></script>
 <script src="ct-net.js?v=20260601a"></script>
 <script src="ct-ai.js?v=20260604a"></script>
+<!-- Checkers: engine -> AI -> (UI loaded after app.js so window.CT exists) -->
+<script src="checkers.js?v=20260607a"></script>
+<script src="checkers-ai.js?v=20260607a"></script>
 <script src="trophy-data.js?v=20260603a"></script>
 <script src="ct-duo.js?v=20260603a"></script>
 <script src="ct-ads.js?v=20260603a"></script>
   <script src="app.js?v=20260606c"></script>
+<script src="ct-checkers.js?v=20260607a"></script>
 <script src="academy.js?v=20260531c"></script>
     <script src="review.js?v=20260604a"></script>
     <script src="trophy-extras.js?v=20260531a"></script>

@@ -131,6 +131,20 @@
 
     socket.on('friend_request', function (data) { emit('friendRequest', data); });
     socket.on('friend_accepted', function (data) { emit('friendAccepted', data); });
+
+    // --- CHECKERS / DRAUGHTS online contract (additive; mirrors chess 1v1) ---
+    // Event names are centralized here so a differing server contract is a 1-line
+    // change per event. The checkers UI (ct-checkers.js) subscribes to the
+    // camelCased CTNet events emitted below.
+    socket.on('checkers_match_found', function (data) { emit('checkersMatchFound', data); });
+    socket.on('checkers_move_made', function (data) { emit('checkersMoveMade', data); });
+    socket.on('checkers_game_over', function (data) { emit('checkersGameOver', data); });
+    socket.on('checkers_err', function (data) { emit('checkersErr', data); });
+    // Friendly checkers challenge lifecycle (the accepted match arrives via
+    // checkers_match_found). These mirror the chess challenge_* events.
+    socket.on('checkers_challenge_received', function (data) { emit('checkersChallengeReceived', data); });
+    socket.on('checkers_challenge_declined', function (data) { emit('checkersChallengeDeclined', data); });
+    socket.on('checkers_challenge_cancelled', function (data) { emit('checkersChallengeCancelled', data); });
   }
 
   function disconnect() {
@@ -247,6 +261,54 @@
     return true;
   }
 
+  // --- CHECKERS / DRAUGHTS emit helpers (additive; mirror chess 1v1) ---
+  // Contract:
+  //   checkers_mm_join   { mode, size, rules, tc }
+  //   checkers_mm_leave  {}
+  //   checkers_move      { gameId, move }
+  //   checkers_resign    { gameId }
+  //   checkers_challenge_invite/accept/decline/cancel { ..., game:'checkers', size, rules }
+  function joinCheckersQueue(mode, size, rules, tc) {
+    if (!ready) return false;
+    socket.emit('checkers_mm_join', { mode: mode || 'ranked', size: size || 8, rules: rules || 'acf', tc: tc || 'unlimited' });
+    return true;
+  }
+  function leaveCheckersQueue() {
+    if (!ready) return false;
+    socket.emit('checkers_mm_leave', {});
+    return true;
+  }
+  function sendCheckersMove(payload) {
+    if (!ready) return false;
+    socket.emit('checkers_move', payload);
+    return true;
+  }
+  function resignCheckers(gameId) {
+    if (!ready) return false;
+    socket.emit('checkers_resign', { gameId: gameId });
+    return true;
+  }
+  function inviteCheckersChallenge(friendId, size, rules, tc) {
+    if (!ready) return false;
+    socket.emit('checkers_challenge_invite', { friendId: friendId, game: 'checkers', size: size || 8, rules: rules || 'acf', tc: tc || 'unlimited' });
+    return true;
+  }
+  function acceptCheckersChallenge(inviteId) {
+    if (!ready) return false;
+    socket.emit('checkers_challenge_accept', { inviteId: inviteId });
+    return true;
+  }
+  function declineCheckersChallenge(inviteId) {
+    if (!ready) return false;
+    socket.emit('checkers_challenge_decline', { inviteId: inviteId });
+    return true;
+  }
+  function cancelCheckersChallenge(inviteId) {
+    if (!ready) return false;
+    socket.emit('checkers_challenge_cancel', { inviteId: inviteId });
+    return true;
+  }
+
   window.CTNet = {
     connect: connect,
     disconnect: disconnect,
@@ -255,6 +317,15 @@
     leaveQueue: leaveQueue,
     sendMove: sendMove,
     resign: resign,
+    // checkers (additive)
+    joinCheckersQueue: joinCheckersQueue,
+    leaveCheckersQueue: leaveCheckersQueue,
+    sendCheckersMove: sendCheckersMove,
+    resignCheckers: resignCheckers,
+    inviteCheckersChallenge: inviteCheckersChallenge,
+    acceptCheckersChallenge: acceptCheckersChallenge,
+    declineCheckersChallenge: declineCheckersChallenge,
+    cancelCheckersChallenge: cancelCheckersChallenge,
     offerRematch: offerRematch,
     acceptRematch: acceptRematch,
     declineRematch: declineRematch,

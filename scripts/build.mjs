@@ -44,6 +44,11 @@ const DIST = path.join(ROOT, 'dist');
 const STAMP = 'b' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
 // The contiguous, order-safe trailing tail to concatenate into app.bundle.js.
+// NOTE: the checkers scripts (checkers.js, checkers-ai.js, ct-checkers.js) are
+// intentionally NOT in TAIL — they are classic standalone <script> files
+// referenced by index.html, so parseScripts() auto-discovers them and they get
+// minified INDIVIDUALLY into dist/ under the same name (same as ct-ai.js). Do
+// not fold them into the tail bundle.
 const TAIL = ['app.js', 'academy.js', 'review.js', 'trophy-extras.js', 'learn-library.js'];
 
 // Extra same-origin runtime JS not in index.html's <script> list but loaded at

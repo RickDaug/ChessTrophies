@@ -536,6 +536,20 @@
         case 'comeback': ok = (user.comebackWins || 0) >= a.threshold; break;
         case 'invites':  ok = (user.invitesAccepted || 0) >= a.threshold; break;
         case 'flag':     ok = !!(user.flags && (user.flags[a.flag] || 0) >= a.threshold); break;
+        // Checkers trophies — evaluated against the user's checkers stats block
+        // (state.user.checkers = { elo8, elo10, wins, losses, draws, streak }),
+        // synced from /api/me and reconciled locally as ranked games finish.
+        case 'checkers_elo': {
+          const ck = user.checkers || {};
+          const best = Math.max(ck.elo8 || 0, ck.elo10 || 0);
+          ok = best >= a.threshold;
+          break;
+        }
+        case 'checkers_games': {
+          const ck = user.checkers || {};
+          ok = ((ck.wins || 0) + (ck.losses || 0) + (ck.draws || 0)) >= a.threshold;
+          break;
+        }
       }
       if (ok) {
         const def = unlockAchievement(user, a.id);
@@ -736,6 +750,12 @@
     // Warn before leaving an in-progress 2v2 match
     if (id !== 'duo' && window.Duo && window.__duo && window.__duo.game && !window.__duo.ended && !window.__duo.over && document.querySelector('#screen-duo.active')) {
       if (!window.Duo.quit()) return;
+    }
+    // Warn before leaving an in-progress checkers match (forfeits if confirmed).
+    if (id !== 'checkers' && window.CT_Checkers_UI && window.CT_Checkers_UI.isActive && window.CT_Checkers_UI.isActive()) {
+      if (!confirm('Leave this checkers match?\n\nLeaving now counts as a resignation.')) return;
+      // Resign through the UI module so the online/result paths still run.
+      try { window.CT_Checkers_UI.resignActive && window.CT_Checkers_UI.resignActive(); } catch (e) {}
     }
     // Warn before leaving an in-progress match (acts as a forfeit if confirmed)
     if (id !== 'game' && state.game && !state.gameEnded && document.querySelector('#screen-game.active')) {
@@ -1179,6 +1199,8 @@
     updateVerifyBanner();
     // Daily play-streak card (consecutive days the user finished any game).
     renderPlayStreak();
+    // Keep the (possibly hidden) checkers stat row in sync with state.user.checkers.
+    if (typeof renderCheckersLobbyStats === 'function') renderCheckersLobbyStats();
   }
 
   // Soft email-verification nudge: shown only for server-logged-in users whose
@@ -1533,6 +1555,71 @@ function renderFriendsSummary() {
       start960Button.addEventListener('click', () => startPractice960(practiceEloInput.value));
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // CHECKERS lobby wiring (game-type selector + size/rule pickers + play cards)
+  // ---------------------------------------------------------------------------
+  // The checkers EXPERIENCE lives in ct-checkers.js (window.CT_Checkers_UI); this
+  // block only handles the lobby selectors + routing the three play modes to it.
+  const ckLobby = { gametype: 'chess', size: 8, rules: 'acf' };
+
+  function applyGameType(which) {
+    ckLobby.gametype = (which === 'checkers') ? 'checkers' : 'chess';
+    const isCk = ckLobby.gametype === 'checkers';
+    $$('#gametype-tabs .tab').forEach((t) => t.classList.toggle('active', t.dataset.gametype === ckLobby.gametype));
+    const ckOpts = $('#checkers-options'); if (ckOpts) ckOpts.style.display = isCk ? '' : 'none';
+    const chessCards = $('#chess-play-cards'); if (chessCards) chessCards.style.display = isCk ? 'none' : '';
+    const ckCards = $('#checkers-play-cards'); if (ckCards) ckCards.style.display = isCk ? '' : 'none';
+    const chessStats = $('#stat-grid-chess'); if (chessStats) chessStats.style.display = isCk ? 'none' : '';
+    const ckStats = $('#stat-grid-checkers'); if (ckStats) { ckStats.style.display = isCk ? '' : 'none'; if (isCk) renderCheckersLobbyStats(); }
+  }
+  // Reconcile the displayed rules with the chosen size (ACF=8 only, Intl=10 only).
+  function syncCkRulesToSize() {
+    // ACF requires 8x8; International requires 10x10. If they conflict, snap rules.
+    if (ckLobby.size === 10 && ckLobby.rules === 'acf') ckLobby.rules = 'international';
+    if (ckLobby.size === 8 && ckLobby.rules === 'international') ckLobby.rules = 'acf';
+    $$('#ck-rules-grid .tc-opt').forEach((o) => o.classList.toggle('selected', o.dataset.ckrules === ckLobby.rules));
+    $$('#ck-size-grid .tc-opt').forEach((o) => o.classList.toggle('selected', String(o.dataset.cksize) === String(ckLobby.size)));
+  }
+  $$('#gametype-tabs .tab').forEach((t) => t.addEventListener('click', () => applyGameType(t.dataset.gametype)));
+  $$('#ck-size-grid .tc-opt').forEach((o) => o.addEventListener('click', () => {
+    ckLobby.size = Number(o.dataset.cksize) === 10 ? 10 : 8;
+    syncCkRulesToSize();
+  }));
+  $$('#ck-rules-grid .tc-opt').forEach((o) => o.addEventListener('click', () => {
+    ckLobby.rules = o.dataset.ckrules;
+    // Selecting International forces 10x10; ACF forces 8x8; Casual keeps the size.
+    if (ckLobby.rules === 'international') ckLobby.size = 10;
+    else if (ckLobby.rules === 'acf') ckLobby.size = 8;
+    syncCkRulesToSize();
+  }));
+  { const b = $('#ck-btn-start-practice'); if (b) b.addEventListener('click', () => {
+      const elo = $('#ck-practice-elo') ? $('#ck-practice-elo').value : 1200;
+      if (window.CT_Checkers_UI) window.CT_Checkers_UI.startPractice(elo, ckLobby.size, ckLobby.rules);
+    }); }
+  { const el = $('#ck-practice-elo'); const lbl = $('#ck-practice-elo-label');
+    if (el && lbl) { const upd = () => { lbl.textContent = clampElo(el.value); }; upd(); el.addEventListener('input', upd); } }
+  { const b = $('#ck-btn-find-match'); if (b) b.addEventListener('click', () => {
+      if (window.CT_Checkers_UI) window.CT_Checkers_UI.startFindRanked(ckLobby.size, ckLobby.rules);
+    }); }
+  // Friendly checkers challenge from the friend-challenge modal.
+  { const b = $('#btn-fc-checkers'); if (b) b.addEventListener('click', () => {
+      closeModal('friend-challenge');
+      const fid = state.selectedFriendId, fname = state.selectedFriendName;
+      if (fid && window.CT_Checkers_UI) window.CT_Checkers_UI.inviteFriend(fid, fname, ckLobby.size, ckLobby.rules);
+    }); }
+
+  // Lobby checkers stats (best ELO / wins / streak). Reads state.user.checkers.
+  function renderCheckersLobbyStats() {
+    const u = state.user; if (!u) return;
+    const ck = u.checkers || { elo8: 1200, elo10: 1200, wins: 0, streak: 0 };
+    const best = Math.max(ck.elo8 || 0, ck.elo10 || 0) || 1200;
+    const e = $('#ck-stat-elo'); if (e) e.textContent = best;
+    const w = $('#ck-stat-wins'); if (w) w.textContent = ck.wins || 0;
+    const st = $('#ck-stat-streak'); if (st) st.textContent = ck.streak || 0;
+  }
+  // Expose so ct-checkers.js / renderLobby can refresh after a game or /api/me sync.
+  window.CT_renderCheckersLobbyStats = renderCheckersLobbyStats;
 
   // Friends
   // Shared add-friend submit, used by BOTH the Friends-tab "+ Add friend" button
@@ -2269,6 +2356,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         serverFriendsCache = null;
         if ($('#screen-friends') && $('#screen-friends').classList.contains('active')) renderFriendsList();
       });
+      // Checkers online listeners (ct-checkers.js registers its own camelCased
+      // CTNet handlers). wireNet() is idempotent; calling it here ensures the
+      // handlers exist on the freshly-connected socket alongside the chess ones.
+      try { if (window.CT_Checkers_UI) window.CT_Checkers_UI.wireNet(); } catch (e) {}
       state._netHandlersRegistered = true;
     }
     // Pull any learning progress saved on the server (other devices) and merge it in.
@@ -3401,6 +3492,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       var canBlock = !!(_blkOpp && _blkOpp.userId && !_blkOpp.isAI && !_blkOpp.isGuest && isServerLoggedIn());
       _blkBtn.style.display = canBlock ? '' : 'none';
     }
+    // The checkers result reuses this same modal and hides the review button; make
+    // sure chess always restores it (block-button visibility is set just above).
+    var _rvBtn2 = $('#btn-result-review'); if (_rvBtn2) _rvBtn2.style.display = '';
     openModal('result');
     // Celebrate trophy unlocks: confetti + title shine, timed with the fanfare.
     try {
@@ -3892,6 +3986,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
             const fresh = syncRemoteProfile(profile);
             setSession({ userId: fresh.id, token: session.token });
             state.user = fresh;
+            // Pull checkers ELO/W-L from the same /api/me payload onto state.user.checkers.
+            try { if (window.CT_Checkers_UI) window.CT_Checkers_UI.applyCheckersProfile(profile); } catch (e) {}
             renderLobby();
           }).catch(() => {});
         }
@@ -3905,6 +4001,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
           u = syncRemoteProfile(profile);
           setSession({ userId: u.id, token: session.token });
           state.user = u;
+          try { if (window.CT_Checkers_UI) window.CT_Checkers_UI.applyCheckersProfile(profile); } catch (e) {}
           if (window.__connectGameSocket) window.__connectGameSocket();
           enterApp();
           doneBoot();
