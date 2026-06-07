@@ -31,9 +31,8 @@ npm run smoke:2v2
 
 Exits **0** on PASS, **1** on FAIL, with a per-step log. No app code is modified
 to run it — the only harness shims are widening the served `index.html` CSP
-`connect-src` to allow the local backend (the same thing
-`scripts/refresh-www.sh` does for the Vercel origin) and serving socket.io's
-client from the local install instead of the CDN.
+`connect-src` to allow the local backend, and serving socket.io's client from
+the local install instead of the CDN.
 
 ### Notes
 
