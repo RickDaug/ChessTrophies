@@ -123,6 +123,16 @@ ensureColumn('users', 'email_verified', 'INTEGER', '0');
 // Last activity timestamp (ms) — set on login + socket auth. Powers the admin
 // "active users" stats. 0 = never seen since this column was added.
 ensureColumn('users', 'last_seen', 'INTEGER', '0');
+// --- Checkers ratings (additive; NEVER touch the chess `elo` column) ---
+// Separate Elo per board size: 8x8 (ACF) and 10x10 (FMJD). Both default 1200.
+ensureColumn('users', 'elo_checkers_8', 'INTEGER', '1200');
+ensureColumn('users', 'elo_checkers_10', 'INTEGER', '1200');
+// Tag game rows by type/variant so the existing `games` table can also record
+// checkers games. Existing rows default to chess (game_type='chess'), so the
+// historical data is unchanged. `variant` holds the checkers board size as a
+// string ('8'|'10') for checkers rows; '' for chess.
+ensureColumn('games', 'game_type', 'TEXT', "'chess'");
+ensureColumn('games', 'variant', 'TEXT', "''");
 
 // Pending friend requests (from_id asked to befriend to_id; awaiting consent).
 // Confirmed friendships still live in the `friendships` table.
@@ -260,9 +270,13 @@ export function topByMetric(metric, limit = 100) {
     streak: 'best_streak', best_streak: 'best_streak',
     invites_accepted: 'invites_accepted',
     trophies: trophiesExpr,
+    // Checkers leaderboards (additive). Each sorts by the matching checkers Elo.
+    checkers8: 'elo_checkers_8',
+    checkers10: 'elo_checkers_10',
   };
   const orderExpr = allowed[metric] || 'elo';
   return db.prepare(`SELECT id, username, region, elo, wins, losses, best_streak, is_premium,
+                            elo_checkers_8, elo_checkers_10,
                             ${trophiesExpr} AS trophies
                      FROM users ORDER BY ${orderExpr} DESC, elo DESC LIMIT ?`).all(limit);
 }

@@ -23,8 +23,15 @@ COPY server/ ./
 RUN mkdir -p ./public
 COPY index.html admin.html config.js app.js academy.js learn-library.js review.js trophy-extras.js chess960.js chess.min.js sounds.js stockfish-ai.js sw.js manifest.json icon.svg icon-192.png icon-512.png icon-1024.png og-image.png privacy.html terms.html \
      ct-onerror.js ct-boot.js ct-chess-check.js ct-socket-fallback.js ct-auth.js ct-net.js ct-ai.js ct-ai-worker.js trophy-data.js ct-duo.js ct-ads.js ct-sw-register.js \
+     checkers.js checkers-ai.js ct-checkers.js \
      ./public/
 COPY vendor/ ./public/vendor/
+
+# Server-runtime copy: the server require()s the checkers engine for move
+# validation ('../checkers.js' in dev, './checkers.js' in the image, where
+# server modules live at /app via `COPY server/ ./`). Placed AFTER `COPY
+# server/ ./` so it lands in /app and is not overwritten by it.
+COPY checkers.js ./checkers.js
 
 ENV NODE_ENV=production
 EXPOSE 3000

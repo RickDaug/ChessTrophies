@@ -91,5 +91,34 @@
     { id: 'duo_maverick', family: 'Duo', type: 'duo', threshold: 20, tier: 2, icon: '🎸', name: 'Maverick', desc: 'Play 20 ranked 2v2 matches.' },
     { id: 'duo_2400', family: 'Duo', type: 'duo', threshold: 1, tier: 3, icon: '👑', name: 'Duo Royalty', desc: 'Reach 1600 2v2 rating.' },
     { id: 'duo_comeback', family: 'Duo', type: 'duo', threshold: 1, tier: 3, icon: '🔄', name: 'Clutch Comeback', desc: 'Win a 2v2 after being down a queen.' },
+    // ---------------------------------------------------------------------------
+    // CHECKERS / DRAUGHTS family — scoped independently of chess.
+    // INTEGRATION CONTRACT: the types below are evaluated by a LATER change to
+    // checkAchievementsFor in app.js, against the user's CHECKERS stats:
+    //   type 'checkers_elo'   -> compare user's checkers Elo            >= threshold
+    //   type 'checkers_games' -> compare user's checkers ranked-game count >= threshold
+    //   type 'flag' (ck* flags) -> compare user.flags[flag] (>=1) for checkers feats
+    // Flag names are checkers-scoped, prefixed 'ck':
+    //   ckTripleJump    -> landed a triple (3-piece) capture in one turn
+    //   ckFlyingKingWin -> won a 10x10 game with a flying king
+    //   ckShutout       -> won without losing a single piece
+    // SAFE TO ADD NOW: checkAchievementsFor's switch has no unlocking default, so
+    // unknown types ('checkers_elo'/'checkers_games') leave ok=false and stay
+    // LOCKED until the integration lands; the generic 'flag' case already exists
+    // but reads user.flags[...], which stays falsy until checkers play sets it.
+    // Nothing breaks; these simply remain locked.
+    // Checkers Elo tiers (mirrors the chess Rating family icons/tiers)
+    { id: 'ck_elo_t1', family: 'Checkers', type: 'checkers_elo',   threshold: 1300, tier: 1, icon: '📈', name: 'Draughts Climber',  desc: 'Reach 1300 checkers Elo.' },
+    { id: 'ck_elo_t2', family: 'Checkers', type: 'checkers_elo',   threshold: 1500, tier: 3, icon: '🚀', name: 'Draughts Riser',    desc: 'Reach 1500 checkers Elo.' },
+    { id: 'ck_elo_t3', family: 'Checkers', type: 'checkers_elo',   threshold: 1700, tier: 5, icon: '💎', name: 'Draughts Expert',   desc: 'Reach 1700 checkers Elo.' },
+    { id: 'ck_elo_t4', family: 'Checkers', type: 'checkers_elo',   threshold: 2000, tier: 7, icon: '👑', name: 'Draughts Titled',   desc: 'Reach 2000 checkers Elo.' },
+    // Checkers ranked games played
+    { id: 'ck_games_t1', family: 'Checkers', type: 'checkers_games', threshold: 10,  tier: 1, icon: '⛀', name: 'Crowned Beginner', desc: 'Play 10 ranked checkers games.' },
+    { id: 'ck_games_t2', family: 'Checkers', type: 'checkers_games', threshold: 50,  tier: 2, icon: '⛂', name: 'Board Regular',    desc: 'Play 50 ranked checkers games.' },
+    { id: 'ck_games_t3', family: 'Checkers', type: 'checkers_games', threshold: 200, tier: 4, icon: '⛃', name: 'Draughts Veteran',  desc: 'Play 200 ranked checkers games.' },
+    // Hidden checkers feats — shown as ??? until earned
+    { id: 'ck_hidden_triple_jump',  family: 'Checkers', type: 'flag', flag: 'ckTripleJump',    threshold: 1, tier: 1, icon: '🤹', name: 'Triple Jump',     desc: 'Land a triple (3-piece) capture in a single turn.', hidden: true },
+    { id: 'ck_hidden_flying_king',  family: 'Checkers', type: 'flag', flag: 'ckFlyingKingWin', threshold: 1, tier: 1, icon: '👑', name: 'King Takes Flight', desc: 'Win a 10×10 game with a flying king.', hidden: true },
+    { id: 'ck_hidden_shutout',      family: 'Checkers', type: 'flag', flag: 'ckShutout',       threshold: 1, tier: 1, icon: '🛡️', name: 'Flawless Sweep',  desc: 'Win a checkers game without losing a single piece.', hidden: true },
   ];
 })();
