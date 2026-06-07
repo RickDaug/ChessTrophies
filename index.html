@@ -6,6 +6,7 @@
      anything else. Externalized to a same-origin file so script-src can drop
      'unsafe-inline'. Must stay the FIRST script and load synchronously. -->
 <script src="ct-onerror.js?v=20260606c"></script>
+<script src="ct-boot.js?v=20260607a"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <!-- Content-Security-Policy: script-src is hardened to 'self' (+ cdnjs for
      socket.io) — NO 'unsafe-inline', so injected inline scripts/handlers can't
@@ -46,6 +47,18 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
+  /* Boot splash: shown (via ct-boot.js adding .ct-has-session before paint) only
+     for an already-signed-in user, so the sign-in form never flashes on refresh.
+     app.js removes .ct-has-session once it shows the real screen. */
+  html.ct-has-session #screen-auth { display: none !important; }
+  #ct-splash { position: fixed; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; background: #0b1220; z-index: 9999; }
+  html.ct-has-session #ct-splash { display: flex; }
+  #ct-splash img { width: 72px; height: 72px; opacity: .95; }
+  #ct-splash .ct-spin { width: 26px; height: 26px; border-radius: 50%;
+    border: 3px solid rgba(245,196,81,.25); border-top-color: #f5c451; animation: ct-spin 0.8s linear infinite; }
+  @keyframes ct-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { #ct-splash .ct-spin { animation: none; } }
   :root {
     --bg: #0b1220;
     --bg-2: #111a2e;
@@ -471,6 +484,9 @@
 </style>
 </head>
 <body>
+
+  <!-- Boot splash (only visible for a signed-in user during refresh; see ct-boot.js) -->
+  <div id="ct-splash" aria-hidden="true"><img src="icon-192.png" alt=""><div class="ct-spin"></div></div>
 
 <div id="app">
 

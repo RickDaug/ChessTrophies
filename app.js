@@ -1056,7 +1056,7 @@
   function renderLobby() {
   if (!state.user) return;
     const u = state.user;
-    $('#lobby-avatar').textContent = u.username[0].toUpperCase();
+    $('#lobby-avatar').innerHTML = getAvatarHTML(u, 40);
     $('#lobby-name').textContent = u.username;
     $('#lobby-region').textContent = u.region || 'No region set';
     $('#stat-elo').textContent = u.elo;
@@ -3762,28 +3762,52 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Native AdMob banner: shown for free users, suppressed for premium. No-op on web.
     try { if (window.CT_Ads) window.CT_Ads.refresh(!!(state.user && state.user.isPremium)); } catch (e) {}
   }
+  // Clear the boot splash marker (ct-boot.js) once we've decided what to show, so
+  // the splash hides and normal screen control resumes.
+  function doneBoot() {
+    try { document.documentElement.classList.remove('ct-has-session'); } catch (e) {}
+  }
   async function init() {
     const session = getSession();
     const db = loadDB();
-    if (session && session.userId) {
-      let u = db.users[session.userId];
+    if (session && (session.userId || session.token)) {
+      let u = session.userId ? db.users[session.userId] : null;
+      if (u) {
+        // We have a cached profile: show the app IMMEDIATELY (no network wait, so
+        // no sign-in flash), then refresh from the server in the background.
+        state.user = u;
+        if (window.__connectGameSocket) window.__connectGameSocket();
+        enterApp();
+        doneBoot();
+        if (session.token) {
+          fetchMe().then((profile) => {
+            const fresh = syncRemoteProfile(profile);
+            setSession({ userId: fresh.id, token: session.token });
+            state.user = fresh;
+            renderLobby();
+          }).catch(() => {});
+        }
+        return;
+      }
       if (session.token) {
+        // Have a token but no cached profile (e.g. fresh device): the splash is
+        // covering the sign-in form, so fetch then enter.
         try {
           const profile = await fetchMe();
           u = syncRemoteProfile(profile);
           setSession({ userId: u.id, token: session.token });
+          state.user = u;
+          if (window.__connectGameSocket) window.__connectGameSocket();
+          enterApp();
+          doneBoot();
+          return;
         } catch (e) {
-          // Fall back to local DB when the server is unavailable.
+          // Server unreachable and nothing cached -> fall through to sign-in.
         }
-      }
-      if (u) {
-        state.user = u;
-        if (window.__connectGameSocket) window.__connectGameSocket();
-        enterApp();
-        return;
       }
     }
     showScreen('auth');
+    doneBoot();
   }
 
   // Premium modal wiring
@@ -4089,6 +4113,7 @@ function openAvatarEditor() {
     saveDB(db);
     ctSyncAvatar(state.user);
     document.getElementById('ct-avatar-preview').innerHTML = getAvatarHTML(state.user, 72);
+    { var _la = document.getElementById('lobby-avatar'); if (_la) _la.innerHTML = getAvatarHTML(state.user, 40); }
     // Refresh stock grid borders
     document.querySelectorAll('#ct-avatar-modal button[data-act="avatar-stock"]').forEach(btn => {
       const id = btn.getAttribute('data-id');
@@ -4110,6 +4135,7 @@ function openAvatarEditor() {
       saveDB(db);
       ctSyncAvatar(state.user);
       document.getElementById('ct-avatar-preview').innerHTML = getAvatarHTML(state.user, 72);
+    { var _la = document.getElementById('lobby-avatar'); if (_la) _la.innerHTML = getAvatarHTML(state.user, 40); }
       toast('Custom avatar set!', true);
       if (document.getElementById('profile-screen')) renderProfile();
     };
@@ -4123,6 +4149,7 @@ function openAvatarEditor() {
     saveDB(db);
     ctSyncAvatar(state.user);
     document.getElementById('ct-avatar-preview').innerHTML = getAvatarHTML(state.user, 72);
+    { var _la = document.getElementById('lobby-avatar'); if (_la) _la.innerHTML = getAvatarHTML(state.user, 40); }
     toast('Custom avatar removed.', true);
   };
 }
