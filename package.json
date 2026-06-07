@@ -8,6 +8,8 @@
     "build:dist": "node scripts/build.mjs",
     "test:build": "node test/build-smoke.mjs",
     "smoke:2v2": "node test/smoke-2v2.mjs",
+    "test:challenge": "node test/challenge.mjs",
+    "test:login": "node test/login.mjs",
     "test:verify": "node test/verify-email.mjs",
     "test:review": "node test/review-eval.mjs",
     "test:rankings": "node test/rankings.mjs"

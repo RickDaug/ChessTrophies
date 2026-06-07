@@ -140,15 +140,6 @@ CREATE TABLE IF NOT EXISTS games (
   FOREIGN KEY (black_id) REFERENCES users(id)
 );
 
-CREATE TABLE IF NOT EXISTS rooms (
-  code TEXT PRIMARY KEY,
-  host_id TEXT NOT NULL,
-  mode TEXT NOT NULL,
-  created_at BIGINT NOT NULL,
-  expires_at BIGINT NOT NULL,
-  FOREIGN KEY (host_id) REFERENCES users(id)
-);
-
 CREATE TABLE IF NOT EXISTS team_games (
   id TEXT PRIMARY KEY,
   white_p1_id TEXT NOT NULL,

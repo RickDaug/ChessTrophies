@@ -138,14 +138,15 @@ async function main() {
       await page.evaluate(() => window.CT.closeModal('timecontrol'));
     });
 
-    // ----- 3) Create-room modal -------------------------------------------
-    await step('open create-room modal', async () => {
-      await click('#btn-create-room');
-      await page.waitForFunction(() => document.querySelector('#modal-create-room.show'), { timeout: 5000 });
+    // ----- 3) Friendly-challenge invite modal -----------------------------
+    // (The old private create/join-room flow was removed; play is online-only.)
+    await step('open challenge-invite modal', async () => {
+      await page.evaluate(() => window.CT.openModal('challenge-invite'));
+      await page.waitForFunction(() => document.querySelector('#modal-challenge-invite.show'), { timeout: 5000 });
     });
-    assert(await isModalOpen('create-room'), 'create-room modal did not open');
-    await step('close create-room modal', async () => {
-      await page.evaluate(() => window.CT.closeModal('create-room'));
+    assert(await isModalOpen('challenge-invite'), 'challenge-invite modal did not open');
+    await step('close challenge-invite modal', async () => {
+      await page.evaluate(() => window.CT.closeModal('challenge-invite'));
     });
 
     // ----- 4) Premium modal via the lobby premium card (converted handler) -

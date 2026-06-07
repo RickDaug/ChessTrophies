@@ -405,7 +405,7 @@
                 : ('Defeat \u2014 your team lost' + (onTime ? ' on time.' : '.')));
     const p = $('#duo-suggest');
     if (p) {
-      const dtxt = duo.ranked ? ('<div class="muted small">2v2 rating ' + (delta>=0?'+':'') + delta + ' (now ' + (state.user?state.user.elo2v2:'?') + ')</div>') : '<div class="muted small">Private match \u2014 no rating change.</div>';
+      const dtxt = duo.ranked ? ('<div class="muted small">2v2 rating ' + (delta>=0?'+':'') + delta + ' (now ' + (state.user?state.user.elo2v2:'?') + ')</div>') : '<div class="muted small">Unrated 2v2 \u2014 no rating change.</div>';
       p.style.display = '';
       p.innerHTML = '<div style="text-align:center"><h3 style="margin:4px 0">' + (isDraw?'\ud83e\udd1d Draw':(youWon?'\ud83c\udfc6 Victory':'\ud83d\ude45 Defeat')) + '</h3>' + dtxt +
         '<button id="duo-again" class="btn btn-primary" style="margin-top:10px">Back to lobby</button></div>';
