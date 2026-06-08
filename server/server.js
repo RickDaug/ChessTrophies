@@ -19,6 +19,7 @@ import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-nam
 import { db, getProgress } from './db.js';
 import * as store from './store.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
+import { mountBilling, mountBillingWebhook, logBillingStatus } from './billing.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -94,6 +95,10 @@ const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: t
 app.disable('x-powered-by');
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: corsOrigins }));
+// Stripe webhook MUST be registered BEFORE express.json() — signature
+// verification requires the RAW request body (express.raw inside the route).
+// CORS/helmet above still apply; the global JSON parser below does not touch it.
+mountBillingWebhook(app);
 app.use(express.json({ limit: '256kb' }));
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/')) return apiLimiter(req, res, next);
@@ -107,6 +112,11 @@ app.get('/health', (req, res) => res.json({ ok: true, time: Date.now() }));
 // show ranked matchmaking UI. Server enforcement is separate (socket handlers),
 // so this is purely a hint — disabling ranked is enforced server-side regardless.
 app.get('/api/config', (req, res) => res.json({ rankedEnabled: rankedEnabled() }));
+
+// Stripe subscription billing JSON routes (config/checkout/portal). Registered
+// after express.json() so req.body is parsed; the raw-body webhook is mounted
+// above, before the JSON parser. Inert (503) until Stripe env vars are set.
+mountBilling(app);
 
 function requireStringField(body, name, { min = 1, max = 255 } = {}) {
   const value = body[name];
@@ -543,6 +553,22 @@ app.get('/api/admin/stats', async (req, res, next) => {
       shareTotal += c;
     }
     stats.shares = { total: shareTotal, byPlatform };
+
+    // Subscription revenue rollups (Stripe billing). Computed from the payments
+    // ledger via the store facade so it works on either DB backend. Zeros when
+    // no payments have been recorded (e.g. before billing is configured).
+    try {
+      const rev = await store.revenueStats();
+      stats.revenueMonthCents   = Number(rev.monthCents) || 0;
+      stats.revenueYearCents    = Number(rev.yearCents) || 0;
+      stats.revenueAllTimeCents = Number(rev.allTimeCents) || 0;
+      stats.activeSubscribers   = Number(rev.activeSubscribers) || 0;
+      stats.currency            = rev.currency || 'usd';
+    } catch (e) {
+      console.error('[admin] revenueStats failed:', e && e.message ? e.message : e);
+      stats.revenueMonthCents = 0; stats.revenueYearCents = 0; stats.revenueAllTimeCents = 0;
+      stats.activeSubscribers = 0; stats.currency = 'usd';
+    }
     res.json(stats);
   } catch (e) { next(e); }
 });
@@ -609,6 +635,8 @@ httpServer.listen(PORT, () => {
   } else {
     console.warn('[email] RESEND_API_KEY is NOT set — signup verification and password-reset emails will NOT be sent. Set RESEND_API_KEY, RESEND_FROM, and APP_URL to enable email.');
   }
+  // Make the Stripe billing state obvious in the logs too (mirrors email above).
+  logBillingStatus();
 });
 
 // --- Graceful shutdown + global error handlers ---------------------------------

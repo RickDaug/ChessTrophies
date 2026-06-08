@@ -807,6 +807,58 @@
     </div>`;
   }
 
+  // --- Stripe billing (subscription) ---------------------------------------
+  // Stays a no-op/demo until the backend has Stripe keys configured; the client
+  // discovers that via GET /api/billing/config.
+  let billingCfg = { enabled: false, publishableKey: null, mode: 'subscription' };
+  async function fetchBillingConfig() {
+    try { const c = await api('/api/billing/config'); if (c) billingCfg = Object.assign(billingCfg, c); } catch (e) {}
+  }
+  async function startCheckout() {
+    try {
+      const r = await api('/api/billing/checkout', { method: 'POST', body: JSON.stringify({}) });
+      if (r && r.url) { window.location.href = r.url; return; }
+      toast('Could not start checkout — please try again.');
+    } catch (e) {
+      toast(e && e.status === 401 ? 'Please sign in to upgrade.' : 'Could not start checkout — please try again.');
+    }
+  }
+  async function openBillingPortal() {
+    try {
+      const r = await api('/api/billing/portal', { method: 'POST', body: JSON.stringify({}) });
+      if (r && r.url) { window.location.href = r.url; return; }
+      toast('Could not open the billing portal.');
+    } catch (e) { toast('Could not open the billing portal.'); }
+  }
+  // After returning from Stripe Checkout (success_url adds ?billing=success), the
+  // subscription is confirmed by the webhook, which flips is_premium server-side.
+  // Poll /api/me a few times so Premium activates without a manual refresh.
+  function handleBillingReturn() {
+    let bp;
+    try { bp = new URLSearchParams(window.location.search).get('billing'); } catch (e) { return; }
+    if (!bp) return;
+    try { history.replaceState({}, '', window.location.pathname); } catch (e) {}
+    if (bp === 'cancel') { toast('Checkout cancelled — you were not charged.'); return; }
+    if (bp !== 'success') return;
+    toast('Payment received — activating Premium…', true);
+    let tries = 0;
+    const poll = function () {
+      tries++;
+      fetchMe().then(function (profile) {
+        const fresh = profile ? syncRemoteProfile(profile) : null;
+        if (fresh) state.user = fresh;
+        if (state.user && state.user.isPremium) {
+          try { if (window.CT_Ads) window.CT_Ads.refresh(true); } catch (e) {}
+          toast('Premium is active 🎉 ads removed', true);
+          if (typeof renderLobby === 'function') renderLobby();
+          return;
+        }
+        if (tries < 5) setTimeout(poll, 1500);
+      }).catch(function () { if (tries < 5) setTimeout(poll, 1500); });
+    };
+    setTimeout(poll, 1200);
+  }
+
   function openPremium() {
     const isPremium = state.user && state.user.isPremium;
     const buyBtn = $('#btn-premium-buy');
@@ -815,7 +867,12 @@
       buyBtn.style.display = isPremium ? 'none' : '';
       buyBtn.textContent = 'Upgrade · $4.99/mo';
     }
-    if (cancelBtn) cancelBtn.style.display = isPremium ? '' : 'none';
+    if (cancelBtn) {
+      cancelBtn.style.display = isPremium ? '' : 'none';
+      // With real billing on, "cancel" opens the Stripe portal (manage/cancel);
+      // in demo mode it simply toggles Premium off.
+      cancelBtn.textContent = billingCfg.enabled ? 'Manage subscription' : 'Cancel Premium';
+    }
     openModal('premium');
   }
   function setPremium(value) {
@@ -1434,13 +1491,24 @@ function renderFriendsSummary() {
           (typeof getAvatarHTML === 'function' ? getAvatarHTML(f, 34) : '') +
           '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(f.username) + '</div>' +
           '<div class="muted small">ELO ' + f.elo + ' \u00b7 ' + (f.wins||0) + 'W ' + (f.losses||0) + 'L</div></div>' +
-          '<div class="pill gold">Challenge</div></div>';
+          '<div class="friend-actions" style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
+            '<button type="button" class="pill gold fc-go-chess" data-fid="' + escapeHTML(String(f.id)) + '" title="Challenge to chess" style="cursor:pointer;border:none;">♟ Chess</button>' +
+            '<button type="button" class="pill fc-go-checkers" data-fid="' + escapeHTML(String(f.id)) + '" title="Challenge to checkers" style="cursor:pointer;background:#2a3142;color:var(--accent,#ffd97a);border:1px solid var(--accent,#ffd97a);">⛀ Checkers</button>' +
+          '</div></div>';
       }).join('');
     }
     wrap.innerHTML = html;
     renderFriendsSummary();
     $$('#friends-list [data-friend-id]').forEach(function(row){
       row.addEventListener('click', function(){ openFriendChallenge(row.dataset.friendId); });
+    });
+    // Explicit per-friend challenge buttons (clearer than the catch-all modal):
+    // one starts a chess challenge, the other a checkers challenge directly.
+    $$('#friends-list .fc-go-chess').forEach(function(b){
+      b.addEventListener('click', function(e){ e.stopPropagation(); startFriendChess(b.dataset.fid); });
+    });
+    $$('#friends-list .fc-go-checkers').forEach(function(b){
+      b.addEventListener('click', function(e){ e.stopPropagation(); startFriendCheckers(b.dataset.fid); });
     });
     $$('#friends-list .btn-accept-req').forEach(function(b){
       b.addEventListener('click', function(e){ e.stopPropagation(); acceptFriendRequest(state.user, b.dataset.id); toast('Friend added \ud83e\udd1d'); renderFriendsList(); });
@@ -1481,13 +1549,24 @@ function renderFriendsSummary() {
           (typeof getAvatarHTML === 'function' ? getAvatarHTML(f, 34) : '') +
           '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(f.username) + '</div>' +
           '<div class="muted small">ELO ' + (f.elo || 1200) + ' · ' + (f.wins||0) + 'W ' + (f.losses||0) + 'L</div></div>' +
-          '<div class="pill gold">Challenge</div></div>';
+          '<div class="friend-actions" style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
+            '<button type="button" class="pill gold fc-go-chess" data-fid="' + escapeHTML(String(f.id)) + '" title="Challenge to chess" style="cursor:pointer;border:none;">♟ Chess</button>' +
+            '<button type="button" class="pill fc-go-checkers" data-fid="' + escapeHTML(String(f.id)) + '" title="Challenge to checkers" style="cursor:pointer;background:#2a3142;color:var(--accent,#ffd97a);border:1px solid var(--accent,#ffd97a);">⛀ Checkers</button>' +
+          '</div></div>';
       }).join('');
     }
     wrap.innerHTML = html;
     renderFriendsSummary();
     $$('#friends-list [data-friend-id]').forEach(function(row){
       row.addEventListener('click', function(){ openFriendChallenge(row.dataset.friendId); });
+    });
+    // Explicit per-friend challenge buttons (clearer than the catch-all modal):
+    // one starts a chess challenge, the other a checkers challenge directly.
+    $$('#friends-list .fc-go-chess').forEach(function(b){
+      b.addEventListener('click', function(e){ e.stopPropagation(); startFriendChess(b.dataset.fid); });
+    });
+    $$('#friends-list .fc-go-checkers').forEach(function(b){
+      b.addEventListener('click', function(e){ e.stopPropagation(); startFriendCheckers(b.dataset.fid); });
     });
     $$('#friends-list .btn-accept-req').forEach(function(b){
       b.addEventListener('click', function(){ respondToFriendRequest(b.dataset.id, true); });
@@ -1886,19 +1965,40 @@ function renderFriendsSummary() {
     });
   });
 
-  function openFriendChallenge(friendId) {
+  // Resolve a friend (local DB or server cache) and mark them as the selected
+  // challenge target. Returns the friend record or null.
+  function selectFriendById(friendId) {
     const db = loadDB();
     let friend = db.users[friendId];
-    // Server friends may not exist in the local DB; fall back to the cached list.
     if (!friend && serverFriendsCache) {
       friend = serverFriendsCache.find(function(f){ return String(f.id) === String(friendId); }) || null;
     }
-    if (!friend) return;
+    if (!friend) return null;
     state.selectedFriendId = friendId;
     state.selectedFriendName = friend.username;
+    return friend;
+  }
+  function openFriendChallenge(friendId) {
+    const friend = selectFriendById(friendId);
+    if (!friend) return;
     $('#fc-title').textContent = 'Challenge ' + friend.username;
     $('#fc-sub').textContent = 'ELO ' + friend.elo + ' · ' + (friend.region || 'no region');
     openModal('friend-challenge');
+  }
+  // Direct (one-tap) friend challenges from the friends list buttons.
+  function startFriendChess(friendId) {
+    const f = selectFriendById(friendId);
+    if (!f) { toast('Couldn’t find that friend — refresh your friends list.'); return; }
+    inviteFriendlyChallenge();
+  }
+  function startFriendCheckers(friendId) {
+    const f = selectFriendById(friendId);
+    if (!f) { toast('Couldn’t find that friend — refresh your friends list.'); return; }
+    if (window.CT_Checkers_UI && window.CT_Checkers_UI.inviteFriend) {
+      window.CT_Checkers_UI.inviteFriend(friendId, f.username, ckLobby.size, ckLobby.rules);
+    } else {
+      toast('Checkers is still loading — try again in a moment.');
+    }
   }
   $('#btn-fc-friendly').addEventListener('click', () => {
     closeModal('friend-challenge');
@@ -4222,6 +4322,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // forget: it defaults to FALSE on failure and re-paints the ranked UI itself
     // via applyRankedGate() when it resolves, so it never blocks boot.
     fetchServerConfig();
+    // Discover whether Stripe billing is live, and handle a return from Checkout.
+    fetchBillingConfig();
+    handleBillingReturn();
     const session = getSession();
     const db = loadDB();
     if (session && (session.userId || session.token)) {
@@ -4277,8 +4380,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
 
   // Premium modal wiring
-  if ($('#btn-premium-buy')) $('#btn-premium-buy').addEventListener('click', () => { setPremium(true); closeModal('premium'); });
-  if ($('#btn-premium-cancel-paid')) $('#btn-premium-cancel-paid').addEventListener('click', () => { setPremium(false); closeModal('premium'); });
+  if ($('#btn-premium-buy')) $('#btn-premium-buy').addEventListener('click', () => {
+    if (billingCfg.enabled) { startCheckout(); } // redirects to Stripe Checkout
+    else { setPremium(true); closeModal('premium'); } // demo fallback until Stripe is configured
+  });
+  if ($('#btn-premium-cancel-paid')) $('#btn-premium-cancel-paid').addEventListener('click', () => {
+    if (billingCfg.enabled) { openBillingPortal(); } // Stripe customer portal (manage/cancel)
+    else { setPremium(false); closeModal('premium'); }
+  });
   if ($('#btn-premium-close')) $('#btn-premium-close').addEventListener('click', () => closeModal('premium'));
 
   // Static handlers formerly inline on* attributes in index.html. Removing

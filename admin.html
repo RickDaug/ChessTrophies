@@ -130,6 +130,9 @@
       { k:'premiumUsers',  label:'Premium' },
       { k:'gamesTotal',    label:'Games total' },
       { k:'games24h',      label:'Games · 24h' },
+      { k:'revenueMonthCents',   label:'Revenue · month',   money:true, hi:true },
+      { k:'revenueYearCents',    label:'Revenue · year',    money:true },
+      { k:'revenueAllTimeCents', label:'Revenue · to date', money:true, hi:true },
     ];
 
     // ----- helpers -----
@@ -144,6 +147,13 @@
       if (n == null || n === '') return '–';
       var x = Number(n);
       return isNaN(x) ? esc(n) : x.toLocaleString();
+    }
+    function fmtMoney(cents, currency) {
+      var n = Number(cents);
+      if (isNaN(n)) return '–';
+      var cur = (currency || 'usd').toUpperCase();
+      try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(n / 100); }
+      catch (e) { return '$' + (n / 100).toFixed(2); }
     }
     function fmtDate(ms) {
       if (ms == null || Number(ms) === 0) return null; // signal "never"
@@ -160,7 +170,9 @@
     // ----- stat cards -----
     function renderStats(s) {
       grid.innerHTML = CARDS.map(function (c) {
-        var v = (s && s[c.k] != null) ? Number(s[c.k]).toLocaleString() : '–';
+        var v;
+        if (c.money) v = (s && s[c.k] != null) ? fmtMoney(s[c.k], s.currency) : '–';
+        else v = (s && s[c.k] != null) ? Number(s[c.k]).toLocaleString() : '–';
         return '<div class="card' + (c.hi ? ' hi' : '') + '"><div class="label">' + c.label + '</div><div class="val">' + v + '</div></div>';
       }).join('');
       var st = s && s.serverTime ? fmtDateText(s.serverTime) : '';

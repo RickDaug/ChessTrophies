@@ -22,7 +22,8 @@
     "ioredis": "^5.11.0",
     "jsonwebtoken": "^9.0.2",
     "pg": "^8.21.0",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "stripe": "^17"
   },
   "engines": {
     "node": ">=18"
