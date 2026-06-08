@@ -80,6 +80,50 @@ async function ensureCustomer(stripe, user) {
   }
 }
 
+// Reconcile a user's premium flag against Stripe's LIVE subscription status — the
+// source of truth. Self-healing: if the user has an active/trialing/past_due
+// subscription, premium is (re)granted even when a webhook was missed or the
+// is_premium flag drifted; if Stripe definitively shows no active subscription
+// for any of their customers, premium is cleared. Looks the customer up by the
+// stored stripe_customer_id AND by email (catches a missing/unpersisted mapping
+// or a sub created under a different customer with the same email). On any Stripe
+// error it leaves the flag UNCHANGED (never demote on a transient failure).
+// Returns { isPremium, customerId } or null when billing/Stripe is unavailable.
+async function reconcilePremiumForUser(stripe, user) {
+  if (!stripe || !user) return null;
+  try {
+    const candidateIds = new Set();
+    if (user.stripe_customer_id) candidateIds.add(user.stripe_customer_id);
+    if (user.email) {
+      try {
+        const found = await stripe.customers.list({ email: user.email, limit: 10 });
+        for (const c of (found && found.data) || []) candidateIds.add(c.id);
+      } catch (e) { /* email lookup is best-effort */ }
+    }
+    if (candidateIds.size === 0) return { isPremium: !!user.is_premium, customerId: null };
+    const PREMIUM_STATUSES = new Set(['active', 'trialing', 'past_due']);
+    let activeCustomerId = null;
+    for (const cid of candidateIds) {
+      let subs;
+      try {
+        subs = await stripe.subscriptions.list({ customer: cid, status: 'all', limit: 20 });
+      } catch (e) { return null; /* transient — do NOT demote */ }
+      if (((subs && subs.data) || []).some(s => PREMIUM_STATUSES.has(s.status))) { activeCustomerId = cid; break; }
+    }
+    if (activeCustomerId) {
+      if (!user.stripe_customer_id) { try { await store.setStripeCustomer(user.id, activeCustomerId); } catch (e) {} }
+      if (!user.is_premium) await store.setPremiumByUserId(user.id, true, 'active');
+      return { isPremium: true, customerId: activeCustomerId };
+    }
+    // Customers exist but none has a premium-worthy subscription -> not premium.
+    if (user.is_premium) await store.setPremiumByUserId(user.id, false, 'canceled');
+    return { isPremium: false, customerId: user.stripe_customer_id || null };
+  } catch (e) {
+    console.error('[billing] reconcilePremiumForUser failed:', e && e.message ? e.message : e);
+    return null;
+  }
+}
+
 // Register the JSON billing routes (config / checkout / portal). These run AFTER
 // express.json() in server.js so req.body is parsed normally.
 export function mountBilling(app) {
@@ -133,6 +177,24 @@ export function mountBilling(app) {
     } catch (e) {
       console.error('[billing] portal failed:', e && e.message ? e.message : e);
       res.status(502).json({ error: 'Could not open the billing portal. Please try again.' });
+    }
+  });
+
+  // AUTH: self-heal premium from Stripe's live subscription status. The client
+  // calls this on login so a paying user always gets premium back even if a
+  // webhook was missed/dropped or the flag drifted. Idempotent + safe to call
+  // often; returns the reconciled premium state.
+  app.post('/api/billing/sync', requireAuth, async (req, res) => {
+    const current = !!(req.user && req.user.is_premium);
+    if (!billingEnabled()) return res.json({ enabled: false, isPremium: current });
+    try {
+      const stripe = await getStripe();
+      if (!stripe) return res.json({ enabled: false, isPremium: current });
+      const r = await reconcilePremiumForUser(stripe, req.user);
+      res.json({ enabled: true, isPremium: r ? r.isPremium : current });
+    } catch (e) {
+      console.error('[billing] sync failed:', e && e.message ? e.message : e);
+      res.json({ enabled: true, isPremium: current });
     }
   });
 }
@@ -263,4 +325,78 @@ export function logBillingStatus() {
   } else {
     console.warn('[billing] STRIPE_SECRET_KEY / STRIPE_PRICE_ID not set — subscription billing is DISABLED (all /api/billing/* routes inert).');
   }
+}
+
+// --- Accurate revenue, straight from Stripe (the source of truth) -----------
+// Immune to local-ledger double-counting (e.g. the historical bug that recorded
+// one charge under checkout.session.completed AND both invoice events). Sums
+// SUCCEEDED charges net of refunds, plus MRR / active-subscriber counts from
+// live subscriptions, and a 30-day daily series for the dashboard chart.
+// Cached ~5min (Stripe pagination is the expensive part). THROWS on failure so
+// the admin endpoint can fall back to the local ledger.
+let _revCache = { at: 0, data: null };
+const REV_CACHE_MS = 5 * 60 * 1000;
+
+export async function stripeRevenueStats() {
+  if (!billingEnabled()) throw new Error('billing not configured');
+  const now = Date.now();
+  if (_revCache.data && (now - _revCache.at) < REV_CACHE_MS) return _revCache.data;
+  const stripe = await getStripe();
+  if (!stripe) throw new Error('stripe unavailable');
+
+  const som = new Date(now); som.setUTCDate(1); som.setUTCHours(0, 0, 0, 0);
+  const soy = new Date(now); soy.setUTCMonth(0, 1); soy.setUTCHours(0, 0, 0, 0);
+  const monthMs = som.getTime(), yearMs = soy.getTime();
+  const DAY = 86400000, since30 = now - 30 * DAY;
+
+  let allTimeCents = 0, monthCents = 0, yearCents = 0, currency = 'usd';
+  const daily = {}; const recent = []; let scanned = 0;
+  for await (const ch of stripe.charges.list({ limit: 100 }).autoPagingEach()) {
+    if (++scanned > 2000) break; // bound the scan so a big account can't hang the dashboard
+    if (ch.status !== 'succeeded' || ch.paid !== true) continue;
+    const net = (ch.amount || 0) - (ch.amount_refunded || 0);
+    if (net <= 0) continue;
+    if (ch.currency) currency = ch.currency;
+    const ms = (ch.created || 0) * 1000;
+    allTimeCents += net;
+    if (ms >= monthMs) monthCents += net;
+    if (ms >= yearMs) yearCents += net;
+    if (ms >= since30) { const d = new Date(ms).toISOString().slice(0, 10); daily[d] = (daily[d] || 0) + net; }
+    if (recent.length < 10) {
+      const label = ch.description || (ch.billing_details && ch.billing_details.email) || ch.receipt_email || 'subscription';
+      recent.push({ amountCents: net, currency: ch.currency || currency, createdAt: ms, label });
+    }
+  }
+
+  let mrrCents = 0, activeSubscribers = 0;
+  try {
+    for await (const sub of stripe.subscriptions.list({ status: 'active', limit: 100 }).autoPagingEach()) {
+      activeSubscribers++;
+      for (const it of ((sub.items && sub.items.data) || [])) {
+        const price = it.price || {};
+        const amt = (price.unit_amount || 0) * (it.quantity || 1);
+        const rec = price.recurring || {};
+        const interval = rec.interval || 'month', ic = rec.interval_count || 1;
+        let monthly = amt / ic;
+        if (interval === 'year') monthly = amt / (12 * ic);
+        else if (interval === 'week') monthly = amt * (52 / 12) / ic;
+        else if (interval === 'day') monthly = amt * (365 / 12) / ic;
+        mrrCents += Math.round(monthly);
+      }
+    }
+  } catch (e) { /* MRR is best-effort */ }
+
+  const dailyCents = [];
+  for (let i = 29; i >= 0; i--) { const d = new Date(now - i * DAY).toISOString().slice(0, 10); dailyCents.push({ date: d, cents: daily[d] || 0 }); }
+  recent.sort((a, b) => b.createdAt - a.createdAt);
+  const arpuCents = activeSubscribers > 0 ? Math.round(allTimeCents / activeSubscribers) : allTimeCents;
+
+  const data = {
+    source: 'stripe', currency,
+    allTimeCents, monthCents, yearCents,
+    mrrCents, activeSubscribers, arpuCents,
+    recentPayments: recent, dailyCents,
+  };
+  _revCache = { at: now, data };
+  return data;
 }

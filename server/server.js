@@ -19,7 +19,7 @@ import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-nam
 import { db, getProgress } from './db.js';
 import * as store from './store.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
-import { mountBilling, mountBillingWebhook, logBillingStatus } from './billing.js';
+import { mountBilling, mountBillingWebhook, logBillingStatus, stripeRevenueStats } from './billing.js';
 import { mountPuzzles } from './puzzles.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount } from './game.js';
 
@@ -579,9 +579,63 @@ app.get('/api/admin/stats', async (req, res, next) => {
       stats.revenueMonthCents = 0; stats.revenueYearCents = 0; stats.revenueAllTimeCents = 0;
       stats.activeSubscribers = 0; stats.currency = 'usd';
     }
+
+    // Accurate revenue straight from Stripe (source of truth) — immune to any
+    // local-ledger double-counting. Preferred for the dashboard; falls back to
+    // the ledger numbers above if Stripe is unavailable.
+    try {
+      const sr = await stripeRevenueStats();
+      stats.revenue = sr;
+      stats.revenueAllTimeCents = sr.allTimeCents;
+      stats.revenueMonthCents   = sr.monthCents;
+      stats.revenueYearCents    = sr.yearCents;
+      stats.activeSubscribers   = sr.activeSubscribers;
+      stats.currency            = sr.currency;
+    } catch (e) {
+      stats.revenue = {
+        source: 'ledger', currency: stats.currency || 'usd',
+        allTimeCents: stats.revenueAllTimeCents || 0,
+        monthCents: stats.revenueMonthCents || 0,
+        yearCents: stats.revenueYearCents || 0,
+        mrrCents: 0, activeSubscribers: stats.activeSubscribers || 0, arpuCents: 0,
+        recentPayments: [], dailyCents: [],
+      };
+    }
+
+    // Engagement time-series for the dashboard charts (last 30 days). Portable
+    // SQL (just created_at); bucketed by UTC day in JS so it works on either DB.
+    stats.series = {
+      signupsDaily: await dailyCountSeries('users', 30),
+      gamesDaily:   await dailyCountSeries('games', 30),
+    };
+
     res.json(stats);
   } catch (e) { next(e); }
 });
+
+// Build a dense [{date:'YYYY-MM-DD', count}] series of row creations per UTC day
+// over the last `days` days. `table` is a fixed internal literal (never user
+// input), so interpolating it is safe. Uses only created_at -> portable SQL.
+async function dailyCountSeries(table, days) {
+  const DAY = 86400000;
+  const since = Date.now() - days * DAY;
+  let rows = [];
+  try { rows = await store.all(`SELECT created_at FROM ${table} WHERE created_at > ?`, [since]); }
+  catch (e) { return []; }
+  const buckets = {};
+  for (const r of rows) {
+    const ms = Number(r.created_at) || 0;
+    if (!ms) continue;
+    const d = new Date(ms).toISOString().slice(0, 10);
+    buckets[d] = (buckets[d] || 0) + 1;
+  }
+  const out = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * DAY).toISOString().slice(0, 10);
+    out.push({ date: d, count: buckets[d] || 0 });
+  }
+  return out;
+}
 
 // --- Admin user directory ---------------------------------------------------
 // Real users with usernames + emails (to invite top performers to tournaments)
