@@ -12,6 +12,9 @@
   // Modern flat SVG chess pieces (redesigned for clear silhouettes)
   // ---------------------------------------------------------------------------
   function pieceSVG(type, color) {
+    // Premium themed Store set override: if a set is equipped and provides this
+    // piece, use its themed SVG. Falls through to the built-in Staunton below.
+    try { var _themed = (window.CT_Sets && window.CT_Sets.pieceSVG) ? window.CT_Sets.pieceSVG(type, color) : null; if (_themed) return _themed; } catch (e) {}
     const theme = (window.CT_PIECE_THEME) || { lightFill:'#f6f3eb', lightStroke:'#262d44', lightAccent:'#3b425a', darkFill:'#1a2236', darkStroke:'#e9ecf5', darkAccent:'#cdd3e6' };
     const fill   = color === 'w' ? theme.lightFill   : theme.darkFill;
     const stroke = color === 'w' ? theme.lightStroke : theme.darkStroke;
@@ -737,22 +740,38 @@
     const isToday = ps.lastDate === today;
     const isYesterday = ps.lastDate === yest;
     const current = (isToday || isYesterday) ? (ps.streak || 0) : 0;
-    let line;
-    if (current >= 1 && isToday) {
-      line = '🔥 ' + current + '-day puzzle streak' + (best > current ? ' · best ' + best : '');
-    } else if (current >= 1 && isYesterday) {
-      line = '🔥 ' + current + '-day streak — solve today’s puzzle to keep it going!';
+    // Three states with escalating urgency: DONE today (celebratory), AT RISK
+    // (streak alive from yesterday but today's puzzle unsolved — loss-aversion),
+    // and START (no live streak). At-risk is the strongest retention lever, so it
+    // gets a red/urgent treatment instead of the calm gold.
+    const atRisk = current >= 1 && isYesterday && !isToday;
+    const doneToday = current >= 1 && isToday;
+    let line, title, icon, border, bg, lineColor;
+    if (doneToday) {
+      title = 'Daily Puzzle Streak';
+      line = current + '-day streak' + (best > current ? ' · best ' + best : '') + ' — see you tomorrow!';
+      icon = '🔥'; border = 'var(--accent)';
+      bg = 'linear-gradient(135deg, rgba(245,196,81,.10), var(--panel))'; lineColor = 'var(--accent)';
+    } else if (atRisk) {
+      title = '🔥 ' + current + '-day streak ends tonight!';
+      line = 'Solve today’s puzzle now to keep your ' + current + '-day streak alive.';
+      icon = '⚠️'; border = '#e0683c';
+      bg = 'linear-gradient(135deg, rgba(224,104,60,.16), var(--panel))'; lineColor = '#e0683c';
     } else {
-      line = '🔥 Solve today’s puzzle to start a daily streak.';
+      title = 'Daily Puzzle Streak';
+      line = 'Solve today’s puzzle to start a daily streak.';
+      icon = '🔥'; border = 'var(--accent)';
+      bg = 'linear-gradient(135deg, rgba(245,196,81,.10), var(--panel))'; lineColor = 'var(--accent)';
     }
     wrap.innerHTML =
-      '<div class="card" style="border:1px solid var(--accent);background:linear-gradient(135deg, rgba(245,196,81,.10), var(--panel))">' +
+      '<div class="card pc-streak-card" data-act="open-daily" style="cursor:pointer;border:1px solid ' + border + ';background:' + bg + '">' +
         '<div class="pc-row" style="display:flex;align-items:center;gap:12px">' +
-          '<div class="pc-icon" style="font-size:26px">🔥</div>' +
+          '<div class="pc-icon" style="font-size:26px">' + icon + '</div>' +
           '<div style="flex:1;min-width:0">' +
-            '<div class="pc-title" style="font-weight:800;font-size:16px">Daily Puzzle Streak</div>' +
-            '<div class="small" style="margin-top:4px;color:var(--accent);font-weight:700">' + escapeHTML(line) + '</div>' +
+            '<div class="pc-title" style="font-weight:800;font-size:16px">' + escapeHTML(title) + '</div>' +
+            '<div class="small" style="margin-top:4px;color:' + lineColor + ';font-weight:700">' + escapeHTML(line) + '</div>' +
           '</div>' +
+          '<div class="pc-go" style="font-size:18px;color:' + lineColor + ';opacity:.7">›</div>' +
         '</div>' +
       '</div>';
   }

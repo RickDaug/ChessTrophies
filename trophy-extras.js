@@ -66,7 +66,7 @@
     }
     // footer
     x.fillStyle = '#6b7a9c'; x.font = '20px system-ui, sans-serif';
-    x.fillText('chesstrophies.com', W / 2, H - 60);
+    x.fillText('playchesstrophies.com', W / 2, H - 60);
     return cv;
   }
 

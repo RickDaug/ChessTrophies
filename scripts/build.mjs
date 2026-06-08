@@ -169,6 +169,20 @@ async function main() {
       await fsp.copyFile(path.join(vendorDir, f), path.join(DIST, 'vendor', f));
     }
   }
+  // sets/ (premium themed piece-set JSON, lazy-loaded by piece-sets.js) — copy
+  // verbatim. EXCLUDED from the SW precache (step 6) so they don't bloat install;
+  // they're fetched on demand and runtime-cached when a user previews/equips a set.
+  const setsDir = path.join(ROOT, 'sets');
+  if (fs.existsSync(setsDir)) {
+    await fsp.mkdir(path.join(DIST, 'sets'), { recursive: true });
+    let nSets = 0;
+    for (const f of await fsp.readdir(setsDir)) {
+      if (!f.endsWith('.json')) continue;
+      await fsp.copyFile(path.join(setsDir, f), path.join(DIST, 'sets', f));
+      nSets++;
+    }
+    log(`copied ${nSets} themed set(s) -> dist/sets/`);
+  }
 
   // 5) Emit dist/index.html: original HTML with the tail tags collapsed to a
   //    single <script src="app.bundle.js?v=...">, all other tags' cache-busters
@@ -258,6 +272,10 @@ async function rewriteServiceWorker() {
   // EXCEPT sw.js itself (a SW need not precache its own script).
   const distAssets = (await listDistFiles(DIST))
     .filter((rel) => rel !== 'sw.js')
+    // EXCLUDE premium themed sets/ — large, owner-gated, lazy-loaded on equip and
+    // runtime-cached; precaching all 19 would bloat the install for files most
+    // users never use.
+    .filter((rel) => !rel.split(path.sep).join('/').startsWith('sets/'))
     .sort();
 
   const assets = [
