@@ -3933,16 +3933,18 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const sizeMap = { '100': 100, '500': 500, '5000': 5000, 'all': 5000 };
     const limit = sizeMap[currentRankSize] || 100;
 
-    if (isServerLoggedIn()) {
-      if (wrap) wrap.innerHTML = `<div class="card muted center">Loading rankings…</div>`;
-      try {
-        const data = await api('/api/rankings?metric=' + encodeURIComponent(currentRankMetric) + '&limit=' + limit);
-        const players = (((data && data.players) || []).map(normalizeServerPlayer));
-        renderRankingRows(players, true);
-        return;
-      } catch (e) {
-        // Network/server hiccup -- fall through to the local view rather than erroring.
-      }
+    // Always show the GLOBAL leaderboard — guests included. /api/rankings is
+    // public + read-only (api() simply omits the auth header when there's no
+    // token). Fall back to the local device list only if the server is
+    // unreachable (offline), never gate the global view behind sign-in.
+    if (wrap) wrap.innerHTML = `<div class="card muted center">Loading rankings…</div>`;
+    try {
+      const data = await api('/api/rankings?metric=' + encodeURIComponent(currentRankMetric) + '&limit=' + limit);
+      const players = (((data && data.players) || []).map(normalizeServerPlayer));
+      renderRankingRows(players, true);
+      return;
+    } catch (e) {
+      // Network/server hiccup -- fall through to the local view rather than erroring.
     }
 
     const db = loadDB();
