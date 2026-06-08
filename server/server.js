@@ -20,6 +20,7 @@ import { db, getProgress } from './db.js';
 import * as store from './store.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
 import { mountBilling, mountBillingWebhook, logBillingStatus, stripeRevenueStats } from './billing.js';
+import { mountStore, logStoreStatus } from './entitlements.js';
 import { mountPuzzles } from './puzzles.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount } from './game.js';
 
@@ -122,6 +123,12 @@ app.get('/api/config', (req, res) => res.json({ rankedEnabled: rankedEnabled() }
 // after express.json() so req.body is parsed; the raw-body webhook is mounted
 // above, before the JSON parser. Inert (503) until Stripe env vars are set.
 mountBilling(app);
+
+// Cosmetic STORE (one-time themed piece-set purchases + entitlements). Public
+// catalog + auth-gated one-time checkout; the webhook GRANT is handled inside
+// the billing webhook above (single raw-body endpoint). Catalog works even when
+// Stripe is unconfigured (every set just shows as comingSoon/preview-only).
+mountStore(app);
 
 // Interactive chess puzzles (daily challenge + trainer). Public daily/next
 // routes + an auth-gated /solved that records progress via the store facade.
@@ -240,18 +247,23 @@ app.post('/api/auth/change-password', authLimiter, requireAuth, async (req, res,
 });
 
 // Profile
-app.get('/api/me', requireAuth, (req, res) => {
-  const u = req.user;
-  res.json({
-    id: u.id, username: u.username, email: u.email, region: u.region,
-    elo: u.elo, wins: u.wins, losses: u.losses, draws: u.draws,
-    currentStreak: u.current_streak, bestStreak: u.best_streak,
-    invitesAccepted: u.invites_accepted, isPremium: !!u.is_premium,
-    avatarStock: u.avatar_stock || 'av_knight', avatarDataUrl: u.avatar_data_url || '',
-    emailVerified: !!u.email_verified,
-    // Checkers ratings (additive; separate from the chess `elo` above).
-    eloCheckers8: u.elo_checkers_8 ?? 1200, eloCheckers10: u.elo_checkers_10 ?? 1200,
-  });
+app.get('/api/me', requireAuth, async (req, res, next) => {
+  try {
+    const u = req.user;
+    res.json({
+      id: u.id, username: u.username, email: u.email, region: u.region,
+      elo: u.elo, wins: u.wins, losses: u.losses, draws: u.draws,
+      currentStreak: u.current_streak, bestStreak: u.best_streak,
+      invitesAccepted: u.invites_accepted, isPremium: !!u.is_premium,
+      avatarStock: u.avatar_stock || 'av_knight', avatarDataUrl: u.avatar_data_url || '',
+      emailVerified: !!u.email_verified,
+      // Checkers ratings (additive; separate from the chess `elo` above).
+      eloCheckers8: u.elo_checkers_8 ?? 1200, eloCheckers10: u.elo_checkers_10 ?? 1200,
+      // Cosmetic store: SKUs of the themed piece-sets this user owns (server-
+      // verified) so the client knows what it may equip.
+      ownedSets: await store.listUserSkus(u.id),
+    });
+  } catch (e) { next(e); }
 });
 
 // Persist the player's chosen avatar so opponents can see it in-game. Both fields
@@ -701,6 +713,8 @@ httpServer.listen(PORT, () => {
   }
   // Make the Stripe billing state obvious in the logs too (mirrors email above).
   logBillingStatus();
+  // ...and how many cosmetic-store sets are live vs preview-only.
+  logStoreStatus();
 });
 
 // --- Graceful shutdown + global error handlers ---------------------------------

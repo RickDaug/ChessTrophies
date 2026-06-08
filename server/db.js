@@ -281,6 +281,77 @@ CREATE TABLE IF NOT EXISTS payments (
 CREATE INDEX IF NOT EXISTS idx_payments_created ON payments(created_at DESC);
 `);
 
+// --- Cosmetic store: entitlements ------------------------------------------
+// One row per (user, sku) ownership grant for a one-time cosmetic purchase
+// (themed piece-set). UNIQUE(user_id, sku) makes grants idempotent — a webhook
+// retry (or a double-purchase race) can't create a duplicate row, so ownership
+// is exactly-once. `source_event_id` records the Stripe event that granted it
+// (for audit / refund-revoke). No FK on user_id so a grant can still be recorded
+// if the user row is missing/late (mirrors the payments-ledger convention).
+db.exec(`
+CREATE TABLE IF NOT EXISTS entitlements (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  sku TEXT NOT NULL,
+  granted_at INTEGER NOT NULL,
+  source_event_id TEXT,
+  UNIQUE(user_id, sku)
+);
+CREATE INDEX IF NOT EXISTS idx_entitlements_user ON entitlements(user_id);
+`);
+
+// Idempotently grant `sku` to `userId`. Returns true if a NEW row was inserted,
+// false if the user already owned it (INSERT OR IGNORE on UNIQUE(user_id, sku)).
+export function grantEntitlement(userId, sku, eventId) {
+  const res = db.prepare(
+    `INSERT OR IGNORE INTO entitlements (id, user_id, sku, granted_at, source_event_id)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(
+    'ent_' + Math.random().toString(36).slice(2) + Date.now().toString(36),
+    userId, sku, Date.now(), eventId || null
+  );
+  return res.changes > 0;
+}
+
+// Atomically (one transaction) grant a one-time set purchase AND record its
+// revenue, both idempotent on the Stripe event id. Used by the webhook so a
+// retry can neither double-grant the set nor double-count the revenue. The
+// entitlement is keyed UNIQUE(user_id, sku); the payment UNIQUE(stripe_event_id).
+export function grantSetPurchase({ userId, sku, eventId, amountCents, currency }) {
+  const tx = db.transaction(() => {
+    db.prepare(
+      `INSERT OR IGNORE INTO entitlements (id, user_id, sku, granted_at, source_event_id)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run('ent_' + (eventId || ('x' + Math.random().toString(36).slice(2))), userId, sku, Date.now(), eventId || null);
+    db.prepare(
+      `INSERT OR IGNORE INTO payments (id, user_id, stripe_event_id, amount_cents, currency, kind, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run('pay_' + (eventId || ('x' + Math.random().toString(36).slice(2))), userId || null, eventId || null,
+      Number(amountCents) || 0, currency || 'usd', 'piece_set', Date.now());
+  });
+  tx();
+}
+
+// True if `userId` owns `sku`.
+export function userOwnsSku(userId, sku) {
+  if (!userId || !sku) return false;
+  const row = db.prepare('SELECT 1 FROM entitlements WHERE user_id = ? AND sku = ? LIMIT 1').get(userId, sku);
+  return !!row;
+}
+
+// All SKUs `userId` owns (string[]).
+export function listUserSkus(userId) {
+  if (!userId) return [];
+  return db.prepare('SELECT sku FROM entitlements WHERE user_id = ? ORDER BY granted_at').all(userId).map(r => r.sku);
+}
+
+// Revoke a single (user, sku) grant (refund / dispute). No-op if not present.
+export function revokeEntitlement(userId, sku) {
+  if (!userId || !sku) return false;
+  const res = db.prepare('DELETE FROM entitlements WHERE user_id = ? AND sku = ?').run(userId, sku);
+  return res.changes > 0;
+}
+
 // Persist the Stripe Customer id for a user (set on first checkout).
 export function setStripeCustomer(userId, customerId) {
   return db.prepare('UPDATE users SET stripe_customer_id = ? WHERE id = ?').run(customerId, userId);

@@ -18,6 +18,7 @@
     "test:streak": "node test/streak.mjs",
     "test:admin": "node test/admin.mjs",
     "test:billing": "node test/billing.mjs",
+    "test:store": "node test/store.mjs",
     "test:ranked-flag": "node test/ranked-flag.mjs",
     "test:checkers": "node test/checkers-engine.mjs",
     "test:checkers-ai": "node test/checkers-ai.mjs",

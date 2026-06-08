@@ -252,6 +252,20 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 CREATE INDEX IF NOT EXISTS idx_payments_created ON payments(created_at DESC);
 
+-- Cosmetic store: entitlements. One row per (user, sku) ownership grant for a
+-- one-time cosmetic purchase. UNIQUE(user_id, sku) makes grants idempotent so a
+-- webhook retry / double-purchase race can't duplicate ownership. No FK on
+-- user_id (a grant can still be recorded if the user row is missing/late).
+CREATE TABLE IF NOT EXISTS entitlements (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  sku TEXT NOT NULL,
+  granted_at BIGINT NOT NULL,
+  source_event_id TEXT,
+  UNIQUE(user_id, sku)
+);
+CREATE INDEX IF NOT EXISTS idx_entitlements_user ON entitlements(user_id);
+
 -- Puzzle progress: idempotent solved tracking (one row per user+puzzle) plus a
 -- per-user daily-solve streak. Additive + self-contained (mirrors db.js).
 CREATE TABLE IF NOT EXISTS puzzle_solves (
@@ -319,6 +333,58 @@ export async function getPuzzleProgress(userId) {
   if (!row) return { currentStreak: 0, bestStreak: 0, lastDayKey: '', totalSolved: 0, solvedIds: [] };
   const idRes = await pool.query('SELECT puzzle_id FROM puzzle_solves WHERE user_id = $1', [userId]);
   return { currentStreak: row.current_streak, bestStreak: row.best_streak, lastDayKey: row.last_day_key, totalSolved: row.total_solved, solvedIds: idRes.rows.map(r => r.puzzle_id) };
+}
+
+// --- Cosmetic store: entitlements (async mirrors of db.js) -----------------
+
+// Idempotently grant `sku` to `userId`. Returns true if a NEW row was inserted,
+// false if already owned (ON CONFLICT (user_id, sku) DO NOTHING).
+export async function grantEntitlement(userId, sku, eventId) {
+  const res = await pool.query(
+    `INSERT INTO entitlements (id, user_id, sku, granted_at, source_event_id)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id, sku) DO NOTHING`,
+    ['ent_' + Math.random().toString(36).slice(2) + Date.now().toString(36),
+     userId, sku, Date.now(), eventId || null]
+  );
+  return res.rowCount > 0;
+}
+
+// Atomically grant a one-time set purchase AND record its revenue in one
+// transaction, both idempotent (entitlements UNIQUE(user_id, sku); payments
+// UNIQUE(stripe_event_id)). Async mirror of db.js grantSetPurchase.
+export async function grantSetPurchase({ userId, sku, eventId, amountCents, currency }) {
+  return transaction(async (client) => {
+    await client.query(
+      `INSERT INTO entitlements (id, user_id, sku, granted_at, source_event_id)
+       VALUES ($1, $2, $3, $4, $5) ON CONFLICT (user_id, sku) DO NOTHING`,
+      ['ent_' + (eventId || ('x' + Math.random().toString(36).slice(2))), userId, sku, Date.now(), eventId || null]
+    );
+    await client.query(
+      `INSERT INTO payments (id, user_id, stripe_event_id, amount_cents, currency, kind, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (stripe_event_id) DO NOTHING`,
+      ['pay_' + (eventId || ('x' + Math.random().toString(36).slice(2))), userId || null, eventId || null,
+       Number(amountCents) || 0, currency || 'usd', 'piece_set', Date.now()]
+    );
+  });
+}
+
+export async function userOwnsSku(userId, sku) {
+  if (!userId || !sku) return false;
+  const { rows } = await pool.query('SELECT 1 FROM entitlements WHERE user_id = $1 AND sku = $2 LIMIT 1', [userId, sku]);
+  return rows.length > 0;
+}
+
+export async function listUserSkus(userId) {
+  if (!userId) return [];
+  const { rows } = await pool.query('SELECT sku FROM entitlements WHERE user_id = $1 ORDER BY granted_at', [userId]);
+  return rows.map(r => r.sku);
+}
+
+export async function revokeEntitlement(userId, sku) {
+  if (!userId || !sku) return false;
+  const res = await pool.query('DELETE FROM entitlements WHERE user_id = $1 AND sku = $2', [userId, sku]);
+  return res.rowCount > 0;
 }
 
 // --- Stripe billing (async mirrors of db.js) -------------------------------

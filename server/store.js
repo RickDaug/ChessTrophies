@@ -146,6 +146,33 @@ export async function revenueStats() {
   return sqlite.revenueStats();
 }
 
+// --- Cosmetic store: entitlements (backend-agnostic wrappers) ---------------
+
+export async function grantEntitlement(userId, sku, eventId) {
+  if (usingPostgres) return (await loadPg()).grantEntitlement(userId, sku, eventId);
+  return sqlite.grantEntitlement(userId, sku, eventId);
+}
+
+export async function grantSetPurchase(p) {
+  if (usingPostgres) return (await loadPg()).grantSetPurchase(p);
+  return sqlite.grantSetPurchase(p);
+}
+
+export async function userOwnsSku(userId, sku) {
+  if (usingPostgres) return (await loadPg()).userOwnsSku(userId, sku);
+  return sqlite.userOwnsSku(userId, sku);
+}
+
+export async function listUserSkus(userId) {
+  if (usingPostgres) return (await loadPg()).listUserSkus(userId);
+  return sqlite.listUserSkus(userId);
+}
+
+export async function revokeEntitlement(userId, sku) {
+  if (usingPostgres) return (await loadPg()).revokeEntitlement(userId, sku);
+  return sqlite.revokeEntitlement(userId, sku);
+}
+
 // --- Puzzle progress (daily challenge / trainer) ---------------------------
 
 export async function recordPuzzleSolved(userId, puzzleId, dayKey, solvedAt) {
