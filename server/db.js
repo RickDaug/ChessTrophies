@@ -127,6 +127,11 @@ ensureColumn('users', 'last_seen', 'INTEGER', '0');
 // Separate Elo per board size: 8x8 (ACF) and 10x10 (FMJD). Both default 1200.
 ensureColumn('users', 'elo_checkers_8', 'INTEGER', '1200');
 ensureColumn('users', 'elo_checkers_10', 'INTEGER', '1200');
+// Per-board-size ranked checkers games-played counters. Powers the checkers
+// leaderboards' participation filter (only list users who actually played a
+// ranked game at that board size). Additive; default 0.
+ensureColumn('users', 'checkers8_games', 'INTEGER', '0');
+ensureColumn('users', 'checkers10_games', 'INTEGER', '0');
 // Tag game rows by type/variant so the existing `games` table can also record
 // checkers games. Existing rows default to chess (game_type='chess'), so the
 // historical data is unchanged. `variant` holds the checkers board size as a
@@ -293,11 +298,25 @@ export function topByMetric(metric, limit = 100) {
     checkers8: 'elo_checkers_8',
     checkers10: 'elo_checkers_10',
   };
+  // Participation filter, keyed by the SAME canonical metric (a fixed code map,
+  // never raw input — injection-safe). A leaderboard must only list users who
+  // actually played/earned in that match type, not every registered user.
+  // Unknown metric falls through to the elo filter (and elo ordering, below).
+  const participation = {
+    elo: '(wins + losses + draws) > 0',
+    wins: 'wins > 0',
+    streak: 'best_streak > 0', best_streak: 'best_streak > 0',
+    invites_accepted: 'invites_accepted > 0',
+    trophies: `${trophiesExpr} > 0`,
+    checkers8: 'checkers8_games > 0',
+    checkers10: 'checkers10_games > 0',
+  };
   const orderExpr = allowed[metric] || 'elo';
+  const whereExpr = participation[metric] || participation.elo;
   return db.prepare(`SELECT id, username, region, elo, wins, losses, best_streak, is_premium,
-                            elo_checkers_8, elo_checkers_10,
+                            elo_checkers_8, elo_checkers_10, checkers8_games, checkers10_games,
                             ${trophiesExpr} AS trophies
-                     FROM users ORDER BY ${orderExpr} DESC, elo DESC LIMIT ?`).all(limit);
+                     FROM users WHERE ${whereExpr} ORDER BY ${orderExpr} DESC, elo DESC LIMIT ?`).all(limit);
 }
 
 // Admin user directory: list users with usernames + emails (and ratings/record)

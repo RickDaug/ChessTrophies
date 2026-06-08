@@ -43,5 +43,23 @@ jobs:
       - name: Global rankings test
         run: npm run test:rankings
 
+      - name: Rankings participation filter test
+        run: npm run test:rankings-participation
+
+      - name: Repeatable trophies + counter test
+        run: npm run test:trophies-repeat
+
+      - name: Minified build smoke test
+        run: npm run test:build
+
+      - name: Ranked seasonal switch test
+        run: npm run test:ranked-flag
+
+      - name: Online checkers (ranked Elo + isolation) test
+        run: npm run test:checkers-online
+
+      - name: Friend checkers (unrated) challenge test
+        run: npm run test:checkers-friend
+
       - name: Run 4-client 2v2 smoke test
         run: npm run smoke:2v2
