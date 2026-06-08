@@ -49,8 +49,10 @@ async function getStripe() {
     // shape of webhook objects (event.data.object) out from under handleEvent.
     // This MUST match the API version configured on the LIVE webhook endpoint in
     // the Stripe Dashboard (Developers → Webhooks → endpoint → API version).
+    // This account/endpoint is on 2026-05-27.dahlia (the version checkout was
+    // verified working on); pin to it so an SDK upgrade can't silently shift it.
     stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: '2024-06-20',
+      apiVersion: '2026-05-27.dahlia',
     });
     return stripeClient;
   } catch (e) {
