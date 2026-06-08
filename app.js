@@ -544,14 +544,33 @@
   // Tiered achievement catalog lives in trophy-data.js (loaded before app.js).
   const ACHIEVEMENT_TIERS = (typeof window !== 'undefined' && window.CT_ACHIEVEMENT_TIERS) || [];
 
-  function hasAchievement(user, id) {
+  function achievementEntry(user, id) {
     user.achievements = user.achievements || [];
-    return user.achievements.some(a => a.id === id);
+    return user.achievements.find(a => a.id === id);
   }
-  function unlockAchievement(user, id, meta) {
-    if (hasAchievement(user, id)) return null;
-    user.achievements.push({ id, awardedAt: Date.now(), meta });
+  // How many times this trophy has been earned. Legacy entries (saved before the
+  // repeat counter existed) have no `count`, so a present-but-countless entry
+  // counts as 1 — old saves keep their trophies and start counting from there.
+  function achievementCount(user, id) {
+    const e = achievementEntry(user, id);
+    if (!e) return 0;
+    return (e.count != null) ? e.count : 1;
+  }
+  function hasAchievement(user, id) {
+    return achievementCount(user, id) > 0;
+  }
+  // Grant a trophy `times` times (default 1), bumping its earned counter.
+  // Repeatable trophies (streaks, single-game feats) reach counts > 1 over a
+  // career; one-time milestones never go past 1.
+  function awardAchievement(user, id, times) {
+    times = times || 1;
+    user.achievements = user.achievements || [];
+    let e = achievementEntry(user, id);
     const def = ACHIEVEMENT_TIERS.find(a => a.id === id);
+    if (!e) { e = { id, awardedAt: Date.now(), firstAt: Date.now(), count: 0 }; user.achievements.push(e); }
+    const prev = (e.count != null) ? e.count : 1; // legacy entry counts as 1
+    e.count = prev + times;
+    e.lastAt = Date.now();
     // Play a sound when a trophy is earned: triumphant for normal trophies,
     // a not-so-triumphant cue for embarrassing (Oops) trophies. Purely cosmetic;
     // does not affect which trophies are granted or how they are stored.
@@ -560,44 +579,74 @@
         if (def && def.embarrassing) window.ChessSounds.trophyOops();
         else window.ChessSounds.trophy();
       }
-    } catch (e) {}
+    } catch (e2) {}
     return def;
   }
-  // Check every tier — unlock anything newly eligible.
-  // ctx may include { mateWin, justWon, moves, gameCheckCount }
+  // Back-compat one-time unlock (kept for external callers): grants once.
+  function unlockAchievement(user, id, meta) {
+    if (hasAchievement(user, id)) return null;
+    const def = awardAchievement(user, id, 1);
+    if (def && meta) { const e = achievementEntry(user, id); if (e) e.meta = meta; }
+    return def;
+  }
+  // The one-time "milestone reached" test for a non-repeatable trophy.
+  function trophyConditionMet(user, a, ctx) {
+    switch (a.type) {
+      case 'wins':     return user.wins >= a.threshold;
+      case 'streak':   return user.currentStreak >= a.threshold;
+      case 'elo':      return user.elo >= a.threshold;
+      case 'games':    return (user.wins + user.losses + user.draws) >= a.threshold;
+      case 'mate':     return (user.mateWins || 0) >= a.threshold;
+      case 'fast':     return !!(ctx && ctx.justWon) && (ctx.moves != null && ctx.moves <= a.threshold);
+      case 'comeback': return (user.comebackWins || 0) >= a.threshold;
+      case 'invites':  return (user.invitesAccepted || 0) >= a.threshold;
+      case 'flag':     return !!(user.flags && (user.flags[a.flag] || 0) >= a.threshold);
+      // Checkers trophies — evaluated against the user's checkers stats block
+      // (state.user.checkers = { elo8, elo10, wins, losses, draws, streak }),
+      // synced from /api/me and reconciled locally as ranked games finish.
+      case 'checkers_elo': {
+        const ck = user.checkers || {};
+        return Math.max(ck.elo8 || 0, ck.elo10 || 0) >= a.threshold;
+      }
+      case 'checkers_games': {
+        const ck = user.checkers || {};
+        return ((ck.wins || 0) + (ck.losses || 0) + (ck.draws || 0)) >= a.threshold;
+      }
+    }
+    return false;
+  }
+  // Check every tier and award anything newly earned.
+  //   ctx may include { justWon, mateWin, moves, gameCheckCount, finalize }
+  // REPEATABLE trophies (streaks + single-game feats) re-award with a counter,
+  // but only on the FINAL post-game pass (ctx.finalize) so the two-phase chess
+  // result flow can't double-count a single game. One-time milestones (total
+  // wins, games, rating, etc.) award once and stay at a count of 1.
   function checkAchievementsFor(user, ctx) {
     const newly = [];
+    const finalize = !!(ctx && ctx.finalize);
     for (const a of ACHIEVEMENT_TIERS) {
-      if (hasAchievement(user, a.id)) continue;
-      let ok = false;
-      switch (a.type) {
-        case 'wins':     ok = user.wins >= a.threshold; break;
-        case 'streak':   ok = user.currentStreak >= a.threshold; break;
-        case 'elo':      ok = user.elo >= a.threshold; break;
-        case 'games':    ok = (user.wins + user.losses + user.draws) >= a.threshold; break;
-        case 'mate':     ok = (user.mateWins || 0) >= a.threshold; break;
-        case 'fast':     ok = !!(ctx && ctx.justWon) && (ctx.moves != null && ctx.moves <= a.threshold); break;
-        case 'comeback': ok = (user.comebackWins || 0) >= a.threshold; break;
-        case 'invites':  ok = (user.invitesAccepted || 0) >= a.threshold; break;
-        case 'flag':     ok = !!(user.flags && (user.flags[a.flag] || 0) >= a.threshold); break;
-        // Checkers trophies — evaluated against the user's checkers stats block
-        // (state.user.checkers = { elo8, elo10, wins, losses, draws, streak }),
-        // synced from /api/me and reconciled locally as ranked games finish.
-        case 'checkers_elo': {
-          const ck = user.checkers || {};
-          const best = Math.max(ck.elo8 || 0, ck.elo10 || 0);
-          ok = best >= a.threshold;
-          break;
+      if (a.repeatable) {
+        if (!finalize) continue; // count repeats exactly once per game
+        let inc = 0;
+        if (a.type === 'streak') {
+          // Awarded each time the exact streak length is freshly hit; the streak
+          // resets to 0 on a loss, so the next run can earn it again.
+          if (ctx.justWon && user.currentStreak === a.threshold) inc = 1;
+        } else if (a.type === 'fast') {
+          if (ctx.justWon && ctx.moves != null && ctx.moves <= a.threshold) inc = 1;
+        } else if (a.type === 'flag') {
+          // Counter mirrors how many times the single-game feat has happened.
+          const total = (user.flags && (user.flags[a.flag] || 0)) || 0;
+          const have = achievementCount(user, a.id);
+          if (total > have) inc = total - have;
         }
-        case 'checkers_games': {
-          const ck = user.checkers || {};
-          ok = ((ck.wins || 0) + (ck.losses || 0) + (ck.draws || 0)) >= a.threshold;
-          break;
+        if (inc > 0) { const def = awardAchievement(user, a.id, inc); if (def) newly.push(def); }
+      } else {
+        if (achievementCount(user, a.id) > 0) continue;
+        if (trophyConditionMet(user, a, ctx)) {
+          const def = awardAchievement(user, a.id, 1);
+          if (def) newly.push(def);
         }
-      }
-      if (ok) {
-        const def = unlockAchievement(user, a.id);
-        if (def) newly.push(def);
       }
     }
     return newly;
@@ -1504,6 +1553,14 @@ function renderFriendsSummary() {
     openTimeControlPicker({}, () => startOnlineOrFakeMatchmaking('ranked'));
   });
 
+  // "Play a casual game" — unrated online matchmaking. Always available (NOT gated
+  // by the seasonal ranked switch): a casual game never touches ELO, wins, or
+  // streaks. The server forces mode='casual' to zero out any rating change.
+  { const c = $('#btn-find-casual'); if (c) c.addEventListener('click', () => {
+    state.pendingChallenge = null;
+    openTimeControlPicker({ startLabel: 'Play a casual game' }, () => startOnlineOrFakeMatchmaking('casual'));
+  }); }
+
   // Prefer real server matchmaking. The legacy localStorage matcher only ever sees
   // accounts created on THIS device, so it can never pair two real players across
   // devices -- using it for a logged-in user just produces a fake ~3s "search" that
@@ -1707,6 +1764,11 @@ function renderFriendsSummary() {
   { const b = $('#ck-btn-find-match'); if (b) b.addEventListener('click', () => {
       if (!rankedEnabled()) { toast('Ranked checkers is coming soon.'); return; }
       if (window.CT_Checkers_UI) window.CT_Checkers_UI.startFindRanked(ckLobby.size, ckLobby.rules);
+    }); }
+  // Casual checkers — unrated online matchmaking. Always available (not gated by
+  // the seasonal ranked switch); never affects checkers ELO/wins/streaks.
+  { const b = $('#ck-btn-find-casual'); if (b) b.addEventListener('click', () => {
+      if (window.CT_Checkers_UI && window.CT_Checkers_UI.startFindCasual) window.CT_Checkers_UI.startFindCasual(ckLobby.size, ckLobby.rules);
     }); }
   // Friendly checkers challenge from the friend-challenge modal.
   { const b = $('#btn-fc-checkers'); if (b) b.addEventListener('click', () => {
@@ -3584,15 +3646,19 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       }
 
       // Re-check tiered achievements after flag updates (catches hidden + oops trophies)
-      const moreUnlocks = checkAchievementsFor(me, { justWon: myWon, mateWin: myWon && reason === 'checkmate', moves: fullMoves });
+      const moreUnlocks = checkAchievementsFor(me, { justWon: myWon, mateWin: myWon && reason === 'checkmate', moves: fullMoves, finalize: true });
       moreUnlocks.filter(Boolean).forEach(a => {
         const color = tierColor(a.tier || 1);
         const isOops = a.embarrassing;
-        const bg = isOops ? '#7f1d1d' : '#1c2845';
+        const cnt = achievementCount(me, a.id);
+        const again = cnt > 1 ? ` <span class="pill" style="background:${color}33;color:${color};font-weight:800">×${cnt}</span>` : '';
+        const head = cnt > 1
+          ? (isOops ? '😅 Earned again' : 'Trophy earned again')
+          : (isOops ? '😅 Oops! A cheeky trophy' : (a.hidden ? '🔓 Hidden trophy unlocked' : 'Trophy unlocked'));
         rewards.push(`<div class="card row" style="gap:12px;border-color:${isOops ? 'var(--danger)' : color + 'aa'};background:linear-gradient(135deg, ${isOops ? 'rgba(248,113,113,.1)' : color + '12'}, var(--panel))">
           <div style="font-size:30px">${a.icon}</div>
           <div style="flex:1">
-            <div style="font-weight:700">${isOops ? '😅 Oops! A cheeky trophy' : (a.hidden ? '🔓 Hidden trophy unlocked' : 'Trophy unlocked')}<span class="pill" style="background:${color}22;color:${color};margin-left:6px">${a.family}</span></div>
+            <div style="font-weight:700">${head}<span class="pill" style="background:${color}22;color:${color};margin-left:6px">${a.family}</span>${again}</div>
             <div>${a.name} — <span class="muted small">${a.desc}</span></div>
           </div>
         </div>`);
@@ -3876,13 +3942,25 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
   // Normalize a local-DB user to the same shape (guests/offline fallback only).
   function normalizeLocalPlayer(u) {
+    const ck = u.checkers || {};
     return {
       id: u.id, username: u.username || 'Player', region: u.region || '',
-      elo: u.elo || 1200, wins: u.wins || 0, losses: u.losses || 0,
+      elo: u.elo || 1200, wins: u.wins || 0, losses: u.losses || 0, draws: u.draws || 0,
       bestStreak: u.bestStreak || 0,
       trophies: ((u.streakTrophies && u.streakTrophies.length) || 0) + ((u.achievements && u.achievements.length) || 0),
-      eloCheckers8: (u.checkers && u.checkers.elo8) || 1200, eloCheckers10: (u.checkers && u.checkers.elo10) || 1200,
+      eloCheckers8: ck.elo8 || 1200, eloCheckers10: ck.elo10 || 1200,
+      checkersGames: (ck.wins || 0) + (ck.losses || 0) + (ck.draws || 0),
     };
+  }
+  // Has this (normalized) player actually competed in the given metric's mode?
+  // Mirrors the server's participation filter so the offline fallback doesn't
+  // list registered-but-never-played users at their default rating.
+  function participatedInMetric(u, metric) {
+    if (metric === 'wins')     return (u.wins || 0) > 0;
+    if (metric === 'streak')   return (u.bestStreak || 0) > 0;
+    if (metric === 'trophies') return (u.trophies || 0) > 0;
+    if (metric === 'checkers8' || metric === 'checkers10') return (u.checkersGames || 0) > 0;
+    return ((u.wins || 0) + (u.losses || 0) + (u.draws || 0)) > 0; // elo
   }
 
   function renderRankingRows(players, serverBacked) {
@@ -3895,7 +3973,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const me = state.user;
     const info = METRIC_INFO[currentRankMetric] || METRIC_INFO.elo;
     if (!players.length) {
-      wrap.innerHTML = `<div class="card muted center">No players to rank here yet.</div>`;
+      // You only appear on a board once you've actually competed in that mode, so
+      // a board can legitimately be empty (e.g. before any ranked games are played
+      // this season). Say so instead of implying something is broken.
+      const m = currentRankMetric;
+      const what = (m === 'checkers8' || m === 'checkers10') ? 'ranked checkers games'
+                 : (m === 'trophies') ? 'trophies earned'
+                 : 'ranked games';
+      wrap.innerHTML = `<div class="card muted center">No one's on the ${info.label.toLowerCase()} board yet — it fills up as players complete ${what}.</div>`;
       return;
     }
     const myIdx = players.findIndex(u => u.id === me.id);
@@ -3948,7 +4033,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     }
 
     const db = loadDB();
-    let users = Object.values(db.users).map(normalizeLocalPlayer);
+    let users = Object.values(db.users).map(normalizeLocalPlayer)
+      .filter(u => participatedInMetric(u, currentRankMetric));
     users.sort((a, b) => rankScore(b, currentRankMetric) - rankScore(a, currentRankMetric));
     users = users.slice(0, Math.min(limit, users.length));
     renderRankingRows(users, false);
@@ -4047,9 +4133,15 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       </div>`;
       for (const t of tiers) {
         const got = hasAchievement(u, t.id);
+        const cnt = achievementCount(u, t.id);
         const color = tierColor(t.tier);
         const isOops = t.embarrassing;
         const isHidden = t.hidden && !got;
+        // Repeatable trophies (streaks, single-game feats) show how many times
+        // they've been earned. One-time milestones stay at 1 and show no badge.
+        const countBadge = (got && cnt > 1)
+          ? ` <span class="pill" title="Earned ${cnt} times" style="background:${color}33;color:${color};font-weight:800">×${cnt}</span>`
+          : '';
         const cardStyle = got
           ? (isOops
               ? 'border-color:var(--danger);background:linear-gradient(160deg, rgba(248,113,113,.18), var(--panel))'
@@ -4064,7 +4156,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         const pillLabel = isOops ? '😬' : (isHidden ? 'Hidden' : '');
         html += `<div class="trophy ${got ? '' : 'locked'}" style="${cardStyle}">
           <div class="icon">${displayIcon}</div>
-          <div class="name">${displayName} ${pillLabel ? `<span class="pill" style="${pillStyle}">${pillLabel}</span>` : ""}</div>
+          <div class="name">${displayName} ${pillLabel ? `<span class="pill" style="${pillStyle}">${pillLabel}</span>` : ""}${countBadge}</div>
           <div class="desc">${displayDesc}</div>
         </div>`;
       }
@@ -4219,7 +4311,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     $, $$, openModal, closeModal, showScreen, showNav, toast, ctCelebrate,
     loadDB, saveDB, pieceSVG, escapeHTML,
     ACHIEVEMENT_TIERS,
-    hasAchievement, unlockAchievement, checkAchievementsFor, tierColor,
+    hasAchievement, achievementCount, unlockAchievement, checkAchievementsFor, tierColor,
     renderLobby, renderProfile, renderBoard,
     openPremium, setPremium, renderAdSlot,
     rankedEnabled, applyRankedGate,

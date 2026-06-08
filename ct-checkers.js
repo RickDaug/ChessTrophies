@@ -454,10 +454,19 @@
     // Defensive: even if the disabled button is somehow triggered, never join the
     // ranked queue while the seasonal switch is off.
     if (!rankedEnabled()) { toast('Ranked checkers is coming soon.'); return; }
+    startFind('ranked', size, rules);
+  }
+  // Casual checkers matchmaking — unrated, always available (not gated by the
+  // seasonal ranked switch). Identical flow to ranked; the server forces mode
+  // 'casual' so no checkers ELO/wins/streaks change.
+  function startFindCasual(size, rules) {
+    startFind('casual', size, rules);
+  }
+  function startFind(mode, size, rules) {
     var R = resolveRules(size, rules);
     s.size = R.size; s.rules = R.rules;
     if (!ctUser() || isGuest()) {
-      toast('Ranked checkers needs a free account. Try Practice vs Computer for now.');
+      toast('Online checkers needs a free account. Try Practice vs Computer for now.');
       return;
     }
     if (!window.CTNet || !window.CTNet.isReady()) {
@@ -465,7 +474,7 @@
       if (window.__connectGameSocket) window.__connectGameSocket();
       return;
     }
-    openMatchmaking();
+    openMatchmaking(mode);
     waitingMatch = true;
     mmStart = Date.now();
     if (mmTimer) clearInterval(mmTimer);
@@ -481,17 +490,18 @@
       closeModal('ck-matchmaking');
       toast('No checkers opponent found right now — try again.');
     }, 120000);
-    joinCheckersQueue('ranked', s.size, s.rules, (ctState() && ctState().selectedTc) || 'unlimited');
+    joinCheckersQueue(mode, s.size, s.rules, (ctState() && ctState().selectedTc) || 'unlimited');
   }
   function stopMatchmaking() {
     waitingMatch = false;
     if (mmTimer) { clearInterval(mmTimer); mmTimer = null; }
     if (mmGiveUp) { clearTimeout(mmGiveUp); mmGiveUp = null; }
   }
-  function openMatchmaking() {
+  function openMatchmaking(mode) {
     var t = $('#ck-mm-timer'); if (t) t.textContent = '0:00';
     var sub = $('#ck-mm-sub');
-    if (sub) sub.textContent = 'Looking for a ' + s.size + 'x' + s.size + ' ' + rulesLabel(s.rules, s.size) + ' opponent near your rating…';
+    if (sub) sub.textContent = 'Looking for a ' + s.size + 'x' + s.size + ' ' + rulesLabel(s.rules, s.size) +
+      (mode === 'casual' ? ' opponent for a casual game…' : ' opponent near your rating…');
     openModal('ck-matchmaking');
   }
   function isGuest() {
@@ -629,14 +639,16 @@
       if (myWon && !s.lostAnyPiece) me.flags.ckShutout = (me.flags.ckShutout || 0) + 1;
 
       // Run the trophy check (covers checkers_elo / checkers_games / ck flags).
-      var unlocked = (c && c.checkAchievementsFor) ? c.checkAchievementsFor(me, { justWon: myWon }) : [];
+      var unlocked = (c && c.checkAchievementsFor) ? c.checkAchievementsFor(me, { justWon: myWon, finalize: true }) : [];
       (unlocked || []).filter(Boolean).forEach(function (a) {
         var color = (c && c.tierColor) ? c.tierColor(a.tier || 1) : '#f5c451';
-        var oops = a.embarrassing;
+        var cnt = (c && c.achievementCount) ? c.achievementCount(me, a.id) : 1;
+        var again = cnt > 1 ? ' <span class="pill" style="background:' + color + '33;color:' + color + ';font-weight:800">×' + cnt + '</span>' : '';
+        var head = cnt > 1 ? 'Trophy earned again' : (a.hidden ? '🔓 Hidden trophy unlocked' : 'Trophy unlocked');
         rewards.push('<div class="card row" style="gap:12px;border-color:' + color + 'aa">' +
           '<div style="font-size:30px">' + a.icon + '</div>' +
-          '<div style="flex:1"><div style="font-weight:700">' + (a.hidden ? '🔓 Hidden trophy unlocked' : 'Trophy unlocked') +
-          '<span class="pill" style="background:' + color + '22;color:' + color + ';margin-left:6px">' + esc(a.family) + '</span></div>' +
+          '<div style="flex:1"><div style="font-weight:700">' + head +
+          '<span class="pill" style="background:' + color + '22;color:' + color + ';margin-left:6px">' + esc(a.family) + '</span>' + again + '</div>' +
           '<div>' + esc(a.name) + ' — <span class="muted small">' + esc(a.desc) + '</span></div></div></div>');
       });
 
@@ -824,6 +836,7 @@
   window.CT_Checkers_UI = {
     startPractice: startPractice,
     startFindRanked: startFindRanked,
+    startFindCasual: startFindCasual,
     inviteFriend: inviteFriend,
     onMatchFound: onMatchFound,
     onMoveMade: onMoveMade,

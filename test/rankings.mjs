@@ -15,7 +15,8 @@ import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(__dirname, '..', 'server');
@@ -54,6 +55,27 @@ async function main() {
       assert(r.ok, `signup ${i} failed: ${r.status}`);
     }
     log(`signed up ${names.length} users`);
+
+    // The rankings endpoint only lists users who actually PARTICIPATED in that
+    // match type (it no longer dumps every registered user). Give every signed-up
+    // user real participation across the metrics this test checks (elo/wins need
+    // games played; streak needs best_streak>0; trophies needs a non-empty
+    // achievements/streak_trophies JSON array) so they legitimately qualify.
+    // We open the same throwaway SQLite file the server process uses (WAL allows
+    // a second connection) and write directly — this strengthens the seeding, it
+    // does NOT weaken the new participation filter.
+    {
+      // better-sqlite3 is installed under server/node_modules (the backend's
+      // deps), so resolve it from the server directory rather than the repo root.
+      const requireFromServer = createRequire(pathToFileURL(path.join(SERVER_DIR, 'package.json')));
+      const Database = requireFromServer('better-sqlite3');
+      const seed = new Database(dbPath);
+      try {
+        seed.prepare(`UPDATE users SET wins = 2, losses = 1, best_streak = 3,
+                        achievements = '["first_win"]'`).run();
+      } finally { seed.close(); }
+      log('seeded participation (wins/streak/trophies) for all users');
+    }
 
     // Every metric the leaderboard offers must return 200 + an array containing
     // ALL signed-up users (proving it's the shared server DB, not one device).

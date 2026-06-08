@@ -108,6 +108,10 @@ function normalizeCheckersRules(rules, size) {
 function normalizeCheckersMode(m) { return m === 'casual' ? 'casual' : 'ranked'; }
 // Which checkers Elo column applies to a board size.
 function checkersEloColumn(size) { return size === 10 ? 'elo_checkers_10' : 'elo_checkers_8'; }
+// Which ranked-games-played counter column applies to a board size. Returns from
+// a FIXED two-value allowlist (never raw input) so the column name is safe to
+// interpolate into SQL. Defaults to the 8x8 counter for any non-10 size.
+function checkersGamesColumn(size) { return size === 10 ? 'checkers10_games' : 'checkers8_games'; }
 function checkersEloOf(user, size) {
   const v = size === 10 ? user.elo_checkers_10 : user.elo_checkers_8;
   return Number.isFinite(v) ? v : 1200;
@@ -1408,6 +1412,7 @@ async function finishCheckersGame(io, cg, override = {}) {
   const reason = override.reason || 'game-over';
   const isDraw = !winnerId;
   const eloCol = checkersEloColumn(cg.size); // 'elo_checkers_8' | 'elo_checkers_10'
+  const gamesCol = checkersGamesColumn(cg.size); // 'checkers8_games' | 'checkers10_games'
 
   let whiteUser, blackUser;
   if (store.usingPostgres) {
@@ -1447,6 +1452,10 @@ async function finishCheckersGame(io, cg, override = {}) {
           // from client input, so the interpolation is injection-safe.
           await tx.run(`UPDATE users SET ${eloCol} = ${eloCol} + ? WHERE id = ?`, [wd, cg.white]);
           await tx.run(`UPDATE users SET ${eloCol} = ${eloCol} + ? WHERE id = ?`, [bd, cg.black]);
+          // Track ranked participation per board size so the checkers leaderboards
+          // can filter on real games played. Same fixed-allowlist column safety.
+          await tx.run(`UPDATE users SET ${gamesCol} = ${gamesCol} + 1 WHERE id = ?`, [cg.white]);
+          await tx.run(`UPDATE users SET ${gamesCol} = ${gamesCol} + 1 WHERE id = ?`, [cg.black]);
         }
         await tx.run(insertSql, insertParams);
       });
@@ -1458,6 +1467,11 @@ async function finishCheckersGame(io, cg, override = {}) {
           const up = db.prepare(`UPDATE users SET ${eloCol} = ${eloCol} + ? WHERE id = ?`);
           up.run(wd, cg.white);
           up.run(bd, cg.black);
+          // Track ranked participation per board size so the checkers leaderboards
+          // can filter on real games played. Same fixed-allowlist column safety.
+          const upGames = db.prepare(`UPDATE users SET ${gamesCol} = ${gamesCol} + 1 WHERE id = ?`);
+          upGames.run(cg.white);
+          upGames.run(cg.black);
         }
         db.prepare(insertSql).run(...insertParams);
       })();

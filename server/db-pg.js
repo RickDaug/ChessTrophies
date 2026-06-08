@@ -113,13 +113,18 @@ CREATE TABLE IF NOT EXISTS users (
   email_verified INTEGER NOT NULL DEFAULT 0,
   last_seen BIGINT NOT NULL DEFAULT 0,
   elo_checkers_8 INTEGER NOT NULL DEFAULT 1200,
-  elo_checkers_10 INTEGER NOT NULL DEFAULT 1200
+  elo_checkers_10 INTEGER NOT NULL DEFAULT 1200,
+  checkers8_games INTEGER NOT NULL DEFAULT 0,
+  checkers10_games INTEGER NOT NULL DEFAULT 0
 );
 -- Idempotent for pre-existing Postgres databases created before last_seen.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen BIGINT NOT NULL DEFAULT 0;
 -- Checkers ratings (additive; NEVER touch the chess elo column).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS elo_checkers_8 INTEGER NOT NULL DEFAULT 1200;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS elo_checkers_10 INTEGER NOT NULL DEFAULT 1200;
+-- Per-board-size ranked checkers games-played counters (participation filter).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS checkers8_games INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS checkers10_games INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS friendships (
   user_id TEXT NOT NULL,
@@ -343,12 +348,27 @@ export async function topByMetric(metric, limit = 100) {
     checkers8: 'elo_checkers_8',
     checkers10: 'elo_checkers_10',
   };
+  // Participation filter, keyed by the SAME canonical metric (a fixed code map,
+  // never raw input — injection-safe). A leaderboard must only list users who
+  // actually played/earned in that match type, not every registered user.
+  // Unknown metric falls through to the elo filter (and elo ordering, below).
+  // trophies uses the same jsonb_array_length expression as trophiesExpr.
+  const participation = {
+    elo: '(wins + losses + draws) > 0',
+    wins: 'wins > 0',
+    streak: 'best_streak > 0', best_streak: 'best_streak > 0',
+    invites_accepted: 'invites_accepted > 0',
+    trophies: `${trophiesExpr} > 0`,
+    checkers8: 'checkers8_games > 0',
+    checkers10: 'checkers10_games > 0',
+  };
   const orderExpr = allowed[metric] || 'elo';
+  const whereExpr = participation[metric] || participation.elo;
   const { rows } = await pool.query(
     `SELECT id, username, region, elo, wins, losses, best_streak, is_premium,
-            elo_checkers_8, elo_checkers_10,
+            elo_checkers_8, elo_checkers_10, checkers8_games, checkers10_games,
             ${trophiesExpr} AS trophies
-     FROM users ORDER BY ${orderExpr} DESC, elo DESC LIMIT $1`,
+     FROM users WHERE ${whereExpr} ORDER BY ${orderExpr} DESC, elo DESC LIMIT $1`,
     [limit]
   );
   return rows;
