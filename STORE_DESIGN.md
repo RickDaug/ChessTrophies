@@ -124,14 +124,19 @@ For each: slug — w-faction / b-faction — palette cue — signature motifs. P
 ## 7. PROGRESS TRACKER
 Legend: ⬜ not started · 🟨 art drafted (needs render-review) · ✅ reviewed/approved · 🔧 infra
 
-### Infrastructure
-- 🔧 STORE_DESIGN.md (this doc) — DONE
-- ⬜ piece-sets.js manifest + loader (CT_Sets) — main
-- ⬜ app.js pieceSVG themed override + equip/board application — main
-- ⬜ Store UI under Profile (shop.js + screen) — main
-- ⬜ Backend entitlements (products/entitlements, catalog, one-time checkout, webhook grant, ownedSets) — backend agent
-- ⬜ Build: include sets/ + piece-sets.js in dist; lazy-load wiring
-- ⬜ Tests (entitlements, catalog ownership, webhook grant idempotency)
+### Infrastructure — ALL DONE ✅ (committed + deployed)
+- ✅ STORE_DESIGN.md (this doc)
+- ✅ piece-sets.js manifest + lazy CT_Sets loader
+- ✅ app.js pieceSVG themed override + CT_Sets.equip/board application
+- ✅ Store UI under Profile (shop.js + #screen-store + "🛍️ Store" profile card) — card grid w/ live previews, Preview/Equip/Buy/Classic
+- ✅ Backend entitlements (server/entitlements.js: catalog, one-time checkout, webhook grant idempotent + refund revoke, /api/me ownedSets)
+- ✅ Build: copies sets/ → dist/sets/ (excluded from SW precache); piece-sets.js + shop.js minified individually
+- ✅ Tests: test/store.mjs green; all 22 suites green
+
+### REMAINING before sales
+- 🎨 Art polish + per-set render-review (uneven quality; fix dragons-slayers green-on-green + weak knights)
+- 💳 Owner: create Stripe one-time Prices → set STRIPE_PRICE_SET_<SLUG> envs (flips comingSoon→buyable)
+- 🔒 Gate equip to owned server-side once sales go live (today: preview-open, nothing sellable yet)
 
 ### Art sets (sets/<slug>.json)
 | # | slug | status |
