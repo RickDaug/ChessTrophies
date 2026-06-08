@@ -93,6 +93,10 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeade
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Please slow down.' } });
 
 app.disable('x-powered-by');
+// Behind Railway's (single) reverse proxy: trust the first hop so req.ip and the
+// X-Forwarded-For header resolve to the real client. Without this, express-rate-limit
+// throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR and can't key limits by client IP.
+app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: corsOrigins }));
 // Stripe webhook MUST be registered BEFORE express.json() — signature
