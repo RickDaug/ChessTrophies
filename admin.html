@@ -3,328 +3,891 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ChessTrophies — Admin Stats</title>
+<title>ChessTrophies — Admin Dashboard</title>
 <style>
-  :root { --bg:#0b1220; --panel:#131c2e; --border:#243049; --text:#e8edf6; --muted:#8aa0c0; --accent:#f5c451; }
+  :root {
+    --bg:#0a0f1c; --bg2:#0d1424; --panel:#121b30; --panel2:#162038;
+    --border:#223150; --border2:#2c3d61;
+    --text:#eef3fb; --muted:#8ba0c4; --faint:#5d7298;
+    --accent:#f5c451; --accent2:#ffd97a;
+    --green:#54e09a; --red:#ff7b8a; --blue:#5aa6ff; --purple:#a98bff; --teal:#4fd6c8; --pink:#ff86c2;
+    --shadow:0 10px 30px -12px rgba(0,0,0,.6);
+  }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; padding:24px; }
-  h1 { font-size:20px; margin:0 0 4px; }
-  h2 { font-size:15px; margin:28px 0 12px; color:var(--text); }
-  .sub { color:var(--muted); font-size:13px; margin-bottom:18px; }
-  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:20px; }
-  input, select { background:var(--panel); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:9px 12px; font-size:14px; }
-  input { min-width:260px; }
-  input.sm { min-width:200px; }
-  button { background:var(--accent); color:#1a1300; border:none; border-radius:8px; padding:9px 16px; font-weight:700; cursor:pointer; font-size:14px; }
-  button.ghost { background:transparent; color:var(--muted); border:1px solid var(--border); font-weight:500; }
-  .err { color:#ff9b9b; font-size:13px; margin-bottom:14px; min-height:18px; }
-  .ok { color:#9bffb0; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
-  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; }
-  .card .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
-  .card .val { font-size:30px; font-weight:800; margin-top:6px; }
-  .card.hi { border-color:rgba(245,196,81,.5); }
-  .foot { color:var(--muted); font-size:12px; margin-top:18px; }
-  .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; }
-  .shares-row { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); }
-  .shares-row:last-child { border-bottom:none; }
-  .shares-row .pf { width:120px; text-transform:capitalize; color:var(--muted); font-size:13px; }
-  .shares-row .barfill { flex:1; height:14px; background:#1d293f; border-radius:7px; overflow:hidden; }
-  .shares-row .barfill > i { display:block; height:100%; background:var(--accent); border-radius:7px; }
-  .shares-row .cnt { width:70px; text-align:right; font-weight:700; font-size:13px; }
-  .shares-row.top .pf { color:var(--accent); font-weight:700; }
-  .shares-row.top .cnt { color:var(--accent); }
-  .badge { display:inline-block; background:rgba(245,196,81,.15); color:var(--accent); border:1px solid rgba(245,196,81,.4); border-radius:6px; padding:2px 8px; font-size:12px; font-weight:700; }
+  html, body { -webkit-text-size-adjust:100%; }
+  body {
+    margin:0; background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(245,196,81,.06), transparent 60%),
+      radial-gradient(900px 500px at -10% 10%, rgba(90,166,255,.06), transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    padding:0; min-height:100vh;
+  }
+  .wrap { max-width:1280px; margin:0 auto; padding:22px 20px 60px; }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+    padding:14px 0 18px; margin-bottom:8px; border-bottom:1px solid var(--border);
+  }
+  .brand { display:flex; align-items:center; gap:12px; min-width:0; }
+  .brand .logo {
+    width:42px; height:42px; border-radius:12px; flex:none;
+    background:linear-gradient(135deg, var(--accent), #e0a92e);
+    display:flex; align-items:center; justify-content:center; font-size:22px; color:#1a1300;
+    box-shadow:0 6px 18px -6px rgba(245,196,81,.6);
+  }
+  .brand h1 { font-size:18px; margin:0; font-weight:800; letter-spacing:-.01em; }
+  .brand .tag { color:var(--muted); font-size:12px; margin-top:1px; }
+  .spacer { flex:1 1 auto; }
+  .controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input, select {
+    background:var(--panel); border:1px solid var(--border); color:var(--text);
+    border-radius:10px; padding:9px 12px; font-size:13.5px; outline:none;
+  }
+  input:focus, select:focus { border-color:var(--border2); box-shadow:0 0 0 3px rgba(90,166,255,.12); }
+  input.key { min-width:210px; }
+  input.search { min-width:240px; }
+  button {
+    background:var(--accent); color:#1a1300; border:none; border-radius:10px;
+    padding:9px 15px; font-weight:700; cursor:pointer; font-size:13.5px; white-space:nowrap;
+    transition:transform .05s ease, filter .15s ease;
+  }
+  button:hover { filter:brightness(1.06); }
+  button:active { transform:translateY(1px); }
+  button.ghost { background:transparent; color:var(--muted); border:1px solid var(--border); font-weight:600; }
+  button.ghost:hover { color:var(--text); border-color:var(--border2); }
+  button.ghost.on { color:var(--green); border-color:rgba(84,224,154,.5); background:rgba(84,224,154,.08); }
+  .upd { color:var(--faint); font-size:12px; display:flex; flex-direction:column; line-height:1.5; }
+  .upd b { color:var(--muted); font-weight:600; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--green); margin-right:6px; box-shadow:0 0 8px rgba(84,224,154,.8); vertical-align:middle; }
+
+  .err { color:#ffb3bc; font-size:13px; min-height:0; margin:0; }
+  .err:not(:empty) { margin:14px 0 0; padding:11px 14px; background:rgba(255,123,138,.08); border:1px solid rgba(255,123,138,.3); border-radius:10px; }
+
+  /* ---------- gate (no key) ---------- */
+  .gate { display:none; max-width:420px; margin:60px auto; text-align:center; }
+  .gate.show { display:block; }
+  .gate .glogo { width:64px; height:64px; border-radius:18px; margin:0 auto 18px;
+    background:linear-gradient(135deg, var(--accent), #e0a92e); display:flex; align-items:center; justify-content:center; font-size:32px; color:#1a1300; }
+  .gate h2 { margin:0 0 8px; font-size:20px; }
+  .gate p { color:var(--muted); font-size:14px; margin:0 0 20px; }
+  .gate .row { display:flex; gap:8px; }
+  .gate input { flex:1; min-width:0; }
+
+  /* ---------- dashboard container ---------- */
+  .dash { display:none; }
+  .dash.show { display:block; }
+
+  /* ---------- KPI cards ---------- */
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin:20px 0 8px; }
+  .kpi {
+    position:relative; overflow:hidden; background:linear-gradient(180deg, var(--panel2), var(--panel));
+    border:1px solid var(--border); border-radius:16px; padding:16px 16px 15px; box-shadow:var(--shadow);
+  }
+  .kpi::after { content:""; position:absolute; right:-30px; top:-30px; width:90px; height:90px; border-radius:50%; background:var(--_g, rgba(245,196,81,.12)); filter:blur(6px); }
+  .kpi .top { display:flex; align-items:center; justify-content:space-between; gap:8px; position:relative; z-index:1; }
+  .kpi .ic { width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:17px; background:var(--_b, rgba(245,196,81,.14)); color:var(--_c, var(--accent)); }
+  .kpi .label { color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; font-weight:600; }
+  .kpi .val { font-size:30px; font-weight:800; margin-top:10px; letter-spacing:-.02em; line-height:1; position:relative; z-index:1; }
+  .kpi .sub { margin-top:9px; font-size:12px; color:var(--faint); display:flex; gap:10px; flex-wrap:wrap; position:relative; z-index:1; }
+  .kpi .sub .delta { color:var(--green); font-weight:600; }
+  .kpi .sub .delta.dim { color:var(--muted); font-weight:500; }
+  .badge { display:inline-flex; align-items:center; gap:5px; background:rgba(90,166,255,.12); color:var(--blue); border:1px solid rgba(90,166,255,.32); border-radius:999px; padding:2px 9px; font-size:11px; font-weight:700; }
+  .badge.live { background:rgba(84,224,154,.12); color:var(--green); border-color:rgba(84,224,154,.35); }
+  .badge.approx { background:rgba(245,196,81,.12); color:var(--accent); border-color:rgba(245,196,81,.35); }
+
+  /* ---------- layout grid ---------- */
+  .row2 { display:grid; gap:14px; margin-top:14px; }
+  .row2.c2 { grid-template-columns:2fr 1fr; }
+  .row2.c2b { grid-template-columns:1fr 1fr; }
+  @media (max-width:900px){ .row2.c2, .row2.c2b { grid-template-columns:1fr; } }
+
+  .panel { background:linear-gradient(180deg, var(--panel2), var(--panel)); border:1px solid var(--border); border-radius:16px; padding:18px; box-shadow:var(--shadow); }
+  .panel h3 { margin:0 0 2px; font-size:14px; font-weight:700; display:flex; align-items:center; gap:8px; }
+  .panel .h3sub { color:var(--faint); font-size:12px; margin:0 0 14px; }
+  .panel .hrow { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+
+  /* ---------- charts ---------- */
+  .chart { width:100%; display:block; }
+  .chart text { fill:var(--faint); font-size:10px; }
+  .chart .axis { stroke:var(--border); stroke-width:1; }
+  .chart .grid { stroke:var(--border); stroke-width:1; stroke-dasharray:3 4; opacity:.5; }
+  .chart .bar { fill:var(--_bar, var(--blue)); transition:opacity .12s; cursor:pointer; }
+  .chart .bar:hover { opacity:.75; }
+  .chart .hit { fill:transparent; cursor:pointer; }
+  .chart .dot { fill:var(--accent); }
+  .chart-empty { color:var(--faint); font-size:13px; padding:30px 0; text-align:center; }
+  .tooltip {
+    position:fixed; z-index:50; pointer-events:none; background:#0a1120; border:1px solid var(--border2);
+    border-radius:9px; padding:7px 10px; font-size:12px; color:var(--text); box-shadow:0 8px 24px -8px rgba(0,0,0,.7);
+    transform:translate(-50%,-115%); white-space:nowrap; opacity:0; transition:opacity .1s;
+  }
+  .tooltip.show { opacity:1; }
+  .tooltip b { color:var(--accent2); }
+  .legend { display:flex; gap:14px; font-size:11.5px; color:var(--muted); margin-top:8px; flex-wrap:wrap; }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .legend i { width:10px; height:10px; border-radius:3px; display:inline-block; }
+
+  /* mini stat strip inside revenue panel */
+  .mini { display:flex; gap:18px; flex-wrap:wrap; margin-top:2px; }
+  .mini > div { min-width:84px; }
+  .mini .m-lbl { color:var(--faint); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  .mini .m-val { font-size:18px; font-weight:800; margin-top:3px; }
+
+  /* ---------- recent payments ---------- */
+  .pay-list { display:flex; flex-direction:column; gap:2px; max-height:330px; overflow:auto; }
+  .pay { display:flex; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px solid var(--border); }
+  .pay:last-child { border-bottom:none; }
+  .pay .pic { width:34px; height:34px; border-radius:10px; flex:none; background:rgba(84,224,154,.12); color:var(--green); display:flex; align-items:center; justify-content:center; font-size:15px; }
+  .pay .pmid { flex:1; min-width:0; }
+  .pay .plabel { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pay .pdate { font-size:11.5px; color:var(--faint); margin-top:2px; }
+  .pay .pamt { font-weight:800; color:var(--green); font-size:14px; white-space:nowrap; }
+
+  /* ---------- shares ---------- */
+  .shares-row { display:flex; align-items:center; gap:10px; padding:7px 0; }
+  .shares-row .pf { width:96px; text-transform:capitalize; color:var(--muted); font-size:12.5px; display:flex; align-items:center; gap:6px; }
+  .shares-row .barfill { flex:1; height:12px; background:#1a2540; border-radius:7px; overflow:hidden; }
+  .shares-row .barfill > i { display:block; height:100%; background:linear-gradient(90deg, var(--blue), var(--teal)); border-radius:7px; transition:width .4s; }
+  .shares-row .cnt { width:62px; text-align:right; font-weight:700; font-size:12.5px; }
+  .shares-row.top .pf { color:var(--text); font-weight:700; }
+  .shares-row.top .barfill > i { background:linear-gradient(90deg, var(--accent), var(--accent2)); }
+
+  /* ---------- users table ---------- */
+  .users-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:26px 0 12px; }
+  .users-head h2 { font-size:16px; margin:0; font-weight:800; }
+  .users-head .spacer { flex:1; }
+  .count-note { color:var(--muted); font-size:12.5px; margin:0 0 10px; }
+  .ok { color:var(--green); }
+  .tbl-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:16px; background:var(--panel); box-shadow:var(--shadow); }
   table { width:100%; border-collapse:collapse; font-size:13px; }
-  thead th { text-align:left; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
-  tbody td { padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
-  tbody tr:hover { background:rgba(255,255,255,.03); }
+  thead th { text-align:left; color:var(--faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; padding:11px 12px; border-bottom:1px solid var(--border); white-space:nowrap; background:var(--bg2); position:sticky; top:0; }
+  tbody td { padding:9px 12px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  tbody tr:last-child td { border-bottom:none; }
+  tbody tr:hover { background:rgba(255,255,255,.025); }
   td.num { text-align:right; font-variant-numeric:tabular-nums; }
   td.muted, .muted { color:var(--muted); }
-  .tbl-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:12px; }
-  .yes { color:#9bffb0; font-weight:700; }
-  .count-note { color:var(--muted); font-size:13px; margin:8px 0; }
+  .faint { color:var(--faint); }
+  .yes { color:var(--green); font-weight:700; }
+  .uname { font-weight:600; }
+  .pill { display:inline-block; font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:999px; background:rgba(169,139,255,.14); color:var(--purple); border:1px solid rgba(169,139,255,.3); }
+
+  .skeleton { background:linear-gradient(90deg, var(--panel) 25%, var(--panel2) 50%, var(--panel) 75%); background-size:200% 100%; animation:sk 1.2s infinite; border-radius:8px; }
+  @keyframes sk { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+  ::-webkit-scrollbar { width:9px; height:9px; }
+  ::-webkit-scrollbar-thumb { background:var(--border2); border-radius:6px; }
+  ::-webkit-scrollbar-track { background:transparent; }
 </style>
 </head>
 <body>
-  <h1>♟ ChessTrophies — Admin Stats</h1>
-  <div class="sub">Live usage dashboard. Your admin key is stored only in this browser.</div>
-  <div class="bar">
-    <input id="key" type="password" placeholder="Admin key (ADMIN_KEY)" autocomplete="off">
-    <button id="load">Load stats</button>
-    <button id="auto" class="ghost">Auto-refresh: off</button>
+<div class="wrap">
+
+  <!-- top bar -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo">♟</div>
+      <div>
+        <h1>ChessTrophies <span style="color:var(--muted);font-weight:600;">Admin</span></h1>
+        <div class="tag">Live analytics dashboard</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="controls" id="topControls" style="display:none;">
+      <input id="key" class="key" type="password" placeholder="Admin key" autocomplete="off">
+      <button id="refresh">↻ Refresh</button>
+      <button id="auto" class="ghost">⏱ Auto: off</button>
+      <div class="upd" id="upd"></div>
+    </div>
   </div>
+
   <div class="err" id="err"></div>
 
-  <div class="grid" id="grid"></div>
-  <div class="foot" id="foot"></div>
-
-  <h2>Share analytics</h2>
-  <div class="panel" id="shares"><div class="muted">Load stats to view share analytics.</div></div>
-
-  <h2>Users</h2>
-  <div class="bar">
-    <input id="q" class="sm" type="text" placeholder="Search username or email…" autocomplete="off">
-    <select id="sort">
-      <option value="elo">Sort: ELO (top performers)</option>
-      <option value="checkers8">Sort: Checkers 8×8</option>
-      <option value="checkers10">Sort: Checkers 10×10</option>
-      <option value="games">Sort: Games played</option>
-      <option value="recent">Sort: Recently active</option>
-      <option value="joined">Sort: Newest</option>
-    </select>
-    <select id="limit">
-      <option value="100">Top 100</option>
-      <option value="500">Top 500</option>
-      <option value="1000">Top 1000</option>
-    </select>
-    <button id="usersRefresh">Refresh</button>
-    <button id="copyEmails" class="ghost">Copy emails</button>
-    <span id="copyMsg" class="ok" style="font-size:13px;"></span>
+  <!-- gate (shown when no key / forbidden) -->
+  <div class="gate" id="gate">
+    <div class="glogo">🔒</div>
+    <h2>Admin access</h2>
+    <p id="gateMsg">Enter your admin key to view the dashboard. It's stored only in this browser.</p>
+    <div class="row">
+      <input id="gateKey" type="password" placeholder="Admin key (ADMIN_KEY)" autocomplete="off">
+      <button id="gateBtn">Unlock</button>
+    </div>
   </div>
-  <div class="err" id="usersErr"></div>
-  <div class="count-note" id="usersCount"></div>
-  <div class="tbl-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>#</th><th>Username</th><th>Email</th>
-          <th>ELO</th><th>Checkers 8×8</th><th>Checkers 10×10</th>
-          <th>Games</th><th>Last seen</th><th>Joined</th><th>Verified</th><th>Premium</th>
-        </tr>
-      </thead>
-      <tbody id="usersBody"><tr><td colspan="11" class="muted" style="padding:14px 10px;">Load stats with a valid key to view users.</td></tr></tbody>
-    </table>
+
+  <!-- dashboard -->
+  <div class="dash" id="dash">
+
+    <!-- KPI row -->
+    <div class="kpis" id="kpis"></div>
+
+    <!-- revenue chart + recent payments -->
+    <div class="row2 c2">
+      <div class="panel">
+        <div class="hrow">
+          <div>
+            <h3>💰 Revenue <span id="revBadge"></span></h3>
+            <p class="h3sub">Daily revenue · last 30 days</p>
+          </div>
+          <div class="mini" id="revMini"></div>
+        </div>
+        <div id="revChart"></div>
+      </div>
+      <div class="panel">
+        <h3>🧾 Recent payments</h3>
+        <p class="h3sub">Newest first</p>
+        <div class="pay-list" id="payList"></div>
+      </div>
+    </div>
+
+    <!-- signups + games charts -->
+    <div class="row2 c2b">
+      <div class="panel">
+        <h3>📈 Signups per day</h3>
+        <p class="h3sub">Last 30 days</p>
+        <div id="signupChart"></div>
+      </div>
+      <div class="panel">
+        <h3>♟ Games per day</h3>
+        <p class="h3sub">Last 30 days</p>
+        <div id="gamesChart"></div>
+      </div>
+    </div>
+
+    <!-- shares -->
+    <div class="row2">
+      <div class="panel">
+        <div class="hrow">
+          <div>
+            <h3>🔗 Traffic / shares</h3>
+            <p class="h3sub" id="sharesSub">Share breakdown by platform</p>
+          </div>
+        </div>
+        <div id="shares"></div>
+      </div>
+    </div>
+
+    <!-- users -->
+    <div class="users-head">
+      <h2>👥 User directory</h2>
+      <div class="spacer"></div>
+      <input id="q" class="search" type="text" placeholder="Search username or email…" autocomplete="off">
+      <select id="sort">
+        <option value="elo">Sort: ELO (top performers)</option>
+        <option value="checkers8">Sort: Checkers 8×8</option>
+        <option value="checkers10">Sort: Checkers 10×10</option>
+        <option value="games">Sort: Games played</option>
+        <option value="recent">Sort: Recently active</option>
+        <option value="joined">Sort: Newest</option>
+      </select>
+      <select id="limit">
+        <option value="100">Top 100</option>
+        <option value="500">Top 500</option>
+        <option value="1000">Top 1000</option>
+      </select>
+      <button id="usersRefresh" class="ghost">↻</button>
+      <button id="copyEmails" class="ghost">📋 Copy emails</button>
+    </div>
+    <span id="copyMsg" class="ok" style="font-size:12.5px;"></span>
+    <div class="err" id="usersErr"></div>
+    <div class="count-note" id="usersCount"></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Username</th><th>Email</th>
+            <th>ELO</th><th>Ck 8×8</th><th>Ck 10×10</th>
+            <th>Games</th><th>Last seen</th><th>Joined</th><th>Verified</th><th>Premium</th>
+          </tr>
+        </thead>
+        <tbody id="usersBody"><tr><td colspan="11" class="faint" style="padding:16px 12px;">Loading users…</td></tr></tbody>
+      </table>
+    </div>
   </div>
+</div>
+
+<div class="tooltip" id="tip"></div>
 
 <script>
-  (function () {
-    var KEY_STORE = 'ct_admin_key';
-    var keyEl = document.getElementById('key');
-    var errEl = document.getElementById('err');
-    var grid = document.getElementById('grid');
-    var foot = document.getElementById('foot');
-    var autoBtn = document.getElementById('auto');
-    var sharesEl = document.getElementById('shares');
-    var qEl = document.getElementById('q');
-    var sortEl = document.getElementById('sort');
-    var limitEl = document.getElementById('limit');
-    var usersErr = document.getElementById('usersErr');
-    var usersCount = document.getElementById('usersCount');
-    var usersBody = document.getElementById('usersBody');
-    var copyMsg = document.getElementById('copyMsg');
-    var timer = null;
-    var qTimer = null;
-    var currentUsers = [];
-    keyEl.value = localStorage.getItem(KEY_STORE) || '';
+(function () {
+  'use strict';
+  var KEY_STORE = 'ct_admin_key';
 
-    var CARDS = [
-      { k:'onlineNow',     label:'Online now',    hi:true },
-      { k:'activeUsers24h',label:'Active · 24h',   hi:true },
-      { k:'activeUsers7d', label:'Active · 7d' },
-      { k:'totalUsers',    label:'Total users',   hi:true },
-      { k:'newUsers24h',   label:'New · 24h' },
-      { k:'newUsers7d',    label:'New · 7d' },
-      { k:'newUsers30d',   label:'New · 30d' },
-      { k:'verifiedUsers', label:'Verified' },
-      { k:'premiumUsers',  label:'Premium' },
-      { k:'gamesTotal',    label:'Games total' },
-      { k:'games24h',      label:'Games · 24h' },
-      { k:'revenueMonthCents',   label:'Revenue · month',   money:true, hi:true },
-      { k:'revenueYearCents',    label:'Revenue · year',    money:true },
-      { k:'revenueAllTimeCents', label:'Revenue · to date', money:true, hi:true },
+  // ----- elements -----
+  var $ = function (id) { return document.getElementById(id); };
+  var keyEl = $('key'), gateKeyEl = $('gateKey'), gateEl = $('gate'), gateMsgEl = $('gateMsg');
+  var dashEl = $('dash'), topControls = $('topControls');
+  var errEl = $('err'), updEl = $('upd'), autoBtn = $('auto');
+  var kpisEl = $('kpis'), tipEl = $('tip');
+  var revBadge = $('revBadge'), revMini = $('revMini'), revChart = $('revChart');
+  var payList = $('payList'), signupChart = $('signupChart'), gamesChart = $('gamesChart');
+  var sharesEl = $('shares'), sharesSub = $('sharesSub');
+  var qEl = $('q'), sortEl = $('sort'), limitEl = $('limit');
+  var usersErr = $('usersErr'), usersCount = $('usersCount'), usersBody = $('usersBody'), copyMsg = $('copyMsg');
+
+  var timer = null, qTimer = null, currentUsers = [], lastStats = null, hasLoaded = false;
+
+  // ----- key handling: ?key= overrides, else localStorage -----
+  (function initKey() {
+    var fromUrl = '';
+    try {
+      var p = new URLSearchParams(window.location.search);
+      fromUrl = (p.get('key') || '').trim();
+    } catch (e) {}
+    var stored = '';
+    try { stored = localStorage.getItem(KEY_STORE) || ''; } catch (e) {}
+    var k = fromUrl || stored;
+    keyEl.value = k;
+    gateKeyEl.value = k;
+    if (fromUrl) { try { localStorage.setItem(KEY_STORE, fromUrl); } catch (e) {} }
+  })();
+
+  function getKey() { return (keyEl.value || '').trim(); }
+  function headers() { return { 'x-admin-key': getKey() }; }
+  function statsUrl() { return '/api/admin/stats?key=' + encodeURIComponent(getKey()); }
+  function usersUrl(params) { return '/api/admin/users?' + params.toString() + '&key=' + encodeURIComponent(getKey()); }
+
+  // ----- formatters -----
+  function esc(s) { var d = document.createElement('div'); d.textContent = (s == null ? '' : String(s)); return d.innerHTML; }
+  function num(n) { if (n == null || n === '') return '–'; var x = Number(n); return isNaN(x) ? esc(n) : x.toLocaleString(); }
+  function compact(n) {
+    var x = Number(n); if (isNaN(x)) return '–';
+    try { return new Intl.NumberFormat(undefined, { notation:'compact', maximumFractionDigits:1 }).format(x); }
+    catch (e) { return x.toLocaleString(); }
+  }
+  function money(cents, currency) {
+    var n = Number(cents); if (isNaN(n)) return '–';
+    var cur = (currency || 'usd').toUpperCase();
+    try { return new Intl.NumberFormat(undefined, { style:'currency', currency:cur, maximumFractionDigits:(Math.abs(n)>=100000?0:2) }).format(n/100); }
+    catch (e) { return '$' + (n/100).toFixed(2); }
+  }
+  function moneyCompact(cents, currency) {
+    var n = Number(cents); if (isNaN(n)) return '–';
+    var cur = (currency || 'usd').toUpperCase();
+    try { return new Intl.NumberFormat(undefined, { style:'currency', currency:cur, notation:'compact', maximumFractionDigits:1 }).format(n/100); }
+    catch (e) { return '$' + (n/100).toFixed(0); }
+  }
+  function toDate(ms) {
+    if (ms == null || ms === '') return null;
+    var v = Number(ms);
+    if (!isNaN(v)) { var d = new Date(v); return isNaN(d.getTime()) ? null : d; }
+    var d2 = new Date(ms); return isNaN(d2.getTime()) ? null : d2;
+  }
+  function fmtDateTime(ms) { var d = toDate(ms); return d ? d.toLocaleString() : '—'; }
+  function fmtDateShort(ms) { var d = toDate(ms); return d ? d.toLocaleDateString() : '—'; }
+  function ago(ms) {
+    var d = toDate(ms); if (!d) return null;
+    var s = Math.floor((Date.now() - d.getTime())/1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s/60) + 'm ago';
+    if (s < 86400) return Math.floor(s/3600) + 'h ago';
+    return Math.floor(s/86400) + 'd ago';
+  }
+
+  // ===================================================================
+  //  KPI CARDS
+  // ===================================================================
+  function rev(s) { return (s && s.revenue) || {}; }
+  function pick() { // first non-null arg
+    for (var i = 0; i < arguments.length; i++) if (arguments[i] != null) return arguments[i];
+    return null;
+  }
+
+  function renderKpis(s) {
+    s = s || {};
+    var r = rev(s);
+    var cur = r.currency || s.currency || 'usd';
+    var allTime = pick(r.allTimeCents, s.revenueAllTimeCents);
+    var mrr = pick(r.mrrCents);
+    var subs = pick(r.activeSubscribers, s.activeSubscribers);
+    var arpu = pick(r.arpuCents);
+
+    var cards = [
+      { ic:'💰', label:'Revenue · all-time', val: allTime != null ? money(allTime, cur) : '–',
+        c:'var(--green)', b:'rgba(84,224,154,.14)', g:'rgba(84,224,154,.12)',
+        sub: r.source ? null : (s.revenueMonthCents != null ? 'this month ' + moneyCompact(s.revenueMonthCents, cur) : null) },
+      { ic:'🔁', label:'MRR', val: mrr != null ? money(mrr, cur) : '–',
+        c:'var(--teal)', b:'rgba(79,214,200,.14)', g:'rgba(79,214,200,.12)',
+        sub: arpu != null ? 'ARPU ' + money(arpu, cur) : null },
+      { ic:'⭐', label:'Active subscribers', val: subs != null ? num(subs) : '–',
+        c:'var(--accent)', b:'rgba(245,196,81,.14)', g:'rgba(245,196,81,.12)',
+        sub: s.premiumUsers != null ? num(s.premiumUsers) + ' premium total' : null },
+      { ic:'💎', label:'Premium users', val: num(s.premiumUsers),
+        c:'var(--purple)', b:'rgba(169,139,255,.14)', g:'rgba(169,139,255,.12)',
+        sub: (s.verifiedUsers != null) ? num(s.verifiedUsers) + ' verified' : null },
+      { ic:'👥', label:'Total users', val: num(s.totalUsers),
+        c:'var(--blue)', b:'rgba(90,166,255,.14)', g:'rgba(90,166,255,.12)',
+        delta: deltaText(s.newUsers24h, s.newUsers7d) },
+      { ic:'🟢', label:'Online now', val: num(s.onlineNow),
+        c:'var(--green)', b:'rgba(84,224,154,.14)', g:'rgba(84,224,154,.12)',
+        sub: (s.activeUsers24h != null) ? num(s.activeUsers24h) + ' active · 24h' : null },
+      { ic:'♟', label:'Games total', val: num(s.gamesTotal),
+        c:'var(--pink)', b:'rgba(255,134,194,.14)', g:'rgba(255,134,194,.12)',
+        sub: (s.games24h != null) ? '+' + num(s.games24h) + ' · 24h' : null }
     ];
 
-    // ----- helpers -----
-    function esc(s) {
-      var d = document.createElement('div');
-      d.textContent = (s == null ? '' : String(s));
-      return d.innerHTML;
-    }
-    function getKey() { return keyEl.value.trim(); }
-    function headers() { return { 'x-admin-key': getKey() }; }
-    function fmtNum(n) {
-      if (n == null || n === '') return '–';
-      var x = Number(n);
-      return isNaN(x) ? esc(n) : x.toLocaleString();
-    }
-    function fmtMoney(cents, currency) {
-      var n = Number(cents);
-      if (isNaN(n)) return '–';
-      var cur = (currency || 'usd').toUpperCase();
-      try { return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(n / 100); }
-      catch (e) { return '$' + (n / 100).toFixed(2); }
-    }
-    function fmtDate(ms) {
-      if (ms == null || Number(ms) === 0) return null; // signal "never"
-      var d = new Date(Number(ms));
-      if (isNaN(d.getTime())) return null;
-      return d;
-    }
-    function fmtDateText(ms, neverLabel) {
-      var d = fmtDate(ms);
-      if (!d) return neverLabel || '—';
-      return d.toLocaleString();
-    }
+    kpisEl.innerHTML = cards.map(function (c) {
+      var subHtml = '';
+      if (c.delta) subHtml = '<div class="sub">' + c.delta + '</div>';
+      else if (c.sub) subHtml = '<div class="sub"><span class="delta dim">' + esc(c.sub) + '</span></div>';
+      return '<div class="kpi" style="--_c:' + c.c + ';--_b:' + c.b + ';--_g:' + c.g + '">' +
+        '<div class="top"><span class="label">' + esc(c.label) + '</span>' +
+        '<span class="ic">' + c.ic + '</span></div>' +
+        '<div class="val">' + c.val + '</div>' + subHtml + '</div>';
+    }).join('');
+  }
+  function deltaText(d24, d7) {
+    var parts = [];
+    if (d24 != null) parts.push('<span class="delta">▲ ' + num(d24) + ' · 24h</span>');
+    if (d7 != null) parts.push('<span class="delta dim">' + num(d7) + ' · 7d</span>');
+    return parts.length ? '<div class="sub">' + parts.join('') + '</div>' : '';
+  }
 
-    // ----- stat cards -----
-    function renderStats(s) {
-      grid.innerHTML = CARDS.map(function (c) {
-        var v;
-        if (c.money) v = (s && s[c.k] != null) ? fmtMoney(s[c.k], s.currency) : '–';
-        else v = (s && s[c.k] != null) ? Number(s[c.k]).toLocaleString() : '–';
-        return '<div class="card' + (c.hi ? ' hi' : '') + '"><div class="label">' + c.label + '</div><div class="val">' + v + '</div></div>';
-      }).join('');
-      var st = s && s.serverTime ? fmtDateText(s.serverTime) : '';
-      foot.textContent = 'Updated ' + new Date().toLocaleTimeString() + (st ? '  ·  server time ' + st : '');
-      renderShares(s && s.shares);
+  // ===================================================================
+  //  CHART HELPERS (inline SVG, no libs)
+  // ===================================================================
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  function svgEl(name, attrs) {
+    var e = document.createElementNS(SVGNS, name);
+    if (attrs) for (var k in attrs) if (attrs.hasOwnProperty(k)) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+  function showTip(html, x, y) { tipEl.innerHTML = html; tipEl.style.left = x + 'px'; tipEl.style.top = y + 'px'; tipEl.classList.add('show'); }
+  function hideTip() { tipEl.classList.remove('show'); }
+
+  function emptyChart(host, msg) { host.innerHTML = '<div class="chart-empty">' + esc(msg || 'No data yet') + '</div>'; }
+
+  // Bar chart. data = [{label, value, tipLabel}], opts {color, fmt}
+  function barChart(host, data, opts) {
+    host.innerHTML = '';
+    opts = opts || {};
+    if (!data || !data.length) { emptyChart(host); return; }
+    var W = 720, H = 200, padL = 44, padR = 12, padT = 12, padB = 26;
+    var iw = W - padL - padR, ih = H - padT - padB;
+    var max = 0; data.forEach(function (d) { if (d.value > max) max = d.value; });
+    if (max <= 0) max = 1;
+    var niceMax = niceCeil(max);
+    var svg = svgEl('svg', { viewBox:'0 0 ' + W + ' ' + H, class:'chart', preserveAspectRatio:'none', width:'100%', height:H });
+    svg.removeAttribute('preserveAspectRatio');
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svg.setAttribute('width', '100%'); svg.setAttribute('height', String(H));
+    if (opts.color) svg.style.setProperty('--_bar', opts.color);
+
+    // gridlines + y labels
+    var ticks = 4;
+    for (var t = 0; t <= ticks; t++) {
+      var yv = niceMax * t / ticks;
+      var y = padT + ih - (yv / niceMax) * ih;
+      svg.appendChild(svgEl('line', { class:'grid', x1:padL, y1:y, x2:W - padR, y2:y }));
+      var lbl = svgEl('text', { x:padL - 6, y:y + 3, 'text-anchor':'end' });
+      lbl.textContent = opts.fmtAxis ? opts.fmtAxis(yv) : compact(yv);
+      svg.appendChild(lbl);
     }
+    // x axis
+    svg.appendChild(svgEl('line', { class:'axis', x1:padL, y1:padT + ih, x2:W - padR, y2:padT + ih }));
 
-    // ----- share analytics -----
-    function renderShares(sh) {
-      if (!sh || !sh.byPlatform || typeof sh.byPlatform !== 'object') {
-        sharesEl.innerHTML = '<div class="muted">No shares yet</div>';
-        return;
-      }
-      var entries = Object.keys(sh.byPlatform).map(function (k) {
-        return { platform: k, count: Number(sh.byPlatform[k]) || 0 };
-      }).filter(function (e) { return e.count > 0; });
-
-      if (!entries.length) {
-        sharesEl.innerHTML = '<div class="muted">No shares yet</div>';
-        return;
-      }
-      entries.sort(function (a, b) { return b.count - a.count; });
-      var total = (sh.total != null) ? Number(sh.total) : entries.reduce(function (t, e) { return t + e.count; }, 0);
-      var max = entries[0].count;
-      var topName = entries[0].platform;
-
-      var html = '<div style="margin-bottom:12px;">Total shares: <span class="badge">' + total.toLocaleString() +
-        '</span>  ·  Most-used: <span class="badge">' + esc(topName) + ' (' + max.toLocaleString() + ')</span></div>';
-      html += entries.map(function (e, i) {
-        var pct = max > 0 ? Math.round((e.count / max) * 100) : 0;
-        return '<div class="shares-row' + (i === 0 ? ' top' : '') + '">' +
-          '<span class="pf">' + esc(e.platform) + '</span>' +
-          '<span class="barfill"><i style="width:' + pct + '%"></i></span>' +
-          '<span class="cnt">' + e.count.toLocaleString() + '</span></div>';
-      }).join('');
-      sharesEl.innerHTML = html;
-    }
-
-    // ----- stats fetch -----
-    async function loadStats() {
-      var key = getKey();
-      if (!key) { errEl.textContent = 'Enter your admin key.'; return; }
-      localStorage.setItem(KEY_STORE, key);
-      errEl.textContent = '';
-      try {
-        var res = await fetch('/api/admin/stats', { headers: headers() });
-        if (res.status === 403) { errEl.textContent = 'Forbidden — wrong/missing admin key, or ADMIN_KEY is not set on the server.'; return; }
-        if (!res.ok) { errEl.textContent = 'Error: HTTP ' + res.status; return; }
-        renderStats(await res.json());
-      } catch (e) {
-        errEl.textContent = 'Could not reach the server: ' + (e && e.message ? e.message : e);
-      }
-    }
-
-    // ----- users table -----
-    function renderUsers(data) {
-      var users = (data && Array.isArray(data.users)) ? data.users : [];
-      currentUsers = users;
-      var total = (data && data.total != null) ? Number(data.total) : users.length;
-      usersCount.textContent = 'Showing ' + users.length.toLocaleString() + ' of ' + total.toLocaleString() + ' total users';
-
-      if (!users.length) {
-        usersBody.innerHTML = '<tr><td colspan="11" class="muted" style="padding:14px 10px;">No users match.</td></tr>';
-        return;
-      }
-      usersBody.innerHTML = users.map(function (u, i) {
-        var ls = fmtDate(u.lastSeen);
-        var cr = fmtDate(u.createdAt);
-        return '<tr>' +
-          '<td class="num muted">' + (i + 1) + '</td>' +
-          '<td>' + esc(u.username) + '</td>' +
-          '<td class="muted">' + esc(u.email) + '</td>' +
-          '<td class="num">' + fmtNum(u.elo) + '</td>' +
-          '<td class="num">' + fmtNum(u.eloCheckers8) + '</td>' +
-          '<td class="num">' + fmtNum(u.eloCheckers10) + '</td>' +
-          '<td class="num">' + fmtNum(u.games) + '</td>' +
-          '<td class="muted">' + (ls ? esc(ls.toLocaleString()) : 'never') + '</td>' +
-          '<td class="muted">' + (cr ? esc(cr.toLocaleDateString()) : '—') + '</td>' +
-          '<td>' + (u.emailVerified ? '<span class="yes">✓</span>' : '') + '</td>' +
-          '<td>' + (u.isPremium ? '<span class="yes">✓</span>' : '') + '</td>' +
-          '</tr>';
-      }).join('');
-    }
-
-    async function loadUsers() {
-      var key = getKey();
-      if (!key) { usersErr.textContent = 'Enter your admin key (top of page).'; return; }
-      usersErr.textContent = '';
-      var params = new URLSearchParams();
-      params.set('sort', sortEl.value);
-      params.set('limit', limitEl.value);
-      var q = qEl.value.trim();
-      if (q) params.set('q', q);
-      try {
-        var res = await fetch('/api/admin/users?' + params.toString(), { headers: headers() });
-        if (res.status === 403) { usersErr.textContent = 'Forbidden — wrong/missing admin key.'; return; }
-        if (!res.ok) { usersErr.textContent = 'Error: HTTP ' + res.status; return; }
-        renderUsers(await res.json());
-      } catch (e) {
-        usersErr.textContent = 'Could not reach the server: ' + (e && e.message ? e.message : e);
-      }
-    }
-
-    // ----- copy emails -----
-    async function copyEmails() {
-      copyMsg.textContent = '';
-      var emails = currentUsers
-        .map(function (u) { return (u.email || '').trim(); })
-        .filter(function (e) { return e; });
-      if (!emails.length) { copyMsg.textContent = 'No emails to copy.'; return; }
-      var text = emails.join(', ');
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(text);
-        } else {
-          var ta = document.createElement('textarea');
-          ta.value = text;
-          ta.style.position = 'fixed'; ta.style.opacity = '0';
-          document.body.appendChild(ta); ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
+    var n = data.length;
+    var slot = iw / n;
+    var bw = Math.max(2, Math.min(slot * 0.62, 26));
+    data.forEach(function (d, i) {
+      var x = padL + i * slot + (slot - bw) / 2;
+      var h = (d.value / niceMax) * ih;
+      var y = padT + ih - h;
+      var rect = svgEl('rect', { class:'bar', x:x, y:y, width:bw, height:Math.max(0, h), rx:Math.min(3, bw/2) });
+      svg.appendChild(rect);
+      // wide invisible hit area for easy hover
+      var hit = svgEl('rect', { class:'hit', x:padL + i*slot, y:padT, width:slot, height:ih });
+      (function (d) {
+        function onMove(ev) {
+          var label = d.tipLabel != null ? d.tipLabel : d.label;
+          showTip('<b>' + esc(opts.fmtVal ? opts.fmtVal(d.value) : d.value) + '</b><br>' + esc(label), ev.clientX, ev.clientY);
         }
-        copyMsg.textContent = 'Copied ' + emails.length + ' email' + (emails.length === 1 ? '' : 's') + ' to clipboard.';
-      } catch (e) {
-        copyMsg.textContent = 'Copy failed: ' + (e && e.message ? e.message : e);
-      }
-      setTimeout(function () { copyMsg.textContent = ''; }, 4000);
+        hit.addEventListener('mousemove', onMove);
+        hit.addEventListener('mouseleave', hideTip);
+        hit.addEventListener('touchstart', function (ev) { if (ev.touches && ev.touches[0]) onMove(ev.touches[0]); }, { passive:true });
+      })(d);
+      svg.appendChild(hit);
+    });
+
+    // sparse x labels (first, mid, last)
+    addXLabels(svg, data, padL, slot, padT + ih + 14);
+    host.appendChild(svg);
+  }
+
+  // Area/line chart. data = [{label, value, tipLabel}]
+  function areaChart(host, data, opts) {
+    host.innerHTML = '';
+    opts = opts || {};
+    if (!data || !data.length) { emptyChart(host); return; }
+    var W = 720, H = 220, padL = 52, padR = 14, padT = 14, padB = 26;
+    var iw = W - padL - padR, ih = H - padT - padB;
+    var max = 0; data.forEach(function (d) { if (d.value > max) max = d.value; });
+    if (max <= 0) max = 1;
+    var niceMax = niceCeil(max);
+    var n = data.length;
+    var step = n > 1 ? iw / (n - 1) : 0;
+    function X(i) { return padL + i * step; }
+    function Y(v) { return padT + ih - (v / niceMax) * ih; }
+
+    var svg = svgEl('svg', { class:'chart', width:'100%', height:String(H), viewBox:'0 0 ' + W + ' ' + H });
+
+    var grad = svgEl('linearGradient', { id:'revGrad', x1:'0', y1:'0', x2:'0', y2:'1' });
+    grad.appendChild(svgEl('stop', { offset:'0%', 'stop-color':'#54e09a', 'stop-opacity':'0.35' }));
+    grad.appendChild(svgEl('stop', { offset:'100%', 'stop-color':'#54e09a', 'stop-opacity':'0' }));
+    var defs = svgEl('defs'); defs.appendChild(grad); svg.appendChild(defs);
+
+    var ticks = 4;
+    for (var t = 0; t <= ticks; t++) {
+      var yv = niceMax * t / ticks;
+      var y = Y(yv);
+      svg.appendChild(svgEl('line', { class:'grid', x1:padL, y1:y, x2:W - padR, y2:y }));
+      var lbl = svgEl('text', { x:padL - 7, y:y + 3, 'text-anchor':'end' });
+      lbl.textContent = opts.fmtAxis ? opts.fmtAxis(yv) : compact(yv);
+      svg.appendChild(lbl);
     }
 
-    // combined refresh used by the main "Load stats" button + auto-refresh
-    function loadAll() { loadStats(); loadUsers(); }
+    var linePts = data.map(function (d, i) { return X(i) + ',' + Y(d.value); }).join(' ');
+    var areaPts = X(0) + ',' + Y(0) + ' ' + linePts + ' ' + X(n - 1) + ',' + Y(0);
+    svg.appendChild(svgEl('polygon', { points:areaPts, fill:'url(#revGrad)' }));
+    svg.appendChild(svgEl('polyline', { points:linePts, fill:'none', stroke:'#54e09a', 'stroke-width':'2', 'stroke-linejoin':'round', 'stroke-linecap':'round' }));
 
-    // ----- wiring -----
-    document.getElementById('load').addEventListener('click', loadAll);
-    keyEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') loadAll(); });
-    autoBtn.addEventListener('click', function () {
-      if (timer) { clearInterval(timer); timer = null; autoBtn.textContent = 'Auto-refresh: off'; }
-      else { timer = setInterval(loadStats, 30000); autoBtn.textContent = 'Auto-refresh: 30s'; loadStats(); }
+    // hover hit columns + a moving dot
+    var dot = svgEl('circle', { class:'dot', r:'3.5', cx:-10, cy:-10, fill:'#54e09a', stroke:'#0a0f1c', 'stroke-width':'1.5' });
+    dot.style.opacity = '0';
+    var slot = n > 1 ? iw / (n - 1) : iw;
+    data.forEach(function (d, i) {
+      var hx = i === 0 ? padL : X(i) - slot / 2;
+      var hw = (i === 0 || i === n - 1) ? slot / 2 : slot;
+      var hit = svgEl('rect', { class:'hit', x:Math.max(padL, hx), y:padT, width:Math.max(1, hw), height:ih });
+      (function (d, i) {
+        function onMove(ev) {
+          dot.setAttribute('cx', X(i)); dot.setAttribute('cy', Y(d.value)); dot.style.opacity = '1';
+          var label = d.tipLabel != null ? d.tipLabel : d.label;
+          showTip('<b>' + esc(opts.fmtVal ? opts.fmtVal(d.value) : d.value) + '</b><br>' + esc(label), ev.clientX, ev.clientY);
+        }
+        hit.addEventListener('mousemove', onMove);
+        hit.addEventListener('mouseleave', function () { hideTip(); dot.style.opacity = '0'; });
+        hit.addEventListener('touchstart', function (ev) { if (ev.touches && ev.touches[0]) onMove(ev.touches[0]); }, { passive:true });
+      })(d, i);
+      svg.appendChild(hit);
     });
+    svg.appendChild(dot);
 
-    document.getElementById('usersRefresh').addEventListener('click', loadUsers);
-    document.getElementById('copyEmails').addEventListener('click', copyEmails);
-    sortEl.addEventListener('change', loadUsers);
-    limitEl.addEventListener('change', loadUsers);
-    qEl.addEventListener('input', function () {
-      clearTimeout(qTimer);
-      qTimer = setTimeout(loadUsers, 350);
+    addXLabels(svg, data, padL, step, padT + ih + 14, true);
+    host.appendChild(svg);
+  }
+
+  function addXLabels(svg, data, padL, step, y, isLine) {
+    var n = data.length;
+    var idxs = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
+    var seen = {};
+    idxs.forEach(function (i) {
+      if (seen[i]) return; seen[i] = 1;
+      var x = isLine ? (padL + i * step) : (padL + i * step + step / 2);
+      var anchor = i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
+      var t = svgEl('text', { x:x, y:y, 'text-anchor':anchor });
+      t.textContent = data[i].label;
+      svg.appendChild(t);
     });
-    qEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') { clearTimeout(qTimer); loadUsers(); } });
+  }
 
-    if (keyEl.value) loadAll();
-  })();
+  function niceCeil(v) {
+    if (v <= 0) return 1;
+    var mag = Math.pow(10, Math.floor(Math.log10(v)));
+    var norm = v / mag;
+    var nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+    return nice * mag;
+  }
+  function shortDay(iso) { // 'YYYY-MM-DD' -> 'M/D'
+    if (!iso) return '';
+    var m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return String(iso);
+    return Number(m[2]) + '/' + Number(m[3]);
+  }
+  function longDay(iso) {
+    if (!iso) return '';
+    var d = new Date(iso + 'T00:00:00');
+    if (isNaN(d.getTime())) return String(iso);
+    return d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+  }
+
+  // ===================================================================
+  //  REVENUE PANEL
+  // ===================================================================
+  function renderRevenue(s) {
+    s = s || {};
+    var r = rev(s);
+    var cur = r.currency || s.currency || 'usd';
+
+    // badge
+    if (r.source === 'stripe') revBadge.innerHTML = '<span class="badge live">● Stripe (live)</span>';
+    else if (r.source === 'ledger') revBadge.innerHTML = '<span class="badge approx">≈ ledger (approx)</span>';
+    else revBadge.innerHTML = '';
+
+    // mini stats
+    var month = pick(r.monthCents, s.revenueMonthCents);
+    var year = pick(r.yearCents, s.revenueYearCents);
+    var allTime = pick(r.allTimeCents, s.revenueAllTimeCents);
+    var mini = [];
+    if (month != null) mini.push({ l:'This month', v:money(month, cur) });
+    if (year != null) mini.push({ l:'This year', v:money(year, cur) });
+    if (allTime != null) mini.push({ l:'All-time', v:money(allTime, cur) });
+    revMini.innerHTML = mini.map(function (m) {
+      return '<div><div class="m-lbl">' + esc(m.l) + '</div><div class="m-val">' + m.v + '</div></div>';
+    }).join('');
+
+    // daily chart
+    var daily = Array.isArray(r.dailyCents) ? r.dailyCents : null;
+    if (daily && daily.length) {
+      var data = daily.map(function (d) {
+        return { label: shortDay(d && d.date), tipLabel: longDay(d && d.date), value: Number((d && d.cents) || 0) };
+      });
+      areaChart(revChart, data, {
+        fmtAxis: function (c) { return moneyCompact(c, cur); },
+        fmtVal: function (c) { return money(c, cur); }
+      });
+    } else {
+      emptyChart(revChart, 'No revenue history yet');
+    }
+
+    // recent payments
+    renderPayments(r.recentPayments, cur);
+  }
+
+  function renderPayments(list, cur) {
+    if (!Array.isArray(list) || !list.length) {
+      payList.innerHTML = '<div class="chart-empty">No payments yet</div>';
+      return;
+    }
+    payList.innerHTML = list.slice(0, 10).map(function (p) {
+      p = p || {};
+      var when = ago(p.createdAt) || fmtDateShort(p.createdAt);
+      return '<div class="pay">' +
+        '<div class="pic">$</div>' +
+        '<div class="pmid">' +
+          '<div class="plabel">' + esc(p.label || 'Payment') + '</div>' +
+          '<div class="pdate">' + esc(when) + '</div>' +
+        '</div>' +
+        '<div class="pamt">' + money(p.amountCents, p.currency || cur) + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // ===================================================================
+  //  SIGNUP / GAMES CHARTS
+  // ===================================================================
+  function renderSeries(s) {
+    var series = (s && s.series) || {};
+    var su = Array.isArray(series.signupsDaily) ? series.signupsDaily : null;
+    if (su && su.length) {
+      barChart(signupChart, su.map(function (d) {
+        return { label: shortDay(d && d.date), tipLabel: longDay(d && d.date), value: Number((d && d.count) || 0) };
+      }), { color:'var(--blue)', fmtVal:function (v){ return v.toLocaleString() + ' signup' + (v===1?'':'s'); } });
+    } else { emptyChart(signupChart, 'No signup history yet'); }
+
+    var gd = Array.isArray(series.gamesDaily) ? series.gamesDaily : null;
+    if (gd && gd.length) {
+      barChart(gamesChart, gd.map(function (d) {
+        return { label: shortDay(d && d.date), tipLabel: longDay(d && d.date), value: Number((d && d.count) || 0) };
+      }), { color:'var(--pink)', fmtVal:function (v){ return v.toLocaleString() + ' game' + (v===1?'':'s'); } });
+    } else { emptyChart(gamesChart, 'No game history yet'); }
+  }
+
+  // ===================================================================
+  //  SHARES PANEL
+  // ===================================================================
+  var SHARE_ICON = { x:'𝕏', facebook:'f', whatsapp:'☎', reddit:'👽', telegram:'✈', copy:'⧉', native:'⤴', other:'•' };
+  function renderShares(s) {
+    var sh = s && s.shares;
+    if (!sh || !sh.byPlatform || typeof sh.byPlatform !== 'object') {
+      sharesEl.innerHTML = '<div class="chart-empty">No shares yet</div>';
+      sharesSub.textContent = 'Share breakdown by platform';
+      return;
+    }
+    var entries = Object.keys(sh.byPlatform).map(function (k) {
+      return { platform:k, count:Number(sh.byPlatform[k]) || 0 };
+    }).filter(function (e) { return e.count > 0; });
+    if (!entries.length) {
+      sharesEl.innerHTML = '<div class="chart-empty">No shares yet</div>';
+      sharesSub.textContent = 'Share breakdown by platform';
+      return;
+    }
+    entries.sort(function (a, b) { return b.count - a.count; });
+    var total = (sh.total != null) ? Number(sh.total) : entries.reduce(function (t, e) { return t + e.count; }, 0);
+    var max = entries[0].count;
+    sharesSub.textContent = total.toLocaleString() + ' total shares · top: ' + entries[0].platform;
+    sharesEl.innerHTML = entries.map(function (e, i) {
+      var pct = max > 0 ? Math.round((e.count / max) * 100) : 0;
+      var ic = SHARE_ICON[e.platform] || '•';
+      return '<div class="shares-row' + (i === 0 ? ' top' : '') + '">' +
+        '<span class="pf"><span class="faint">' + esc(ic) + '</span> ' + esc(e.platform) + '</span>' +
+        '<span class="barfill"><i style="width:' + pct + '%"></i></span>' +
+        '<span class="cnt">' + e.count.toLocaleString() + '</span></div>';
+    }).join('');
+  }
+
+  // ===================================================================
+  //  STATS FETCH
+  // ===================================================================
+  function renderAll(s) {
+    lastStats = s || {};
+    renderKpis(lastStats);
+    renderRevenue(lastStats);
+    renderSeries(lastStats);
+    renderShares(lastStats);
+    var st = lastStats.serverTime ? fmtDateTime(lastStats.serverTime) : '';
+    updEl.innerHTML = '<span><span class="dot"></span><b>Updated</b> ' + esc(new Date().toLocaleTimeString()) + '</span>' +
+      (st ? '<span><b>Server</b> ' + esc(st) + '</span>' : '');
+  }
+
+  function showGate(msg) {
+    gateEl.classList.add('show');
+    dashEl.classList.remove('show');
+    topControls.style.display = 'none';
+    if (msg) gateMsgEl.textContent = msg;
+  }
+  function showDash() {
+    gateEl.classList.remove('show');
+    dashEl.classList.add('show');
+    topControls.style.display = 'flex';
+  }
+
+  async function loadStats() {
+    var key = getKey();
+    if (!key) { showGate(); return false; }
+    try {
+      var res = await fetch(statsUrl(), { headers: headers() });
+      if (res.status === 403 || res.status === 401) {
+        showGate('That admin key was rejected (or ADMIN_KEY is not set on the server). Try again.');
+        return false;
+      }
+      if (!res.ok) { errEl.textContent = 'Stats error: HTTP ' + res.status; return false; }
+      var data = await res.json();
+      errEl.textContent = '';
+      showDash();
+      renderAll(data);
+      return true;
+    } catch (e) {
+      errEl.textContent = 'Could not reach the server: ' + (e && e.message ? e.message : e);
+      return false;
+    }
+  }
+
+  // ===================================================================
+  //  USERS TABLE
+  // ===================================================================
+  function renderUsers(data) {
+    var users = (data && Array.isArray(data.users)) ? data.users : [];
+    currentUsers = users;
+    var total = (data && data.total != null) ? Number(data.total) : users.length;
+    usersCount.textContent = 'Showing ' + users.length.toLocaleString() + ' of ' + total.toLocaleString() + ' total users';
+    if (!users.length) {
+      usersBody.innerHTML = '<tr><td colspan="11" class="faint" style="padding:16px 12px;">No users match.</td></tr>';
+      return;
+    }
+    usersBody.innerHTML = users.map(function (u, i) {
+      u = u || {};
+      var ls = toDate(u.lastSeen);
+      var lsTxt = ls ? (ago(u.lastSeen) || ls.toLocaleString()) : 'never';
+      return '<tr>' +
+        '<td class="num faint">' + (i + 1) + '</td>' +
+        '<td class="uname">' + esc(u.username) + '</td>' +
+        '<td class="muted">' + esc(u.email) + '</td>' +
+        '<td class="num">' + num(u.elo) + '</td>' +
+        '<td class="num">' + num(u.eloCheckers8) + '</td>' +
+        '<td class="num">' + num(u.eloCheckers10) + '</td>' +
+        '<td class="num">' + num(u.games) + '</td>' +
+        '<td class="muted">' + esc(lsTxt) + '</td>' +
+        '<td class="muted">' + esc(fmtDateShort(u.createdAt)) + '</td>' +
+        '<td>' + (u.emailVerified ? '<span class="yes">✓</span>' : '<span class="faint">—</span>') + '</td>' +
+        '<td>' + (u.isPremium ? '<span class="pill">PREMIUM</span>' : '<span class="faint">—</span>') + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  async function loadUsers() {
+    var key = getKey();
+    if (!key) { return; }
+    usersErr.textContent = '';
+    var params = new URLSearchParams();
+    params.set('sort', sortEl.value);
+    params.set('limit', limitEl.value);
+    var q = (qEl.value || '').trim();
+    if (q) params.set('q', q);
+    try {
+      var res = await fetch(usersUrl(params), { headers: headers() });
+      if (res.status === 403 || res.status === 401) { usersErr.textContent = 'Forbidden — wrong/missing admin key.'; return; }
+      if (!res.ok) { usersErr.textContent = 'Users error: HTTP ' + res.status; return; }
+      renderUsers(await res.json());
+    } catch (e) {
+      usersErr.textContent = 'Could not reach the server: ' + (e && e.message ? e.message : e);
+    }
+  }
+
+  async function copyEmails() {
+    copyMsg.textContent = '';
+    var emails = currentUsers.map(function (u) { return ((u && u.email) || '').trim(); }).filter(function (e) { return e; });
+    if (!emails.length) { copyMsg.textContent = 'No emails to copy.'; return; }
+    var text = emails.join(', ');
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+      }
+      copyMsg.textContent = 'Copied ' + emails.length + ' email' + (emails.length === 1 ? '' : 's') + ' to clipboard.';
+    } catch (e) {
+      copyMsg.textContent = 'Copy failed: ' + (e && e.message ? e.message : e);
+    }
+    setTimeout(function () { copyMsg.textContent = ''; }, 4000);
+  }
+
+  // ===================================================================
+  //  ORCHESTRATION
+  // ===================================================================
+  async function loadAll() {
+    var ok = await loadStats();
+    if (ok) loadUsers();
+  }
+
+  function unlock(fromGate) {
+    var v = (fromGate ? gateKeyEl.value : keyEl.value).trim();
+    keyEl.value = v; gateKeyEl.value = v;
+    try { if (v) localStorage.setItem(KEY_STORE, v); } catch (e) {}
+    if (!v) { showGate('Please enter an admin key.'); return; }
+    loadAll();
+  }
+
+  // wiring (all addEventListener — CSP-safe, no inline handlers)
+  $('refresh').addEventListener('click', loadAll);
+  $('gateBtn').addEventListener('click', function () { unlock(true); });
+  gateKeyEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') unlock(true); });
+  keyEl.addEventListener('change', function () {
+    var v = keyEl.value.trim();
+    try { if (v) localStorage.setItem(KEY_STORE, v); } catch (e) {}
+  });
+  keyEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') unlock(false); });
+
+  autoBtn.addEventListener('click', function () {
+    if (timer) { clearInterval(timer); timer = null; autoBtn.textContent = '⏱ Auto: off'; autoBtn.classList.remove('on'); }
+    else { timer = setInterval(loadAll, 30000); autoBtn.textContent = '⏱ Auto: 30s'; autoBtn.classList.add('on'); loadAll(); }
+  });
+
+  $('usersRefresh').addEventListener('click', loadUsers);
+  $('copyEmails').addEventListener('click', copyEmails);
+  sortEl.addEventListener('change', loadUsers);
+  limitEl.addEventListener('change', loadUsers);
+  qEl.addEventListener('input', function () { clearTimeout(qTimer); qTimer = setTimeout(loadUsers, 350); });
+  qEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') { clearTimeout(qTimer); loadUsers(); } });
+
+  window.addEventListener('scroll', hideTip, { passive:true });
+
+  // boot
+  if (getKey()) { loadAll(); } else { showGate(); }
+})();
 </script>
 </body>
 </html>

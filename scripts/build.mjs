@@ -61,6 +61,9 @@ const RUNTIME_JS = ['ct-ai-worker.js', 'checkers-ai-worker.js'];
 const COPY_ASSETS = [
   'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-1024.png',
   'og-image.png', 'terms.html', 'privacy.html',
+  // Admin analytics dashboard. The HTML shell is harmless to expose — all data
+  // is gated server-side by ADMIN_KEY (the API returns 403 without it).
+  'admin.html',
 ];
 
 const log = (...a) => console.log('[build]', ...a);
