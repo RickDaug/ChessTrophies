@@ -53,7 +53,9 @@ const TAIL = ['app.js', 'academy.js', 'review.js', 'trophy-extras.js', 'learn-li
 
 // Extra same-origin runtime JS not in index.html's <script> list but loaded at
 // runtime — must exist in dist by exact name. The worker importScripts these.
-const RUNTIME_JS = ['sw.js', 'ct-ai-worker.js', 'checkers-ai-worker.js'];
+// NOTE: sw.js is NOT here — it gets special handling (rewriteServiceWorker) so
+// its precache ASSETS list + CACHE name match what this build actually emits.
+const RUNTIME_JS = ['ct-ai-worker.js', 'checkers-ai-worker.js'];
 
 // Non-JS assets / pages referenced by index.html (and the PWA) to copy verbatim.
 const COPY_ASSETS = [
@@ -143,7 +145,8 @@ async function main() {
     bundleReport = { name: 'app.bundle.js', in: rawTotal, out: Buffer.byteLength(res.code), kind: 'BUNDLE (tail x5)' };
   }
 
-  // 3) Runtime JS not in index.html (sw.js, ct-ai-worker.js) — minify by name.
+  // 3) Runtime JS not in index.html (ct-ai-worker.js, …) — minify by name.
+  //    sw.js is handled separately in step 6 (its precache list is rewritten).
   for (const f of RUNTIME_JS) {
     const r = await minifyFile(f);
     report.push({ name: f, ...r, kind: 'individual (runtime)' });
@@ -173,7 +176,13 @@ async function main() {
     const tailTags = scripts.filter(s => tailSet.has(s.file));
     tailTags.forEach((s, i) => {
       if (i === 0) {
-        outHtml = outHtml.replace(s.tag, `<script src="app.bundle.js?v=${STAMP}"></script>`);
+        // Inherit `defer` from the original app.js tag. The bottom-of-body script
+        // tags are deferred; if the bundle tag were NOT deferred it would execute
+        // synchronously mid-parse, BEFORE its deferred dependencies (chess.min.js,
+        // ct-ai.js, …) — throwing on undefined globals and never attaching the
+        // tail's exports (e.g. CT_reviewGame). Mirror the source tag's defer.
+        const deferAttr = /\bdefer\b/.test(s.tag) ? 'defer ' : '';
+        outHtml = outHtml.replace(s.tag, `<script ${deferAttr}src="app.bundle.js?v=${STAMP}"></script>`);
       } else {
         // Drop the tag (and a leading run of whitespace to avoid blank lines).
         outHtml = outHtml.replace(new RegExp('[ \\t]*' + escapeRe(s.tag) + '\\r?\\n?'), '');
@@ -188,6 +197,16 @@ async function main() {
     outHtml = outHtml.replace(s.tag, s.tag.replace(s.raw, newRaw));
   }
   await fsp.writeFile(path.join(DIST, 'index.html'), outHtml, 'utf8');
+
+  // 6) Service worker: rewrite its precache ASSETS list + CACHE name to match
+  //    the files THIS build actually emitted into dist, then minify -> dist/sw.js.
+  //    The repo-root sw.js precaches source files (app.js, academy.js, …) that
+  //    the bundler folds into app.bundle.js and never emits — caching those 404s
+  //    would (atomically, pre-fix) nuke the whole precache. Deriving the list
+  //    from the real dist tree keeps it honest, and stamping CACHE makes the
+  //    activate-cleanup actually evict old caches on every deploy.
+  const swReport = await rewriteServiceWorker();
+  report.push(swReport);
 
   // --- Size report ----------------------------------------------------------
   const allRows = [...report];
@@ -208,6 +227,72 @@ async function main() {
   log('');
   log(`TOTAL JS  raw ${fmt(rawBytes)}  ->  dist ${fmt(distBytes)}  =  ${totalPct}% smaller`);
   log(`dist/ written in ${Date.now() - t0}ms`);
+}
+
+// Build dist/sw.js: rewrite the precache ASSETS list to the files actually
+// emitted into dist (same-origin) + preserved cross-origin URLs from the source
+// list (e.g. Google Fonts), and stamp the CACHE name so each deploy gets a fresh
+// cache and the activate handler evicts stale ones. Then minify.
+async function rewriteServiceWorker() {
+  const srcPath = path.join(ROOT, 'sw.js');
+  const src = await fsp.readFile(srcPath, 'utf8');
+
+  // Cross-origin URLs to preserve from the source ASSETS list (fonts/CDN). We
+  // never list a same-origin source file here; those come from the dist scan.
+  const crossOrigin = (() => {
+    const m = src.match(/const\s+ASSETS\s*=\s*\[([\s\S]*?)\];/);
+    if (!m) return [];
+    const out = [];
+    const re = /["']([^"']+)["']/g;
+    let x;
+    while ((x = re.exec(m[1]))) {
+      if (/^https?:\/\//i.test(x[1])) out.push(x[1]);
+    }
+    return out;
+  })();
+
+  // Same-origin assets = every file emitted into dist (recursively for vendor/),
+  // EXCEPT sw.js itself (a SW need not precache its own script).
+  const distAssets = (await listDistFiles(DIST))
+    .filter((rel) => rel !== 'sw.js')
+    .sort();
+
+  const assets = [
+    './',
+    './index.html',
+    ...distAssets.filter((rel) => rel !== 'index.html').map((rel) => './' + rel.split(path.sep).join('/')),
+    ...crossOrigin,
+  ];
+
+  const stampedCache = `'chesstrophies-${STAMP}'`;
+  const assetsLiteral = 'const ASSETS = [\n' +
+    assets.map((a) => "  '" + a + "'").join(',\n') +
+    '\n];';
+
+  let out = src
+    .replace(/const\s+CACHE\s*=\s*['"][^'"]*['"];/, `const CACHE = ${stampedCache};`)
+    .replace(/const\s+ASSETS\s*=\s*\[[\s\S]*?\];/, assetsLiteral);
+
+  const res = await esbuild.transform(out, { minify: true, loader: 'js', legalComments: 'none' });
+  await fsp.writeFile(path.join(DIST, 'sw.js'), res.code, 'utf8');
+  log('');
+  log(`service worker: CACHE=chesstrophies-${STAMP}, ${assets.length} precache assets:`);
+  log('  ' + assets.join(' '));
+  return { name: 'sw.js', in: Buffer.byteLength(src), out: Buffer.byteLength(res.code), kind: 'rewritten SW' };
+}
+
+// Recursively list files under dir, returned as paths relative to dir.
+async function listDistFiles(dir, base = dir) {
+  const out = [];
+  for (const ent of await fsp.readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, ent.name);
+    if (ent.isDirectory()) {
+      out.push(...await listDistFiles(full, base));
+    } else if (ent.isFile()) {
+      out.push(path.relative(base, full));
+    }
+  }
+  return out;
 }
 
 function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }

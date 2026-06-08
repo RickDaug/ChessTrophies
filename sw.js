@@ -20,8 +20,13 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (event) => {
+  // Resilient precache: add each asset on its own so a single missing/404 file
+  // (e.g. a renamed bundle) can't reject the whole precache and leave NOTHING
+  // cached. allSettled never rejects; failures are logged, not fatal.
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(ASSETS).catch(() => {}))
+    caches.open(CACHE).then((cache) =>
+      Promise.allSettled(ASSETS.map((a) => cache.add(a)))
+    ).catch(() => {})
   );
   self.skipWaiting();
 });
