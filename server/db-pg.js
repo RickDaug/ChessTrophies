@@ -251,7 +251,74 @@ CREATE TABLE IF NOT EXISTS payments (
   created_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_payments_created ON payments(created_at DESC);
+
+-- Puzzle progress: idempotent solved tracking (one row per user+puzzle) plus a
+-- per-user daily-solve streak. Additive + self-contained (mirrors db.js).
+CREATE TABLE IF NOT EXISTS puzzle_solves (
+  user_id TEXT NOT NULL,
+  puzzle_id TEXT NOT NULL,
+  solved_at BIGINT NOT NULL,
+  day_key TEXT NOT NULL,
+  PRIMARY KEY (user_id, puzzle_id)
+);
+CREATE INDEX IF NOT EXISTS idx_puzzle_solves_user ON puzzle_solves(user_id);
+CREATE TABLE IF NOT EXISTS puzzle_streaks (
+  user_id TEXT PRIMARY KEY,
+  current_streak INTEGER NOT NULL DEFAULT 0,
+  best_streak INTEGER NOT NULL DEFAULT 0,
+  last_day_key TEXT NOT NULL DEFAULT '',
+  total_solved INTEGER NOT NULL DEFAULT 0
+);
 `);
+}
+
+// Return the YYYY-MM-DD before `dayKey` (UTC), to detect a consecutive streak.
+function previousDayKey(dayKey) {
+  const d = new Date(dayKey + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// Idempotently record a solve + advance the daily streak (async mirror of
+// db.js). Runs inside one transaction so the streak update is atomic with the
+// solve insert. Semantics are identical to the SQLite path (see db.js comment).
+export async function recordPuzzleSolved(userId, puzzleId, dayKey, solvedAt = Date.now()) {
+  return transaction(async (client) => {
+    const ins = await client.query(
+      'INSERT INTO puzzle_solves (user_id, puzzle_id, solved_at, day_key) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+      [userId, puzzleId, solvedAt, dayKey]
+    );
+    const firstTime = ins.rowCount > 0;
+    let { rows } = await client.query('SELECT * FROM puzzle_streaks WHERE user_id = $1', [userId]);
+    let row = rows[0];
+    if (!row) {
+      await client.query("INSERT INTO puzzle_streaks (user_id, current_streak, best_streak, last_day_key, total_solved) VALUES ($1, 0, 0, '', 0)", [userId]);
+      row = { current_streak: 0, best_streak: 0, last_day_key: '', total_solved: 0 };
+    }
+    let current_streak = row.current_streak, best_streak = row.best_streak;
+    let last_day_key = row.last_day_key, total_solved = row.total_solved;
+    if (firstTime) total_solved += 1;
+    if (last_day_key !== dayKey) {
+      if (last_day_key === previousDayKey(dayKey)) current_streak += 1;
+      else current_streak = 1;
+      last_day_key = dayKey;
+      if (current_streak > best_streak) best_streak = current_streak;
+    }
+    await client.query(
+      'UPDATE puzzle_streaks SET current_streak = $1, best_streak = $2, last_day_key = $3, total_solved = $4 WHERE user_id = $5',
+      [current_streak, best_streak, last_day_key, total_solved, userId]
+    );
+    return { solved: true, alreadySolved: !firstTime, currentStreak: current_streak, bestStreak: best_streak, totalSolved: total_solved };
+  });
+}
+
+// Read a user's puzzle progress summary (async mirror of db.js).
+export async function getPuzzleProgress(userId) {
+  const { rows } = await pool.query('SELECT current_streak, best_streak, last_day_key, total_solved FROM puzzle_streaks WHERE user_id = $1', [userId]);
+  const row = rows[0];
+  if (!row) return { currentStreak: 0, bestStreak: 0, lastDayKey: '', totalSolved: 0, solvedIds: [] };
+  const idRes = await pool.query('SELECT puzzle_id FROM puzzle_solves WHERE user_id = $1', [userId]);
+  return { currentStreak: row.current_streak, bestStreak: row.best_streak, lastDayKey: row.last_day_key, totalSolved: row.total_solved, solvedIds: idRes.rows.map(r => r.puzzle_id) };
 }
 
 // --- Stripe billing (async mirrors of db.js) -------------------------------

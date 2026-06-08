@@ -178,6 +178,82 @@ CREATE TABLE IF NOT EXISTS share_counts (
 );
 `);
 
+// --- Puzzle progress (daily challenge / trainer) ---------------------------
+// Tracks which puzzles a user has solved (idempotent, one row per user+puzzle)
+// and a per-user daily-solve streak. Additive + self-contained: nothing else in
+// the schema depends on these tables, so they are safe to create lazily here.
+db.exec(`
+CREATE TABLE IF NOT EXISTS puzzle_solves (
+  user_id TEXT NOT NULL,
+  puzzle_id TEXT NOT NULL,
+  solved_at INTEGER NOT NULL,
+  day_key TEXT NOT NULL,
+  PRIMARY KEY (user_id, puzzle_id),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_puzzle_solves_user ON puzzle_solves(user_id);
+CREATE TABLE IF NOT EXISTS puzzle_streaks (
+  user_id TEXT PRIMARY KEY,
+  current_streak INTEGER NOT NULL DEFAULT 0,
+  best_streak INTEGER NOT NULL DEFAULT 0,
+  last_day_key TEXT NOT NULL DEFAULT '',
+  total_solved INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+`);
+
+// Return the YYYY-MM-DD before `dayKey` (UTC). Used to detect a consecutive
+// daily streak. `dayKey` is the canonical UTC date string the API derives.
+function previousDayKey(dayKey) {
+  const d = new Date(dayKey + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// Idempotently record that `userId` solved `puzzleId` on UTC day `dayKey`, and
+// advance the daily streak. Returns the resulting streak summary. Calling it
+// again for the SAME puzzle is a no-op for both the solve row and the streak
+// (so a double-submit can't inflate the streak). The streak counts CONSECUTIVE
+// UTC days on which the user solved at least one puzzle:
+//   - first solve ever, or a gap of 2+ days -> streak resets to 1
+//   - solved yesterday -> streak += 1
+//   - already counted today -> unchanged
+export function recordPuzzleSolved(userId, puzzleId, dayKey, solvedAt = Date.now()) {
+  const insert = db.prepare(
+    'INSERT OR IGNORE INTO puzzle_solves (user_id, puzzle_id, solved_at, day_key) VALUES (?, ?, ?, ?)'
+  );
+  const tx = db.transaction(() => {
+    const res = insert.run(userId, puzzleId, solvedAt, dayKey);
+    const firstTime = res.changes > 0;
+    let row = db.prepare('SELECT * FROM puzzle_streaks WHERE user_id = ?').get(userId);
+    if (!row) {
+      db.prepare('INSERT INTO puzzle_streaks (user_id, current_streak, best_streak, last_day_key, total_solved) VALUES (?, 0, 0, \'\', 0)').run(userId);
+      row = { current_streak: 0, best_streak: 0, last_day_key: '', total_solved: 0 };
+    }
+    let { current_streak, best_streak, last_day_key, total_solved } = row;
+    if (firstTime) total_solved += 1;
+    // Only advance the streak when this is a NEW day for the user.
+    if (last_day_key !== dayKey) {
+      if (last_day_key === previousDayKey(dayKey)) current_streak += 1;
+      else current_streak = 1;
+      last_day_key = dayKey;
+      if (current_streak > best_streak) best_streak = current_streak;
+    }
+    db.prepare('UPDATE puzzle_streaks SET current_streak = ?, best_streak = ?, last_day_key = ?, total_solved = ? WHERE user_id = ?')
+      .run(current_streak, best_streak, last_day_key, total_solved, userId);
+    return { solved: true, alreadySolved: !firstTime, currentStreak: current_streak, bestStreak: best_streak, totalSolved: total_solved };
+  });
+  return tx();
+}
+
+// Read a user's puzzle progress summary (streak + total). Defaults to zeros.
+export function getPuzzleProgress(userId) {
+  const row = db.prepare('SELECT current_streak, best_streak, last_day_key, total_solved FROM puzzle_streaks WHERE user_id = ?').get(userId);
+  if (!row) return { currentStreak: 0, bestStreak: 0, lastDayKey: '', totalSolved: 0, solvedIds: [] };
+  const ids = db.prepare('SELECT puzzle_id FROM puzzle_solves WHERE user_id = ?').all(userId).map(r => r.puzzle_id);
+  return { currentStreak: row.current_streak, bestStreak: row.best_streak, lastDayKey: row.last_day_key, totalSolved: row.total_solved, solvedIds: ids };
+}
+
 // Increment (or create) the counter for a share platform. Idempotent upsert.
 export function incShareCount(platform) {
   return db.prepare(`

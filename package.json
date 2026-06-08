@@ -25,7 +25,8 @@
     "test:checkers-friend": "node test/checkers-friend.mjs",
     "test:checkers-ui": "node test/checkers-ui.mjs",
     "test:checkers-anim": "node test/checkers-anim.mjs",
-    "test:trophies-repeat": "node test/trophies-repeat.mjs"
+    "test:trophies-repeat": "node test/trophies-repeat.mjs",
+    "test:puzzles": "node test/puzzles.mjs"
   },
   "repository": {
     "type": "git",

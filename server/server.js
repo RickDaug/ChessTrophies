@@ -20,6 +20,7 @@ import { db, getProgress } from './db.js';
 import * as store from './store.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
 import { mountBilling, mountBillingWebhook, logBillingStatus } from './billing.js';
+import { mountPuzzles } from './puzzles.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -121,6 +122,11 @@ app.get('/api/config', (req, res) => res.json({ rankedEnabled: rankedEnabled() }
 // after express.json() so req.body is parsed; the raw-body webhook is mounted
 // above, before the JSON parser. Inert (503) until Stripe env vars are set.
 mountBilling(app);
+
+// Interactive chess puzzles (daily challenge + trainer). Public daily/next
+// routes + an auth-gated /solved that records progress via the store facade.
+// Falls back to the bundled verified seed corpus when the puzzles table is empty.
+mountPuzzles(app);
 
 function requireStringField(body, name, { min = 1, max = 255 } = {}) {
   const value = body[name];

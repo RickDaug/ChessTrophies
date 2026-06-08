@@ -146,6 +146,18 @@ export async function revenueStats() {
   return sqlite.revenueStats();
 }
 
+// --- Puzzle progress (daily challenge / trainer) ---------------------------
+
+export async function recordPuzzleSolved(userId, puzzleId, dayKey, solvedAt) {
+  if (usingPostgres) return (await loadPg()).recordPuzzleSolved(userId, puzzleId, dayKey, solvedAt);
+  return sqlite.recordPuzzleSolved(userId, puzzleId, dayKey, solvedAt);
+}
+
+export async function getPuzzleProgress(userId) {
+  if (usingPostgres) return (await loadPg()).getPuzzleProgress(userId);
+  return sqlite.getPuzzleProgress(userId);
+}
+
 // --- Generic single-statement helpers --------------------------------------
 //
 // For ad-hoc parameterized SQL in HTTP route handlers (friends/blocks/etc.)
