@@ -18,7 +18,9 @@
  *   flyingKings      false     true        false        true
  *   mandatory        true      true        false        false
  *   maximumCapture   false     true        false        false
- *   noProgressLimit  40        25          80           50    (single-side moves)
+ *   noProgressLimit  40        25          80           50    (FULL moves; each
+ *                    full move = one ply by each side. ACF's "40-move rule" = 40
+ *                    moves BY EACH SIDE ~ 80 plies. Enforced as plies = limit*2.)
  *   ----------------------------------------------------------------------------
  *
  * ============================================================================
@@ -44,8 +46,10 @@
  *
  *  COLORS / DIRECTION: 'w' (White) moves UP the board (toward r=0, decreasing row)
  *   and promotes on r=0. 'b' (Black) moves DOWN (toward r=size-1) and promotes on
- *   r=size-1. White moves first (turn() === 'w' at the start), matching draughts
- *   convention (in standard checkers the lighter side moves first).
+ *   r=size-1. WHO MOVES FIRST depends on the variant (see RULESETS.firstMove):
+ *   ACF / English draughts (8x8) — BLACK (the dark side) moves first
+ *   (turn() === 'b' at the start), the official ACF rule. FMJD / International
+ *   draughts (10x10) — WHITE (the light side) moves first (turn() === 'w').
  *
  *  PUBLIC API (see CT_Checkers.create for the full contract):
  *   CT_Checkers.create({ size, rules, position }) -> game
@@ -73,14 +77,20 @@
 
   // --- Rule-set configuration table (the source of truth for the doc above) ---
   // size is the board this set is intended for; casual is allowed on either.
+  // firstMove: which side moves first. OFFICIAL rule differs by variant:
+  //   ACF / English draughts (8x8): BLACK (the dark side) moves first.
+  //   FMJD / International draughts (10x10): WHITE (the light side) moves first.
+  // casual mirrors the matching official size's convention.
+  // noProgressLimit is counted in FULL MOVES (one by each side = 2 plies); see the
+  // 40-move-rule handling in _compute (plies = noProgressLimit * 2).
   var RULESETS = {
-    acf:    { menCaptureBack: false, flyingKings: false, mandatory: true,  maximumCapture: false, noProgressLimit: 40, sizes: [8] },
-    fmjd:   { menCaptureBack: true,  flyingKings: true,  mandatory: true,  maximumCapture: true,  noProgressLimit: 25, sizes: [10] },
+    acf:    { menCaptureBack: false, flyingKings: false, mandatory: true,  maximumCapture: false, noProgressLimit: 40, firstMove: 'b', sizes: [8] },
+    fmjd:   { menCaptureBack: true,  flyingKings: true,  mandatory: true,  maximumCapture: true,  noProgressLimit: 25, firstMove: 'w', sizes: [10] },
     // casual: relaxed friendly. Mandatory capture OFF, no maximum rule. Kings are
     // non-flying on 8x8 and flying on 10x10 (documented choice — mirrors the
     // official variant for the matching size so casual "feels" like real play).
-    casual8:  { menCaptureBack: true, flyingKings: false, mandatory: false, maximumCapture: false, noProgressLimit: 80, sizes: [8] },
-    casual10: { menCaptureBack: true, flyingKings: true,  mandatory: false, maximumCapture: false, noProgressLimit: 50, sizes: [10] },
+    casual8:  { menCaptureBack: true, flyingKings: false, mandatory: false, maximumCapture: false, noProgressLimit: 80, firstMove: 'b', sizes: [8] },
+    casual10: { menCaptureBack: true, flyingKings: true,  mandatory: false, maximumCapture: false, noProgressLimit: 50, firstMove: 'w', sizes: [10] },
   };
 
   // Resolve the effective config for a (rules, size) pair. 'casual' picks the
@@ -130,8 +140,10 @@
     // board[r][c] = null | { color, king }
     this.b = [];
     for (var r = 0; r < size; r++) { this.b[r] = []; for (var c = 0; c < size; c++) this.b[r][c] = null; }
-    this._turn = 'w';
-    this.noProgress = 0;       // single-side plies since last capture or man move
+    // Initial side to move depends on the variant: BLACK first for ACF/English
+    // (8x8), WHITE first for FMJD/International (10x10). See RULESETS.firstMove.
+    this._turn = this.cfg.firstMove;
+    this.noProgress = 0;       // plies since last capture or man move
     this.moveCount = 0;        // total plies played
     this.history = [];         // notation strings (light)
     this._repCounts = {};      // position-key -> times seen (threefold)
@@ -422,8 +434,10 @@
       this._reason = 'no-moves';
       return;
     }
-    // No-progress draw.
-    if (this.noProgress >= this.cfg.noProgressLimit) {
+    // No-progress draw. noProgressLimit is in FULL moves (one by EACH side), so the
+    // official ACF "40-move rule" = 40 moves per side = 80 plies. this.noProgress
+    // counts plies, hence the *2.
+    if (this.noProgress >= this.cfg.noProgressLimit * 2) {
       this._over = true; this._winner = null; this._reason = 'no-progress'; return;
     }
     // Threefold repetition.

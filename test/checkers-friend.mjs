@@ -139,10 +139,10 @@ async function main() {
     assert(matchA.position && matchA.position === matchB.position, 'start position must match for both players');
     const gameId = matchA.gameId;
     const sockByColor = { [matchA.color]: sa, [matchB.color]: sb };
-    const whiteSock = sockByColor.w;
+    const blackSock = sockByColor.b;
     log(`checkers_match_found ${gameId} (size 8 acf, mode=${matchA.mode} UNRATED), colors consistent ✓`);
 
-    // Play ONE legal move (white to move) synced to BOTH players.
+    // Play ONE legal move (BLACK moves first in ACF 8x8) synced to BOTH players.
     const mirror = CK.load(matchA.position);
     {
       const legal = mirror.legalMoves();
@@ -150,7 +150,7 @@ async function main() {
       const chosen = legal[0];
       const onA = once(sa, 'checkers_move_made');
       const onB = once(sb, 'checkers_move_made');
-      whiteSock.emit('checkers_move', { gameId, move: { from: chosen.from, to: chosen.to, notation: chosen.notation } });
+      blackSock.emit('checkers_move', { gameId, move: { from: chosen.from, to: chosen.to, notation: chosen.notation } });
       const [ra, rb] = await Promise.all([onA, onB]);
       assert(ra.gameId === gameId && rb.gameId === gameId, 'move_made gameId mismatch');
       assert(ra.position === rb.position, 'move_made position must be identical for both players');

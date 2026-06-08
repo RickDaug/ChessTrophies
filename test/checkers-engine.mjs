@@ -32,12 +32,13 @@ function main() {
   {
     const g = CT.create({ size: 8, rules: 'acf' });
     eq(g.legalMoves().length, 7, '8x8 ACF opening has 7 first moves');
-    eq(g.turn(), 'w', 'white moves first');
+    eq(g.turn(), 'b', 'ACF (8x8): BLACK moves first (official ACF/English rule)');
     eq(g.size, 8, 'size is 8'); eq(g.rules, 'acf', 'rules is acf');
   }
   {
     const g = CT.create({ size: 10, rules: 'fmjd' });
     eq(g.legalMoves().length, 9, '10x10 FMJD opening has 9 first moves');
+    eq(g.turn(), 'w', 'FMJD (10x10): WHITE moves first (official International rule)');
   }
   log('opening counts OK');
 
@@ -213,6 +214,28 @@ function main() {
   }
   log('casual non-mandatory capture OK');
 
+  // --- ACF 40-move rule counts FULL moves (40 per side ~ 80 plies) ----------
+  {
+    // noProgress counts PLIES; the ACF "40-move rule" means 40 moves BY EACH SIDE,
+    // i.e. 2*limit plies. Drive the ply counter directly so threefold repetition
+    // (which a deterministic king shuffle would trigger first) can't interfere.
+    const limit = CT.configFor('acf', 8).noProgressLimit; // 40 (full moves per side)
+    const mk = () => CT.create({ size: 8, rules: 'acf', position: { [n8(4, 1)]: 'W', [n8(3, 6)]: 'B' }, turn: 'b' });
+    // At the OLD (buggy) single-side count it must NOT be a draw.
+    const gHalf = mk(); gHalf.noProgress = limit;
+    assert(!gHalf.isGameOver(),
+      'ACF 40-move rule: NOT a draw at single-side count (' + limit + ' plies) — bug 2 guard');
+    // One ply short of the per-side full-move threshold: still NOT a draw.
+    const gJustUnder = mk(); gJustUnder.noProgress = limit * 2 - 1;
+    assert(!gJustUnder.isGameOver(), 'ACF 40-move rule: not a draw one ply before 2*limit');
+    // At 2*limit plies (40 moves each side): draw by no-progress.
+    const gAt = mk(); gAt.noProgress = limit * 2;
+    assert(gAt.isGameOver(), 'ACF 40-move rule: draw at 2*limit plies');
+    eq(gAt.gameOverReason(), 'no-progress', 'ACF 40-move rule reason is no-progress');
+    assert(gAt.isDraw(), 'ACF 40-move rule: it is a draw (no winner)');
+  }
+  log('ACF 40-move rule (per-side full moves) OK');
+
   // --- config table sanity --------------------------------------------------
   {
     eq(CT.configFor('acf', 8).menCaptureBack, false, 'config: ACF men do NOT capture backward (official correction)');
@@ -221,6 +244,8 @@ function main() {
     eq(CT.configFor('fmjd', 10).flyingKings, true, 'config: FMJD flying kings');
     eq(CT.configFor('fmjd', 10).maximumCapture, true, 'config: FMJD maximum capture');
     eq(CT.configFor('casual', 8).mandatory, false, 'config: casual capture not mandatory');
+    eq(CT.configFor('acf', 8).firstMove, 'b', 'config: ACF black moves first');
+    eq(CT.configFor('fmjd', 10).firstMove, 'w', 'config: FMJD white moves first');
   }
   log('config table OK');
 

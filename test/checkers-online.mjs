@@ -113,7 +113,7 @@ async function main() {
     // Both must receive the SAME valid starting position that loads in the engine.
     assert(matchA.position && matchA.position === matchB.position, 'start position must match for both players');
     const startGame = CK.load(matchA.position);
-    assert(startGame.turn() === 'w', 'fresh checkers game: white to move');
+    assert(startGame.turn() === 'b', 'fresh checkers game (ACF 8x8): black to move first');
     assert(startGame.legalMoves().length > 0, 'start position must have legal moves');
     const gameId = matchA.gameId;
     const sockByColor = { [matchA.color]: sa, [matchB.color]: sb };
@@ -142,8 +142,8 @@ async function main() {
       return chosen.notation;
     }
 
-    // Play several legal moves, alternating sides (white moves first).
-    let mover = whiteSock;
+    // Play several legal moves, alternating sides (black moves first in ACF 8x8).
+    let mover = blackSock;
     for (let i = 0; i < 4; i++) {
       const not = await playLegal(mover);
       log(`move ${i + 1}: ${not} applied + synced ✓`);
