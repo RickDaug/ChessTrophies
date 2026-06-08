@@ -110,13 +110,15 @@ async function main() {
     assert(scriptViolations.length === 0, 'script-src CSP violations:\n' + JSON.stringify(scriptViolations, null, 2));
     log(`CSP ok — 0 script-src violations (${v.length} total CSP events, all non-script if any)`);
 
-    // 4a) Guest "Play now" -> lobby renders.
-    await page.click('#btn-play-now');
+    // 4a) Guest enters via "Continue as guest" -> lobby renders. (NOTE: "Play now"
+    //     now drops a guest straight into a Practice game by design, so it can't be
+    //     used as the lobby-entry step; "Continue as guest" is the lobby path.)
+    await page.click('#btn-continue-guest');
     await page.waitForFunction(() => {
       const l = document.getElementById('screen-lobby');
       return l && l.classList.contains('active');
-    }, { timeout: 10000 }).catch(() => fail('guest Play now did not render the lobby'));
-    log('guest "Play now" -> lobby rendered');
+    }, { timeout: 10000 }).catch(() => fail('guest "Continue as guest" did not render the lobby'));
+    log('guest "Continue as guest" -> lobby rendered');
 
     // 4b) Start Practice vs Computer. NOTE: in guest practice the user's color is
     //     randomized — if the user is Black, the AI (white) opens first, which

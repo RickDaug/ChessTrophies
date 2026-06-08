@@ -48,7 +48,8 @@ async function main() {
 
     await page.goto(`${BASE}/index.html`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => window.CT && window.CT_Checkers && window.CT_Checkers_UI, { timeout: 15000 }).catch(() => fail('checkers globals did not load'));
-    await page.click('#btn-play-now').catch(() => {});
+    // Use "Continue as guest" -> lobby; "Play now" now starts a chess game directly.
+    await page.click('#btn-continue-guest').catch(() => {});
     await page.waitForSelector('#screen-lobby.active', { timeout: 8000 }).catch(() => {});
 
     // Find a real forced double-jump position for white (8x8 ACF) via the engine.

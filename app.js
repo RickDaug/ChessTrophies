@@ -658,10 +658,11 @@
   // ---------------------------------------------------------------------------
   // DAILY PLAY STREAK
   // ---------------------------------------------------------------------------
-  // Consecutive calendar days (LOCAL date, YYYY-MM-DD) on which the user FINISHED
-  // any game — online 1v1/2v2, vs computer, pass-and-play, friendly, chess960.
-  // The pure transition lives in computePlayStreak (no DOM), exposed via window.CT
-  // for testing. recordDailyPlay() wires it into state + persistence + trophies.
+  // Consecutive calendar days (LOCAL date, YYYY-MM-DD) on which the user SOLVED the
+  // daily puzzle (repointed from "finished any game"; the streak now rewards the
+  // daily-challenge retention loop). The pure transition lives in computePlayStreak
+  // (no DOM), exposed via window.CT for testing. recordDailyPlay() wires it into
+  // state + persistence + trophies and is called from window.CT_onPuzzleSolved.
 
   // Local calendar day as YYYY-MM-DD (so "today" matches the user's clock).
   function todayKey(d) {
@@ -738,18 +739,18 @@
     const current = (isToday || isYesterday) ? (ps.streak || 0) : 0;
     let line;
     if (current >= 1 && isToday) {
-      line = '🔥 ' + current + '-day play streak' + (best > current ? ' · best ' + best : '');
+      line = '🔥 ' + current + '-day puzzle streak' + (best > current ? ' · best ' + best : '');
     } else if (current >= 1 && isYesterday) {
-      line = '🔥 ' + current + '-day streak — play today to keep it going!';
+      line = '🔥 ' + current + '-day streak — solve today’s puzzle to keep it going!';
     } else {
-      line = '🔥 Play a game today to start a daily streak.';
+      line = '🔥 Solve today’s puzzle to start a daily streak.';
     }
     wrap.innerHTML =
       '<div class="card" style="border:1px solid var(--accent);background:linear-gradient(135deg, rgba(245,196,81,.10), var(--panel))">' +
         '<div class="pc-row" style="display:flex;align-items:center;gap:12px">' +
           '<div class="pc-icon" style="font-size:26px">🔥</div>' +
           '<div style="flex:1;min-width:0">' +
-            '<div class="pc-title" style="font-weight:800;font-size:16px">Daily Play Streak</div>' +
+            '<div class="pc-title" style="font-weight:800;font-size:16px">Daily Puzzle Streak</div>' +
             '<div class="small" style="margin-top:4px;color:var(--accent);font-weight:700">' + escapeHTML(line) + '</div>' +
           '</div>' +
         '</div>' +
@@ -791,8 +792,30 @@
   //   4. For AdMob (Cordova/Capacitor): call admob.banner.show() in renderLobby etc.
   //   5. For rewarded ads (e.g. give a hint after watching), call your provider's
   //      rewarded API and on success call CT_grantReward(type).
+  // How many games this user has FINISHED (any mode). Registered users have it in
+  // their record (wins+losses+draws); guests have no record, so we track a simple
+  // session counter (state._sessionGamesFinished, bumped in finishGame). Used to
+  // hold back ad/upsell clutter until the user has actually completed a game.
+  function gamesFinishedCount() {
+    const u = state.user;
+    if (!u) return 0;
+    const recorded = (u.wins || 0) + (u.losses || 0) + (u.draws || 0);
+    return Math.max(recorded, state._sessionGamesFinished || 0);
+  }
+  // Ads + the "Remove ads" upsell stay hidden until the user has finished >=1 game.
+  // (No point selling ad-removal to someone who's seen zero ads.) Premium users
+  // never see either, regardless.
+  function adsUnlocked() {
+    const u = state.user;
+    if (!u || u.isPremium) return false;
+    return gamesFinishedCount() >= 1;
+  }
+
   function renderAdSlot(type) {
     if (state.user && state.user.isPremium) return '';
+    // Don't render any ad (or its "Remove ads" upsell) before the user has
+    // finished a game — there's no real inventory and it's pure clutter at start.
+    if (!adsUnlocked()) return '';
     const cfg = {
       banner: { label: 'Sponsored', size: '320×50',  copy: 'Your brand here. Premium players never see this.' },
       medium: { label: 'Sponsored', size: '300×250', copy: 'Sponsored — upgrade to Premium to remove all ads.' },
@@ -813,6 +836,8 @@
   let billingCfg = { enabled: false, publishableKey: null, mode: 'subscription' };
   async function fetchBillingConfig() {
     try { const c = await api('/api/billing/config'); if (c) billingCfg = Object.assign(billingCfg, c); } catch (e) {}
+    // Re-paint any premium copy now that we know whether billing is live.
+    try { applyPremiumCopy(); } catch (e) {}
   }
   async function startCheckout() {
     try {
@@ -859,19 +884,44 @@
     setTimeout(poll, 1200);
   }
 
+  // Drive ALL premium price/CTA copy (modal button, modal disclaimer, lobby card)
+  // from billingCfg.enabled so the screen never contradicts itself. When billing
+  // is LIVE: consistent "$4.99/mo · cancel anytime" everywhere. When disabled
+  // (demo/self-host with no Stripe keys): honest demo wording, no fake price.
+  function applyPremiumCopy() {
+    const live = !!billingCfg.enabled;
+    const priceLine = $('#premium-price-line');
+    const disclaimer = $('#premium-disclaimer');
+    const lobbyDesc = $('#lobby-premium-desc');
+    const lobbyPill = $('#lobby-premium-pill');
+    if (live) {
+      if (priceLine) priceLine.textContent = '$4.99/mo · cancel anytime';
+      if (disclaimer) disclaimer.textContent = '$4.99/month, billed securely via Stripe. Cancel anytime from Manage subscription.';
+      if (lobbyDesc) lobbyDesc.textContent = 'Support the app, hide all ad slots, unlock a Premium badge on your profile.';
+      if (lobbyPill) lobbyPill.textContent = '$4.99/mo';
+    } else {
+      if (priceLine) priceLine.textContent = 'Free demo · unlocks the perks instantly';
+      if (disclaimer) disclaimer.textContent = 'Billing isn’t enabled on this server, so upgrading is a free demo that just unlocks the perks above.';
+      if (lobbyDesc) lobbyDesc.textContent = 'Hide all ad slots and unlock a Premium badge on your profile.';
+      if (lobbyPill) lobbyPill.textContent = 'Try it';
+    }
+  }
+
   function openPremium() {
     const isPremium = state.user && state.user.isPremium;
+    const live = !!billingCfg.enabled;
+    applyPremiumCopy();
     const buyBtn = $('#btn-premium-buy');
     const cancelBtn = $('#btn-premium-cancel-paid');
     if (buyBtn) {
       buyBtn.style.display = isPremium ? 'none' : '';
-      buyBtn.textContent = 'Upgrade · $4.99/mo';
+      buyBtn.textContent = live ? 'Upgrade · $4.99/mo' : 'Unlock Premium (free demo)';
     }
     if (cancelBtn) {
       cancelBtn.style.display = isPremium ? '' : 'none';
       // With real billing on, "cancel" opens the Stripe portal (manage/cancel);
       // in demo mode it simply toggles Premium off.
-      cancelBtn.textContent = billingCfg.enabled ? 'Manage subscription' : 'Cancel Premium';
+      cancelBtn.textContent = live ? 'Manage subscription' : 'Cancel Premium';
     }
     openModal('premium');
   }
@@ -927,6 +977,12 @@
     // Academy lives in academy.js; it exposes window.CT_renderAcademy to populate #academy-content on demand.
     if (id === 'academy' && window.CT_renderAcademy) window.CT_renderAcademy();
     if (id === 'settings') { /* settings already rendered statically */ }
+    if (id === 'puzzles') {
+      // Entering the Puzzles screen (bottom nav). If the module is missing, bounce
+      // back to the lobby with a toast rather than showing an empty screen.
+      if (!puzzlesAvailable()) { toast('Puzzles are unavailable right now.'); $('#screen-puzzles').classList.remove('active'); $('#screen-lobby').classList.add('active'); return; }
+      try { window.CT_Puzzles.openDaily(); } catch (e) {}
+    }
   }
 
   function showNav(visible) {
@@ -1157,6 +1213,12 @@
   // predates a server JWT_SECRET change, or expired). Clear it and send the user
   // back to sign in rather than dead-ending on a raw "Unauthorized".
   function handleAuthExpired(msg) {
+    // Idempotent: a burst of 401s (friends + progress + socket all fail at once)
+    // must only sign the user out + prompt ONCE, not spam toasts or re-enter auth.
+    if (state._authExpiredHandled) return;
+    // If we're already on the auth screen with no user, there's nothing to expire.
+    if (!state.user && !getSession()) return;
+    state._authExpiredHandled = true;
     setSession(null);
     state.user = null;
     if (window.CTNet) { try { window.CTNet.disconnect(); } catch (e) {} }
@@ -1165,6 +1227,11 @@
     showScreen('auth');
     toast(msg || 'Your session expired — please sign in again.');
   }
+
+  // Single global listener for the centralized 401 signal dispatched by
+  // ct-auth.js's api() helper. Friends/progress/avatar calls that swallow their
+  // own errors now still route the user back to sign-in via this one path.
+  window.addEventListener('ct-auth-expired', function () { handleAuthExpired(); });
 
   // Email verification (soft nudge) -----------------------------------
   // Resend the verification email for the signed-in user. `noteEl` (optional)
@@ -1275,7 +1342,11 @@
 
   // Start a guest session and jump into the app. Shared by the prominent "Play now"
   // button at the top of the auth card and the "Continue as guest" button below.
-  async function startGuestSession(btn) {
+  // opts.playNow=true honours the "start a game in one tap" promise: it drops the
+  // guest straight into a Practice vs Computer game (board on screen) instead of
+  // the lobby — no dead-end.
+  async function startGuestSession(btn, opts) {
+    opts = opts || {};
     if (btn) btn.disabled = true;
     try {
       let username = null;
@@ -1292,8 +1363,15 @@
       window.addEventListener('pagehide', () => {
         try { navigator.sendBeacon && navigator.sendBeacon(SERVER_URL + '/api/guest/release', new Blob([JSON.stringify({ username: username })], { type: 'application/json' })); } catch (e) {}
       });
-      toast('Playing as ' + username + ' (guest)', true);
+      // Show the nav and prep lobby state, then optionally drop straight into a game.
       enterApp();
+      if (opts.playNow) {
+        toast('Playing offline vs computer — sign up to play real people.');
+        const lvl = ($('#practice-elo') && $('#practice-elo').value) || 1200;
+        startPracticeGame(lvl);
+      } else {
+        toast('Playing as ' + username + ' (guest)', true);
+      }
     } catch (err) {
       if (btn) btn.disabled = false;
     }
@@ -1302,7 +1380,7 @@
   const guestBtn = $('#btn-continue-guest');
   if (guestBtn) guestBtn.addEventListener('click', () => startGuestSession(guestBtn));
   const playNowBtn = $('#btn-play-now');
-  if (playNowBtn) playNowBtn.addEventListener('click', () => startGuestSession(playNowBtn));
+  if (playNowBtn) playNowBtn.addEventListener('click', () => startGuestSession(playNowBtn, { playNow: true }));
 
   // Sound toggle
   if ($('#btn-sound')) {
@@ -1346,17 +1424,27 @@
       totalTrophies === 0 ? 'No trophies yet — start a match' :
       `${u.streakTrophies.length} streak ${u.streakTrophies.length === 1 ? 'trophy' : 'trophies'} · ${u.achievements.length} achievements`;
     renderFriendsSummary();
-    // Inject ad slot (or empty for premium users). Premium users get NO ad slot at
-    // all — clear the markup AND hide the container so it can't leave a gap.
+    // Inject ad slot (renderAdSlot returns '' for premium users AND for users who
+    // haven't finished a game yet). Hide the container whenever it's empty so it
+    // can't leave a gap.
     const adWrap = $('#lobby-ad-slot');
     if (adWrap) {
-      adWrap.innerHTML = renderAdSlot('banner');
-      adWrap.style.display = u.isPremium ? 'none' : '';
+      const adHtml = renderAdSlot('banner');
+      adWrap.innerHTML = adHtml;
+      adWrap.style.display = adHtml ? '' : 'none';
     }
-    // Hide the "Go Premium / Remove ads" upsell for users who are already premium
-    // (they don't need the upsell); show it for everyone else.
+    // The "Go Premium / Remove ads" upsell follows the same gate as ads: hidden for
+    // premium users and for anyone who hasn't finished a game yet (don't pitch
+    // ad-removal to someone who has seen no ads).
     const upWrap = $('#lobby-premium-card');
-    if (upWrap) upWrap.style.display = u.isPremium ? 'none' : '';
+    if (upWrap) upWrap.style.display = adsUnlocked() ? '' : 'none';
+    applyPremiumCopy();
+    // Today's Challenge card + Puzzles nav: only when the puzzle module loaded.
+    const _puz = puzzlesAvailable();
+    const dailyCard = $('#lobby-daily-card');
+    if (dailyCard) dailyCard.style.display = _puz ? '' : 'none';
+    const navPuz = $('#nav-puzzles');
+    if (navPuz) navPuz.style.display = _puz ? '' : 'none';
     const premiumBadge = $('#premium-badge');
     if (premiumBadge) premiumBadge.style.display = u.isPremium ? '' : 'none';
     updateVerifyBanner();
@@ -1420,6 +1508,29 @@
           ' <span class="pill coming-soon-badge" style="margin-left:8px">Coming soon</span>';
       }
     });
+
+    // Lobby hierarchy: when ranked is OFF, lead with Practice/Casual (the modes
+    // that actually work for everyone) and collapse the ranked 1v1 + 2v2 cards
+    // into a single muted "More modes coming soon" line. When ON, restore the
+    // original Casual -> Ranked 1v1 -> Practice -> 2v2 order and show all cards.
+    const practice = $('#card-practice');
+    const casual = $('#card-casual');
+    const ranked1v1 = $('#card-ranked1v1');
+    const section2v2 = $('#section-2v2');
+    const moreModes = $('#lobby-more-modes');
+    if (enabled) {
+      if (casual) casual.style.order = '1';
+      if (ranked1v1) { ranked1v1.style.order = '2'; ranked1v1.style.display = ''; }
+      if (practice) practice.style.order = '3';
+      if (section2v2) { section2v2.style.order = '4'; section2v2.style.display = ''; }
+      if (moreModes) moreModes.style.display = 'none';
+    } else {
+      if (practice) practice.style.order = '1';
+      if (casual) casual.style.order = '2';
+      if (ranked1v1) ranked1v1.style.display = 'none';
+      if (section2v2) section2v2.style.display = 'none';
+      if (moreModes) { moreModes.style.order = '5'; moreModes.style.display = ''; }
+    }
   }
   function _addLobbyChatButton() {
   const user = state.user;
@@ -1687,26 +1798,16 @@ function renderFriendsSummary() {
     if (cancelBtn) cancelBtn.addEventListener('click', () => { _tcOnStart = null; closeModal('timecontrol'); });
   }
 
-  // Guests can't join the real ranked queue (no server account). Offer the honest
-  // path: create a free account for ranked online, or jump straight into an offline
-  // game that actually works for a guest (Practice vs Computer).
-  function promptGuestRankedCTA() {
-    const goRanked = confirm(
-      'Ranked online play needs a free account so your rating and matches can be saved.\n\n' +
-      'OK = Create a free account\n' +
-      'Cancel = Practice vs Computer instead'
-    );
-    if (goRanked) {
-      // Send them to the auth screen with the Create-account tab selected.
-      showScreen('auth');
-      const signupTab = $('#screen-auth .tab[data-tab="signup"]');
-      if (signupTab) signupTab.click();
-      toast('Create a free account to play ranked online.');
-    } else {
-      // Route to a mode that works offline for a guest, right now.
-      const lvl = ($('#practice-elo') && $('#practice-elo').value) || 1200;
-      startPracticeGame(lvl);
-    }
+  // Guests can't authenticate the game socket (no token), so they can't join the
+  // real online queue. Instead of a jarring blocking confirm() that dead-ends,
+  // drop them straight into a Practice vs Computer game NOW and nudge them with a
+  // non-blocking toast to sign up for real opponents. No dialog, no dead-end.
+  function guestPlayOfflineWithNudge(mode) {
+    const lvl = ($('#practice-elo') && $('#practice-elo').value) || 1200;
+    startPracticeGame(lvl);
+    toast(mode === 'ranked'
+      ? 'Playing offline vs computer — sign up to play ranked online.'
+      : 'Playing offline vs computer — sign up to play real people.');
   }
 
   function startOnlineOrFakeMatchmaking(mode) {
@@ -1719,10 +1820,10 @@ function renderFriendsSummary() {
     const haveToken = !!(sess && sess.token);
 
     if (isGuest) {
-      // Guests have no server account, so they can't be placed in the real ranked
-      // queue. Don't fake a search against an empty local pool -- offer the honest
-      // choices: create an account to play ranked online, or play offline now.
-      promptGuestRankedCTA();
+      // Guests have no server token, so they can't be placed in the real online
+      // queue. Don't fake a search and don't pop a blocking confirm() — start an
+      // offline game immediately with a non-blocking sign-up nudge.
+      guestPlayOfflineWithNudge(mode);
       return;
     }
     if (!window.CTNet) {
@@ -2155,8 +2256,9 @@ function stopMatchmaking() {
 // DEPRECATED / no longer reachable from any ranked entry point. This simulated a
 // local "search" over the per-device account DB, which could never pair two real
 // players across devices and dead-ended in the "Player 2 sign in" modal. Ranked
-// online now goes through the server (startOnlineMatchmaking); guests get an honest
-// CTA (promptGuestRankedCTA). Kept only for reference -- do NOT re-wire into ranked.
+// online now goes through the server (startOnlineMatchmaking); guests are dropped
+// into Practice vs Computer with a non-blocking sign-up nudge
+// (guestPlayOfflineWithNudge). Kept only for reference -- do NOT re-wire into ranked.
 function startMatchmaking(mode) {
   if (!state.user) return;
   stopMatchmaking();
@@ -2610,7 +2712,15 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     if (!sess || !sess.token || !window.CTNet) return;
     window.CTNet.connect(SERVER_URL, sess.token, {
       onAuthOk: () => { /* ready to matchmake; server sends game_state to resume */ },
-      onAuthErr: (e) => { console.warn('[CTNet] auth_err', e); },
+      onAuthErr: (e) => {
+        console.warn('[CTNet] auth_err', e);
+        // The game socket rejected our token — same root cause as a REST 401.
+        // Route through the centralized handler (idempotent) so the user isn't
+        // stranded with a silently-dead socket. Guests/offline have no token, so
+        // this never fires for them.
+        const sess = getSession();
+        if (sess && sess.token) handleAuthExpired('Your session expired — please sign in again.');
+      },
       onDisconnect: handleSelfDisconnect,
       onReconnectFailed: handleReconnectFailed,
     });
@@ -3502,9 +3612,12 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const me = state.user;
     state.gameEnded = true;
     clockStop();
-    // Count today toward the daily play streak (any finished game qualifies:
-    // practice, pass-and-play, online 1v1, friendly, resign). Idempotent per day.
-    recordDailyPlay();
+    // Session "games finished" signal — gates ad/upsell clutter until the user has
+    // completed at least one game (covers guests, who have no persisted record).
+    state._sessionGamesFinished = (state._sessionGamesFinished || 0) + 1;
+    // NOTE: the DAILY STREAK is now earned by SOLVING the daily puzzle
+    // (window.CT_onPuzzleSolved -> recordDailyPlay), not by finishing a game.
+    // Finishing a game no longer advances the streak.
     // Game ended — drop any disconnect/reconnect status banners + their timers.
     netBanner(null);
     oppBanner(null);
@@ -3809,6 +3922,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // The checkers result reuses this same modal and hides the review button; make
     // sure chess always restores it (block-button visibility is set just above).
     var _rvBtn2 = $('#btn-result-review'); if (_rvBtn2) _rvBtn2.style.display = '';
+    // Guest CTA: a guest who just won (or earned a trophy) has progress that lives
+    // only in this tab and is lost on close — nudge them to make a free account.
+    var _gBtn = $('#btn-result-guest-signup');
+    if (_gBtn) {
+      var _newTrophyCount = (typeof unlocked !== 'undefined' ? unlocked.length : 0) + (typeof moreUnlocks !== 'undefined' ? moreUnlocks.length : 0);
+      var _showGuestCta = !!(state.user && state.user.isGuest) && (myWon || _newTrophyCount > 0);
+      _gBtn.style.display = _showGuestCta ? '' : 'none';
+    }
     openModal('result');
     // Celebrate trophy unlocks: confetti + title shine, timed with the fanfare.
     try {
@@ -3854,6 +3975,17 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     var opp = state.opponent;
     if (opp && opp.userId) { closeModal('result'); blockPlayer(opp.userId, opp.username); }
   });
+  { const _gb = $('#btn-result-guest-signup'); if (_gb) _gb.addEventListener('click', () => {
+    // Send the guest to the auth screen with Create-account preselected so their
+    // future progress is saved server-side. (We can't migrate this game's result —
+    // guests are intentionally not persisted — but we stop the bleeding here.)
+    closeModal('result');
+    showNav(false);
+    showScreen('auth');
+    const signupTab = $('#screen-auth .tab[data-tab="signup"]');
+    if (signupTab) signupTab.click();
+    toast('Create a free account to keep your rating, wins, and trophies.');
+  }); }
   $('#btn-result-close').addEventListener('click', () => {
     // Dismissing the result drops any pending rematch offer/eligibility.
     if (rematchState.phase === 'offered' && rematchState.gameId && window.CTNet && window.CTNet.isReady()) {
@@ -4307,6 +4439,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
 
   function enterApp() {
+    // Fresh (re)entry — reset the one-shot auth-expiry guard so a future token
+    // expiry can prompt again.
+    state._authExpiredHandled = false;
     showNav(true);
     showScreen('lobby');
     // Native AdMob banner: shown for free users, suppressed for premium. No-op on web.
@@ -4325,6 +4460,18 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Discover whether Stripe billing is live, and handle a return from Checkout.
     fetchBillingConfig();
     handleBillingReturn();
+    // Wire the Daily Challenge / puzzle module (puzzles.js). It's a deferred script
+    // that loads AFTER app.js, and init() can run synchronously at readyState
+    // 'interactive' (before later deferred scripts execute), so bind initPuzzles to
+    // DOMContentLoaded — which fires only after ALL deferred scripts have run.
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initPuzzles, { once: true });
+    } else if (window.CT_Puzzles) {
+      initPuzzles();
+    } else {
+      // Deferred puzzles.js hasn't executed yet; DOMContentLoaded will be next.
+      document.addEventListener('DOMContentLoaded', initPuzzles, { once: true });
+    }
     const session = getSession();
     const db = loadDB();
     if (session && (session.userId || session.token)) {
@@ -4409,8 +4556,53 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   document.addEventListener('click', function (e) {
     const t = e.target.closest('[data-act]');
     if (!t) return;
-    if (t.getAttribute('data-act') === 'open-premium') openPremium();
+    const act = t.getAttribute('data-act');
+    if (act === 'open-premium') openPremium();
+    else if (act === 'open-daily') openDailyPuzzle();
   });
+
+  // ---------------------------------------------------------------------------
+  // Puzzles / Daily Challenge (puzzles.js -> window.CT_Puzzles). app.js only wires
+  // it in; the module is self-contained. Everything degrades gracefully if the
+  // module failed to load (hidden cards / a toast), never throwing.
+  // ---------------------------------------------------------------------------
+  function puzzlesAvailable() {
+    return !!(window.CT_Puzzles && typeof window.CT_Puzzles.openDaily === 'function');
+  }
+  function initPuzzles() {
+    // Hide the Puzzles nav item + lobby card up front if the module is missing.
+    const navItem = $('#nav-puzzles');
+    const dailyCard = $('#lobby-daily-card');
+    if (!puzzlesAvailable()) {
+      if (navItem) navItem.style.display = 'none';
+      if (dailyCard) dailyCard.style.display = 'none';
+      return;
+    }
+    if (navItem) navItem.style.display = '';
+    try { window.CT_Puzzles.init('#screen-puzzles .screen-body'); } catch (e) { console.warn('CT_Puzzles.init failed', e); }
+  }
+  function openDailyPuzzle() {
+    if (!puzzlesAvailable()) { toast('Puzzles are unavailable right now.'); return; }
+    showScreen('puzzles');
+    try { window.CT_Puzzles.openDaily(); } catch (e) { console.warn('openDaily failed', e); }
+  }
+  function openPuzzleTrainer() {
+    if (!puzzlesAvailable()) { toast('Puzzles are unavailable right now.'); return; }
+    showScreen('puzzles');
+    try { if (window.CT_Puzzles.openTrainer) window.CT_Puzzles.openTrainer(); else window.CT_Puzzles.openDaily(); } catch (e) {}
+  }
+
+  // Called by puzzles.js when the user solves a puzzle. The DAILY STREAK is now
+  // earned here (it used to fire on every finished game). recordDailyPlay() is
+  // idempotent per calendar day, so multiple solves in a day only count once.
+  window.CT_onPuzzleSolved = function (puzzleId, meta) {
+    try {
+      recordDailyPlay();
+      ctCelebrate('normal');
+      toast('Puzzle solved 🔥 daily streak updated', true);
+      if ($('#screen-lobby') && $('#screen-lobby').classList.contains('active')) renderPlayStreak();
+    } catch (e) { console.warn('CT_onPuzzleSolved failed', e); }
+  };
 
   // Expose for academy.js
   window.CT = {

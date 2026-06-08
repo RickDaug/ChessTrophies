@@ -7,7 +7,7 @@
      'unsafe-inline'. Must stay the FIRST script and load synchronously. -->
 <script src="ct-onerror.js?v=20260606c"></script>
 <script src="ct-boot.js?v=20260607a"></script>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <!-- Content-Security-Policy: script-src is hardened to 'self' (+ cdnjs for
      socket.io) — NO 'unsafe-inline', so injected inline scripts/handlers can't
      execute. All formerly-inline scripts are externalized and all on* handlers
@@ -106,11 +106,13 @@
   /* Social share button grid (Invite & Share modal). */
   .share-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .share-grid .share-btn { padding: 12px 10px; font-size: 14px; }
-  input[type="text"], input[type="email"], input[type="password"] {
+  /* font-size MUST be >=16px so iOS Safari doesn't zoom the page when a field
+     gains focus. Applies to selects too (the signup skill picker). */
+  input[type="text"], input[type="email"], input[type="password"], input[type="search"], textarea, select {
     width: 100%; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border);
-    background: var(--panel); color: var(--text); font-size: 15px; outline: none; transition: border .15s;
+    background: var(--panel); color: var(--text); font-size: 16px; outline: none; transition: border .15s;
   }
-  input:focus { border-color: var(--accent); }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
   label { display: block; margin: 14px 0 6px; font-size: 13px; color: var(--muted); font-weight: 500; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 16px; margin: 12px 0; transition: border-color .15s, transform .12s; }
   .card[style*="cursor:pointer"]:hover, .card[style*="cursor:pointer"]:active { border-color: rgba(245, 196, 81, .35); }
@@ -317,7 +319,7 @@
       display: block;
     }
     .nav-label {
-      font-size: 9px;
+      font-size: 11px;
       color: var(--muted);
       text-transform: uppercase;
       letter-spacing: .5px;
@@ -548,17 +550,16 @@
       <input type="email" id="signup-email" autocomplete="email" required>
       <label for="signup-password">Password</label>
       <input type="password" id="signup-password" autocomplete="new-password" required minlength="6">
-      <label for="signup-region">Region (city, country)</label>
-      <input type="text" id="signup-region" placeholder="e.g. Austin, USA">
-      <label for="signup-skill">Skill level (sets your starting rating)</label>
+      <label for="signup-region">Region (city, country) <span class="muted" style="font-weight:400">— optional</span></label>
+      <input type="text" id="signup-region" placeholder="Optional — e.g. Austin, USA">
+      <label for="signup-skill">Skill level (sets your starting rating) <span class="muted" style="font-weight:400">— optional</span></label>
         <select id="signup-skill">
-          <option value="" selected disabled>Choose your level…</option>
           <option value="400">New to chess – 400</option>
-          <option value="800">Beginner – 800</option>
+          <option value="800" selected>Beginner – 800</option>
           <option value="1200">Intermediate – 1200</option>
           <option value="1600">Advanced – 1600</option>
         </select>
-        <p class="muted small" style="margin:6px 0 0;font-size:11px">ELO is your chess rating — higher means stronger. New players usually start around 400–800.</p>
+        <p class="muted small" style="margin:6px 0 0;font-size:11px">ELO is your chess rating — higher means stronger. New players usually start around 400–800. You can leave this — we default to Beginner.</p>
         <div class="error" id="signup-error"></div>
       <button type="submit" class="btn btn-block" style="margin-top:14px">Create account</button>
     </form>
@@ -619,15 +620,28 @@
          ad / premium cards so it's the first compelling thing a returning user sees. -->
     <div id="playstreak-card"></div>
 
+    <!-- Today's Challenge — opens the daily puzzle (puzzles.js). Hidden by app.js
+         when the puzzle module failed to load (graceful degrade). -->
+    <div id="lobby-daily-card" class="card" data-act="open-daily" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
+      <div class="pc-row" style="display:flex;align-items:center;gap:12px">
+        <div class="pc-icon" style="font-size:26px">🧩</div>
+        <div style="flex:1;min-width:0">
+          <div class="pc-title" style="font-weight:800;font-size:16px">Today's Challenge</div>
+          <div class="muted small" style="margin-top:4px">Solve the daily puzzle to keep your streak alive.</div>
+        </div>
+        <div class="pill gold">Play</div>
+      </div>
+    </div>
+
     <div id="lobby-ad-slot"></div>
     <div class="premium-card" id="lobby-premium-card">
       <div class="pc-row">
         <div class="pc-icon">⭐</div>
         <div style="flex:1">
           <div class="pc-title">Go Premium — Remove ads</div>
-          <div class="pc-desc">Support the app, hide all ad slots, unlock a Premium badge on your profile.</div>
+          <div class="pc-desc" id="lobby-premium-desc">Support the app, hide all ad slots, unlock a Premium badge on your profile.</div>
         </div>
-        <div class="pill gold">Upgrade</div>
+        <div class="pill gold" id="lobby-premium-pill">$4.99/mo</div>
       </div>
     </div>
 
@@ -658,21 +672,12 @@
       </div>
     </div>
 
-    <!-- ===================== CHESS PLAY CARDS ===================== -->
-    <div id="chess-play-cards">
-    <div class="card">
-      <h3 style="margin-bottom:8px">Play online — Casual</h3>
-      <p class="muted small" style="margin:0 0 12px">Jump into a friendly game against a random real opponent online. Just for fun — never affects your rating or stats.</p>
-      <button class="btn btn-block" id="btn-find-casual">Play a casual game</button>
-      <p class="muted small" style="margin:8px 0 0">Want to play a specific friend? Open the Friends tab and send a challenge.</p>
-    </div>
-    <div class="card">
-      <h3 style="margin-bottom:8px">Ranked 1v1</h3>
-      <p class="muted small" style="margin:0 0 12px">We match you with a random opponent near your rating (within ±100 ELO). Counts toward your ELO, wins, and streaks.</p>
-      <button class="btn btn-block" id="btn-find-match">Find ranked opponent</button>
-      <p class="muted small" style="margin:8px 0 0">Want to play a specific friend? Open the Friends tab and send a friendly challenge — friend games are always unrated.</p>
-    </div>
-    <div class="card">
+    <!-- ===================== CHESS PLAY CARDS =====================
+         When ranked is OFF (the default seasonal state), app.js reorders this so
+         Practice vs Computer leads and collapses the ranked cards into a single
+         muted "More modes coming soon" line (#lobby-more-modes). -->
+    <div id="chess-play-cards" style="display:flex;flex-direction:column">
+    <div class="card" id="card-practice" style="order:1">
       <h3 style="margin-bottom:8px">Practice vs computer</h3>
       <p class="muted small" style="margin:0 0 12px">Play offline against the computer to sharpen your skills. Always unrated — never affects your rating.</p>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px;flex-wrap:wrap;">
@@ -691,7 +696,21 @@
         <p class="muted small" style="margin:6px 0 0">Pieces shuffled into one of hundreds of starting setups — pure skill, no memorized openings. To castle, move your king onto your own rook (or two squares toward it).</p>
     </div>
 
-    <section style="margin-top:18px">
+    <div class="card" id="card-casual" style="order:2">
+      <h3 style="margin-bottom:8px">Play online — Casual</h3>
+      <p class="muted small" style="margin:0 0 12px">Jump into a friendly game against a random real opponent online. Just for fun — never affects your rating or stats.</p>
+      <button class="btn btn-block" id="btn-find-casual">Play a casual game</button>
+      <p class="muted small" style="margin:8px 0 0">Want to play a specific friend? Open the Friends tab and send a challenge.</p>
+    </div>
+
+    <div class="card" id="card-ranked1v1" style="order:3">
+      <h3 style="margin-bottom:8px">Ranked 1v1</h3>
+      <p class="muted small" style="margin:0 0 12px">We match you with a random opponent near your rating (within ±100 ELO). Counts toward your ELO, wins, and streaks.</p>
+      <button class="btn btn-block" id="btn-find-match">Find ranked opponent</button>
+      <p class="muted small" style="margin:8px 0 0">Want to play a specific friend? Open the Friends tab and send a friendly challenge — friend games are always unrated.</p>
+    </div>
+
+    <section id="section-2v2" style="margin-top:18px;order:4">
         <h2>2v2 (Team)</h2>
         <div class="card">
           <p class="muted small" style="margin:0 0 12px">Two-on-two team match. Opponents are always random; counts toward a separate 2v2 rating.</p>
@@ -699,6 +718,12 @@
           <p class="muted small" style="margin:10px 0 0">Want a friend on your team? Open the Friends tab, tap a friend, and choose &ldquo;Invite to 2v2&rdquo; — your opponents are still random.</p>
         </div>
       </section>
+
+    <!-- Collapsed stand-in for the ranked cards while ranked is OFF. app.js toggles
+         this vs the full Ranked 1v1 + 2v2 sections via applyRankedGate(). -->
+    <div class="card" id="lobby-more-modes" style="order:5;display:none;text-align:center;border-style:dashed">
+      <div class="muted small">More modes coming soon — ranked 1v1 &amp; 2v2 are on the way.</div>
+    </div>
     </div><!-- /#chess-play-cards -->
 
     <!-- ===================== CHECKERS PLAY CARDS ===================== -->
@@ -873,6 +898,20 @@
       </div>
       <div class="pill gold">View case</div>
     </div>
+
+    <!-- Quick links to screens that no longer live in the bottom nav. -->
+    <div class="card row between" data-go="friends" style="cursor:pointer">
+      <div style="font-weight:600">👥 Friends</div>
+      <div class="pill">Open</div>
+    </div>
+    <div class="card row between" data-go="academy" style="cursor:pointer">
+      <div style="font-weight:600">📚 Learn</div>
+      <div class="pill">Open</div>
+    </div>
+    <div class="card row between" data-go="settings" style="cursor:pointer">
+      <div style="font-weight:600">⚙️ Settings</div>
+      <div class="pill">Open</div>
+    </div>
   </section>
 
   <!-- RANKINGS -->
@@ -940,6 +979,15 @@
     <button class="btn btn-block" id="lesson-next" style="display:none;margin-top:10px">Next lesson →</button>
   </section>
 
+  <!-- PUZZLES / DAILY CHALLENGE (populated by puzzles.js -> window.CT_Puzzles).
+       app.js calls CT_Puzzles.init('#screen-puzzles .screen-body') at startup; the
+       module renders into .screen-body. Degrades to a friendly notice if the module
+       failed to load. -->
+  <section id="screen-puzzles" class="screen">
+    <div class="top-bar"><h1>Puzzles</h1></div>
+    <div class="screen-body" id="puzzles-body"></div>
+  </section>
+
   <!-- SETTINGS -->
   <section id="screen-settings" class="screen">
       <div class="top-bar"><h1>Settings</h1></div>
@@ -998,7 +1046,7 @@
       <div style="padding:12px 16px 0;">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center;">
           <input id="friend-search-input" type="text" placeholder="Search by username…"
-            style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;outline:none;">
+            style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:16px;outline:none;">
           <button class="btn btn-secondary small" id="btn-add-friend" style="padding:10px 14px;white-space:nowrap;">+ Add friend</button>
         </div>
         <div id="friend-search-results" style="margin-bottom:16px;"></div>
@@ -1014,19 +1062,17 @@
       </div>
     </section>
 
-<!-- BOTTOM NAV -->
+<!-- BOTTOM NAV — 5 items for comfortable tap targets. Learn/Friends/Settings are
+     reachable from within the screens (Profile shortcuts, Academy ⚙ Settings, lobby).
+     The Puzzles item is hidden by app.js if puzzles.js failed to load. -->
     <nav id="bottom-nav">
       <div class="nav-item active" data-nav="lobby">
         <span class="nav-icon">♟</span>
         <span class="nav-label">Play</span>
       </div>
-      <div class="nav-item" data-nav="academy">
-        <span class="nav-icon">📚</span>
-        <span class="nav-label">Learn</span>
-      </div>
-      <div class="nav-item" data-nav="friends">
-        <span class="nav-icon">👥</span>
-        <span class="nav-label">Friends</span>
+      <div class="nav-item" data-nav="puzzles" id="nav-puzzles">
+        <span class="nav-icon">🧩</span>
+        <span class="nav-label">Puzzles</span>
       </div>
       <div class="nav-item" data-nav="trophies">
         <span class="nav-icon">🏆</span>
@@ -1039,10 +1085,6 @@
       <div class="nav-item" data-nav="profile">
         <span class="nav-icon">👤</span>
         <span class="nav-label">Profile</span>
-      </div>
-      <div class="nav-item" data-nav="settings">
-        <span class="nav-icon">⚙️</span>
-        <span class="nav-label">Settings</span>
       </div>
 </nav>
 </div>
@@ -1178,6 +1220,9 @@
         </div>
       </div>
     </div>
+    <!-- Guest-only CTA after a win/trophy: guest progress is sessionStorage-only and
+         is lost when the tab closes. JS shows this only for a guest who just won. -->
+    <button class="btn btn-block" id="btn-result-guest-signup" style="margin-top:10px;display:none">Create an account to keep your progress</button>
     <button class="btn btn-block btn-secondary" id="btn-result-review" style="margin-top:10px">Review game</button>
         <button class="btn btn-block btn-ghost" id="btn-result-block" style="margin-top:8px;color:var(--danger);display:none">Block opponent</button>
         <button class="btn btn-block" id="btn-result-close" style="margin-top:14px">Done</button>
@@ -1231,7 +1276,7 @@
       <div class="muted small" id="forgot-status" style="margin-top:8px"></div>
       <div class="error" id="forgot-error"></div>
       <div class="stack" style="margin-top:14px">
-        <button class="btn btn-block" id="btn-forgot-send">Send reset link</button>
+        <button class="btn btn-block" id="btn-forgot-send">Send reset code</button>
         <button class="btn btn-ghost btn-block" id="btn-forgot-cancel">Cancel</button>
       </div>
     </div>
@@ -1345,13 +1390,15 @@
         <li>Early access to new themes and lessons</li>
       </ul>
     </div>
-    <p class="muted small center" style="margin:10px 0">Free preview · Cancel anytime</p>
+    <!-- Price/disclaimer copy is set by openPremium() in app.js from billingCfg so
+         it can never contradict the button (live billing vs demo fallback). -->
+    <p class="muted small center" id="premium-price-line" style="margin:10px 0">$4.99/mo · cancel anytime</p>
     <div class="stack">
-      <button class="btn btn-block" id="btn-premium-buy">Upgrade — free preview</button>
-      <button class="btn btn-secondary btn-block" id="btn-premium-cancel-paid" style="display:none">Cancel subscription</button>
+      <button class="btn btn-block" id="btn-premium-buy">Upgrade · $4.99/mo</button>
+      <button class="btn btn-secondary btn-block" id="btn-premium-cancel-paid" style="display:none">Manage subscription</button>
       <button class="btn btn-ghost btn-block" id="btn-premium-close">Not now</button>
     </div>
-    <p class="muted small center" style="margin-top:14px;line-height:1.5">Premium is in preview — upgrading is free for now and just unlocks the perks above. Paid billing is coming soon.</p>
+    <p class="muted small center" id="premium-disclaimer" style="margin-top:14px;line-height:1.5">$4.99/month, billed via Stripe. Cancel anytime from Manage subscription.</p>
   </div>
 </div>
 
@@ -1380,30 +1427,38 @@
   </div>
 </div>
 
+<!-- Bottom-of-body scripts are `defer`red so they don't block HTML parsing.
+     defer preserves document order, which matters here: these are order-dependent
+     IIFEs (e.g. ct-auth before app, checkers before its UI). The head boot/onerror
+     tags stay synchronous on purpose. -->
 <!-- chess.js (move validation, check/mate detection) -->
-<script src="ct-chess-check.js?v=20260606c"></script>
-<script src="chess.min.js?v=20260530m"></script>
-<script src="chess960.js?v=20260606b"></script>
-<script src="sounds.js?v=20260530m"></script>
-<script src="stockfish-ai.js?v=20260530m"></script>
-<script src="config.js?v=20260531d"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script src="ct-socket-fallback.js?v=20260606c"></script>
-<script src="ct-auth.js?v=20260603a"></script>
-<script src="ct-net.js?v=20260601a"></script>
-<script src="ct-ai.js?v=20260604a"></script>
+<script defer src="ct-chess-check.js?v=20260606c"></script>
+<script defer src="chess.min.js?v=20260530m"></script>
+<script defer src="chess960.js?v=20260606b"></script>
+<script defer src="sounds.js?v=20260530m"></script>
+<script defer src="stockfish-ai.js?v=20260530m"></script>
+<script defer src="config.js?v=20260531d"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script defer src="ct-socket-fallback.js?v=20260606c"></script>
+<script defer src="ct-auth.js?v=20260603a"></script>
+<script defer src="ct-net.js?v=20260601a"></script>
+<script defer src="ct-ai.js?v=20260604a"></script>
 <!-- Checkers: engine -> AI -> (UI loaded after app.js so window.CT exists) -->
-<script src="checkers.js?v=20260607a"></script>
-<script src="checkers-ai.js?v=20260607a"></script>
-<script src="trophy-data.js?v=20260603a"></script>
-<script src="ct-duo.js?v=20260603a"></script>
-<script src="ct-ads.js?v=20260603a"></script>
-  <script src="app.js?v=20260606c"></script>
-<script src="academy.js?v=20260531c"></script>
-    <script src="review.js?v=20260604a"></script>
-    <script src="trophy-extras.js?v=20260531a"></script>
-    <script src="learn-library.js?v=20260531c"></script>
-<script src="ct-checkers.js?v=20260607a"></script>
-<script src="ct-sw-register.js?v=20260606c"></script>
+<script defer src="checkers.js?v=20260607a"></script>
+<script defer src="checkers-ai.js?v=20260607a"></script>
+<script defer src="trophy-data.js?v=20260603a"></script>
+<script defer src="ct-duo.js?v=20260603a"></script>
+<script defer src="ct-ads.js?v=20260603a"></script>
+  <script defer src="app.js?v=20260606c"></script>
+<script defer src="academy.js?v=20260531c"></script>
+    <script defer src="review.js?v=20260604a"></script>
+    <script defer src="trophy-extras.js?v=20260531a"></script>
+    <script defer src="learn-library.js?v=20260531c"></script>
+<script defer src="ct-checkers.js?v=20260607a"></script>
+<!-- Daily Challenge / puzzle trainer (self-contained; uses window.Chess + window.CT_AI).
+     Wired into the lobby card + bottom-nav + window.CT_onPuzzleSolved by app.js; if
+     this module fails to load, app.js degrades the entry points gracefully. -->
+<script defer src="puzzles.js?v=20260607a"></script>
+<script defer src="ct-sw-register.js?v=20260606c"></script>
 </body>
 </html>

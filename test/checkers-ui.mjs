@@ -50,8 +50,10 @@ async function main() {
     await page.waitForFunction(() => window.CT && window.CT_Checkers && window.CT_CheckersAI && window.CT_Checkers_UI, { timeout: 15000 }).catch(() => fail('checkers globals did not load'));
     log('app + checkers globals loaded under real CSP');
 
-    // Guest login -> lobby.
-    await page.click('#btn-play-now').catch(() => {});
+    // Guest login -> lobby. (Use "Continue as guest"; "Play now" now starts a
+    // chess game directly, which would leave a live game open and trigger a
+    // quit-confirm when we switch to the checkers screen.)
+    await page.click('#btn-continue-guest').catch(() => {});
     await page.waitForSelector('#screen-lobby.active', { timeout: 8000 }).catch(() => {});
 
     for (const size of [8, 10]) {

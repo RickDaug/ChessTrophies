@@ -120,12 +120,14 @@ async function main() {
       return !!(m && m.classList.contains('show'));
     }, id);
 
-    // ----- 1) Guest "Play now" -> lobby -----------------------------------
-    await step('guest Play now -> lobby', async () => {
-      await click('#btn-play-now');
+    // ----- 1) Guest "Continue as guest" -> lobby --------------------------
+    // ("Play now" now starts a Practice game directly by design; the lobby is
+    // reached via "Continue as guest".)
+    await step('guest Continue as guest -> lobby', async () => {
+      await click('#btn-continue-guest');
       await page.waitForFunction(() => document.querySelector('#screen-lobby.active'), { timeout: 8000 });
     });
-    assert(await page.evaluate(() => !!document.querySelector('#screen-lobby.active')), 'lobby not active after Play now');
+    assert(await page.evaluate(() => !!document.querySelector('#screen-lobby.active')), 'lobby not active after Continue as guest');
 
     // ----- 2) Ranked "Coming soon" gate (seasonal switch) -----------------
     // This harness can't reach GET /api/config (no backend), so rankedEnabled
@@ -159,7 +161,11 @@ async function main() {
     });
 
     // ----- 4) Premium modal via the lobby premium card (converted handler) -
+    // The card is now hidden until the user has finished a game (ad/upsell gate),
+    // so force it visible first — this step verifies the CONVERTED (CSP-safe,
+    // non-inline) click handler still fires, not the visibility gate.
     await step('lobby premium card -> premium modal (converted onclick)', async () => {
+      await page.evaluate(() => { const c = document.getElementById('lobby-premium-card'); if (c) c.style.display = ''; });
       await click('#lobby-premium-card');
       await page.waitForFunction(() => document.querySelector('#modal-premium.show'), { timeout: 5000 });
     });

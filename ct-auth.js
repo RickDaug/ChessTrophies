@@ -115,6 +115,16 @@
       if (!res.ok) {
         const err = new Error((data && (data.error || data.message)) || 'Request failed');
         err.status = res.status; // lets callers tell a 4xx rejection from a 5xx/transient failure
+        // Centralize auth-expiry: a 401 on an AUTHENTICATED request means our token
+        // is no longer valid. Many callers (friends, progress, etc.) swallow their
+        // errors, which used to strand the user silently. Broadcast a single global
+        // event + flag so app.js can react once (idempotently) and re-prompt sign-in.
+        // Only fire for requests we actually sent a token on — an unauthenticated
+        // 401 (e.g. wrong login password) must NOT log the user out.
+        if (res.status === 401 && session && session.token) {
+          err.authExpired = true;
+          try { window.dispatchEvent(new Event('ct-auth-expired')); } catch (e) {}
+        }
         throw err;
       }
       return data;
