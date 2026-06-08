@@ -45,7 +45,13 @@ async function getStripe() {
   try {
     const mod = await import('stripe');
     const Stripe = mod.default || mod;
-    stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY);
+    // Pin the API version so an `npm update stripe` can't silently change the
+    // shape of webhook objects (event.data.object) out from under handleEvent.
+    // This MUST match the API version configured on the LIVE webhook endpoint in
+    // the Stripe Dashboard (Developers → Webhooks → endpoint → API version).
+    stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY, {
+      apiVersion: '2024-06-20',
+    });
     return stripeClient;
   } catch (e) {
     stripeLoadFailed = true;
@@ -148,28 +154,39 @@ async function userIdForCustomer(customerId) {
   }
 }
 
-// Handle a single verified Stripe event. Each branch is wrapped so one failing
-// event type can't crash the process; recording is idempotent on event.id.
+// Handle a single verified Stripe event. Errors are RETHROWN so the webhook
+// handler can return 500 and let Stripe retry (we must not silently drop a paid
+// upgrade). Recording is idempotent on event.id, so a retry can't double-count.
+//
+// Revenue is recorded from EXACTLY ONE event type (invoice.payment_succeeded).
+// Stripe fires BOTH checkout.session.completed AND invoice.paid/.payment_succeeded
+// for a new subscription's first charge, each with a distinct event.id — so the
+// stripe_event_id UNIQUE constraint does NOT dedupe them. To avoid double-counting,
+// checkout.session.completed does the premium flip ONLY (no recordPayment), and
+// invoice.paid is ignored for revenue.
 async function handleEvent(event) {
   const type = event.type;
   const obj = (event.data && event.data.object) || {};
+
+  // Defense-in-depth: in production the live endpoint must only ever see
+  // live-mode events. If a misconfigured TEST secret were pointed at the live
+  // webhook, test events would otherwise grant premium / record fake revenue.
+  if (process.env.NODE_ENV === 'production' && event.livemode !== true) {
+    console.error(`[billing] dropping non-livemode event ${event.id} (${type}) in production — refusing to mutate premium/ledger.`);
+    return;
+  }
+
   try {
     if (type === 'checkout.session.completed') {
+      // Premium flip ONLY. Revenue is recorded on invoice.payment_succeeded so
+      // the first charge isn't counted twice (see header comment).
       const customerId = typeof obj.customer === 'string' ? obj.customer : (obj.customer && obj.customer.id);
       const userId = obj.client_reference_id || (await userIdForCustomer(customerId));
       if (userId) await store.setPremiumByUserId(userId, true, 'active');
       else if (customerId) await store.setPremiumByCustomer(customerId, true, 'active');
-      if (obj.amount_total != null) {
-        await store.recordPayment({
-          userId,
-          eventId: event.id,
-          amountCents: obj.amount_total,
-          currency: obj.currency || 'usd',
-          kind: 'subscription',
-          createdAt: Date.now(),
-        });
-      }
-    } else if (type === 'invoice.paid' || type === 'invoice.payment_succeeded') {
+    } else if (type === 'invoice.payment_succeeded') {
+      // The single source of truth for revenue (idempotent on event.id). Also
+      // (re)affirm premium so renewals keep the user active.
       const customerId = typeof obj.customer === 'string' ? obj.customer : (obj.customer && obj.customer.id);
       const userId = await userIdForCustomer(customerId);
       if (customerId) await store.setPremiumByCustomer(customerId, true, 'active');
@@ -181,6 +198,11 @@ async function handleEvent(event) {
         kind: 'subscription',
         createdAt: Date.now(),
       });
+    } else if (type === 'invoice.paid') {
+      // Intentionally NOT recording revenue here (would double-count with
+      // invoice.payment_succeeded). Keep premium affirmed for safety.
+      const customerId = typeof obj.customer === 'string' ? obj.customer : (obj.customer && obj.customer.id);
+      if (customerId) await store.setPremiumByCustomer(customerId, true, 'active');
     } else if (type === 'customer.subscription.deleted') {
       const customerId = typeof obj.customer === 'string' ? obj.customer : (obj.customer && obj.customer.id);
       if (customerId) await store.setPremiumByCustomer(customerId, false, obj.status || 'canceled');
@@ -194,7 +216,11 @@ async function handleEvent(event) {
     }
     // Unhandled event types are acknowledged (200) and ignored.
   } catch (e) {
-    console.error(`[billing] handler error for ${type}:`, e && e.message ? e.message : e);
+    // Log for visibility, then RETHROW so the webhook returns 500 and Stripe
+    // retries. Per-event-type isolation is preserved because each event is a
+    // separate HTTP delivery — one failing type can't block another.
+    console.error(`[billing] handler error for ${type} (${event.id}):`, e && e.message ? e.message : e);
+    throw e;
   }
 }
 
@@ -214,9 +240,16 @@ export function mountBillingWebhook(app) {
       console.error('[billing] webhook signature verification failed:', e && e.message ? e.message : e);
       return res.status(400).json({ error: 'Invalid signature' });
     }
-    // Acknowledge fast; process best-effort (handleEvent never throws).
+    // Process BEFORE acknowledging: the work is a couple of idempotent DB writes,
+    // so it's fine to do inline. Only return 200 on success; on failure return
+    // 500 so Stripe retries (otherwise a paid upgrade could be silently dropped).
+    try {
+      await handleEvent(event);
+    } catch (e) {
+      console.error('[billing] handleEvent failed, returning 500 for Stripe retry:', e && e.message ? e.message : e);
+      return res.status(500).json({ error: 'Webhook processing failed' });
+    }
     res.json({ received: true });
-    handleEvent(event).catch((e) => console.error('[billing] handleEvent rejected:', e && e.message ? e.message : e));
   });
 }
 
