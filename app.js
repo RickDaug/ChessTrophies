@@ -838,6 +838,8 @@
     try { const c = await api('/api/billing/config'); if (c) billingCfg = Object.assign(billingCfg, c); } catch (e) {}
     // Re-paint any premium copy now that we know whether billing is live.
     try { applyPremiumCopy(); } catch (e) {}
+    // Reveal the Settings "Subscription" (manage/cancel) section only when live.
+    try { const ss = $('#settings-subscription'); if (ss) ss.style.display = billingCfg.enabled ? '' : 'none'; } catch (e) {}
   }
   async function startCheckout() {
     try {
@@ -4438,6 +4440,24 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     return d + 'd ago';
   }
 
+  // Self-heal premium from Stripe on entry: if the user is logged in (has a
+  // token), ask the server to reconcile is_premium against Stripe's LIVE
+  // subscription status, then refresh local state + ads. Fixes the "paid but
+  // prompted to pay again on next login" case when a webhook was missed/dropped.
+  async function syncPremiumFromStripe() {
+    try {
+      const s = getSession();
+      if (!s || !s.token) return;               // guests / offline: nothing to sync
+      const r = await api('/api/billing/sync', { method: 'POST', body: JSON.stringify({}) });
+      if (!r || typeof r.isPremium !== 'boolean' || !state.user) return;
+      if (state.user.isPremium === r.isPremium) return;
+      state.user.isPremium = r.isPremium;
+      try { const db = loadDB(); if (db.users[state.user.id]) { db.users[state.user.id].isPremium = r.isPremium; saveDB(db); } } catch (e) {}
+      try { if (window.CT_Ads) window.CT_Ads.refresh(!!r.isPremium); } catch (e) {}
+      if (typeof renderLobby === 'function') renderLobby();
+    } catch (e) { /* best-effort self-heal */ }
+  }
+
   function enterApp() {
     // Fresh (re)entry — reset the one-shot auth-expiry guard so a future token
     // expiry can prompt again.
@@ -4446,6 +4466,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     showScreen('lobby');
     // Native AdMob banner: shown for free users, suppressed for premium. No-op on web.
     try { if (window.CT_Ads) window.CT_Ads.refresh(!!(state.user && state.user.isPremium)); } catch (e) {}
+    // Reconcile premium from Stripe (self-healing; best-effort, async).
+    syncPremiumFromStripe();
   }
   // Clear the boot splash marker (ct-boot.js) once we've decided what to show, so
   // the splash hides and normal screen control resumes.
@@ -4534,6 +4556,11 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   if ($('#btn-premium-cancel-paid')) $('#btn-premium-cancel-paid').addEventListener('click', () => {
     if (billingCfg.enabled) { openBillingPortal(); } // Stripe customer portal (manage/cancel)
     else { setPremium(false); closeModal('premium'); }
+  });
+  // Settings → Manage Subscription: opens the Stripe customer portal (per-customer
+  // session). The static fallback link (#link-billing-portal) covers the rest.
+  if ($('#btn-manage-subscription')) $('#btn-manage-subscription').addEventListener('click', () => {
+    if (billingCfg.enabled) openBillingPortal();
   });
   if ($('#btn-premium-close')) $('#btn-premium-close').addEventListener('click', () => closeModal('premium'));
 
