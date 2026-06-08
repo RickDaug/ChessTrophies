@@ -147,7 +147,8 @@
       '.ctp-sq{display:flex;align-items:center;justify-content:center;position:relative;cursor:pointer}',
       '.ctp-sq.light{background:var(--light-sq,#eedfc6)}',
       '.ctp-sq.dark{background:var(--dark-sq,#6e8c6b)}',
-      '.ctp-pc{font-size:min(8vw,42px);line-height:1;pointer-events:none;text-shadow:0 1px 1px rgba(0,0,0,.25)}',
+      '.ctp-pc{width:88%;height:88%;display:flex;align-items:center;justify-content:center;font-size:min(8vw,42px);line-height:1;pointer-events:none}',
+      '.ctp-pc svg{width:100%;height:100%;pointer-events:none;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25))}',
       '.ctp-sq.sel{outline:3px solid #f4c542;outline-offset:-3px}',
       '.ctp-sq.target::after{content:"";position:absolute;width:30%;height:30%;border-radius:50%;background:rgba(0,0,0,.22)}',
       '.ctp-sq.lastmove{background:rgba(244,197,66,.45)!important}',
@@ -187,7 +188,12 @@
         var piece = board[r][f];
         if (piece) {
           var g = el('span', 'ctp-pc');
-          g.textContent = GLYPHS[piece.color + piece.type] || '';
+          // Use the SAME Staunton SVG renderer + piece theme as real matches
+          // (window.CT.pieceSVG) so puzzles look identical to games; fall back to
+          // a unicode glyph only if that renderer isn't available.
+          var svg = (window.CT && typeof window.CT.pieceSVG === 'function') ? window.CT.pieceSVG(piece.type, piece.color) : '';
+          if (svg) g.innerHTML = svg;
+          else g.textContent = GLYPHS[piece.color + piece.type] || '';
           sq.appendChild(g);
         }
         if (state.selected === sqName) sq.classList.add('sel');
