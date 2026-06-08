@@ -73,7 +73,7 @@ async function main() {
     log(`starting backend on :${serverPort} (db ${dbPath})`);
     serverProc = spawn(process.execPath, ['server.js'], {
       cwd: SERVER_DIR,
-      env: { ...process.env, PORT: String(serverPort), DATABASE_PATH: dbPath, CORS_ORIGIN: '*', NODE_ENV: 'development' },
+      env: { ...process.env, PORT: String(serverPort), DATABASE_PATH: dbPath, CORS_ORIGIN: '*', NODE_ENV: 'development', RANKED_ENABLED: '1' },
       stdio: ['ignore', 'ignore', 'pipe'],
     });
     serverProc.stderr.on('data', d => { serverStderr += d.toString(); });

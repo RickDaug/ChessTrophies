@@ -127,16 +127,25 @@ async function main() {
     });
     assert(await page.evaluate(() => !!document.querySelector('#screen-lobby.active')), 'lobby not active after Play now');
 
-    // ----- 2) Time-control / find-match modal -----------------------------
-    await step('open find-match (timecontrol) modal', async () => {
-      await click('#btn-find-match');
-      await page.waitForFunction(() => document.querySelector('#modal-timecontrol.show'), { timeout: 5000 });
+    // ----- 2) Ranked "Coming soon" gate (seasonal switch) -----------------
+    // This harness can't reach GET /api/config (no backend), so rankedEnabled
+    // defaults to FALSE → the ranked "Find ranked opponent" button is disabled
+    // and badged "Coming soon", and clicking it must NOT open the time-control
+    // modal. (When the server flag is TRUE, this button opens timecontrol as
+    // before — that path is exercised live, not in this offline harness.)
+    await step('ranked find-match is disabled (Coming soon) + does not open modal', async () => {
+      // Give the (fire-and-forget) /api/config fetch + applyRankedGate a beat to run.
+      await page.waitForFunction(() => {
+        const b = document.getElementById('btn-find-match');
+        return b && (b.disabled || b.classList.contains('is-coming-soon'));
+      }, { timeout: 5000 });
+      // Clicking a disabled button does nothing; force a programmatic click too to
+      // prove the defensive guard prevents the modal regardless.
+      await page.evaluate(() => { try { document.getElementById('btn-find-match').click(); } catch (e) {} });
+      const opened = await page.evaluate(() => !!document.querySelector('#modal-timecontrol.show'));
+      if (opened) fail('ranked find-match opened timecontrol while ranked is disabled');
     });
-    assert(await isModalOpen('timecontrol'), 'timecontrol modal did not open');
-    // Close it by removing the show class via CT.closeModal (a converted path).
-    await step('close timecontrol modal', async () => {
-      await page.evaluate(() => window.CT.closeModal('timecontrol'));
-    });
+    assert(!(await isModalOpen('timecontrol')), 'timecontrol modal should stay closed while ranked disabled');
 
     // ----- 3) Friendly-challenge invite modal -----------------------------
     // (The old private create/join-room flow was removed; play is online-only.)

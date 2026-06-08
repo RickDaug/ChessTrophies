@@ -78,6 +78,18 @@ async function main() {
     assert(me.emailVerified === true, '/api/me should be emailVerified=true after verifying');
     log('correct code verifies the account ✓');
 
+    // --- Persistence across "sessions" -----------------------------------
+    // The re-prompt bug: a user verified, then was asked again later. Prove the
+    // server persists email_verified durably: log in FRESH (new JWT, simulating
+    // a new device/session) and confirm /api/me still reports emailVerified:true.
+    const li = await post('/api/auth/login', { identifier: `V${RUN}_1`, password: 'passw0rd' });
+    assert(li.ok, `fresh login failed: ${li.status}`);
+    const freshJwt = (await li.json()).token;
+    assert(typeof freshJwt === 'string' && freshJwt, 'fresh login should return a JWT');
+    const meFresh = await (await get('/api/me', freshJwt)).json();
+    assert(meFresh.emailVerified === true, 'FRESH /api/me (new session) must report emailVerified:true — verification must persist');
+    log('verification persists across a fresh login/session ✓');
+
     // Replay: the code was consumed, so it can't be used again.
     const replay = await post('/api/auth/verify', { code }, jwt);
     assert(replay.status === 400, `consumed code replay should be 400 (got ${replay.status})`);

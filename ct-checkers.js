@@ -54,6 +54,9 @@
   function saveDB(db) { var c = CT(); if (c && c.saveDB) c.saveDB(db); }
   function ctUser() { var c = CT(); return c ? c.user : null; }
   function ctState() { var c = CT(); return c ? c.state : null; }
+  // Seasonal ranked switch — single source of truth lives in app.js (driven by
+  // GET /api/config). Default FALSE (safe) if app.js isn't ready yet.
+  function rankedEnabled() { var c = CT(); return !!(c && c.rankedEnabled && c.rankedEnabled()); }
   function $(sel, root) { return (root || document).querySelector(sel); }
   function $$(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
 
@@ -448,6 +451,9 @@
   // --- RANKED matchmaking ---------------------------------------------------
   var mmTimer = null, mmStart = 0, mmGiveUp = null, waitingMatch = false;
   function startFindRanked(size, rules) {
+    // Defensive: even if the disabled button is somehow triggered, never join the
+    // ranked queue while the seasonal switch is off.
+    if (!rankedEnabled()) { toast('Ranked checkers is coming soon.'); return; }
     var R = resolveRules(size, rules);
     s.size = R.size; s.rules = R.rules;
     if (!ctUser() || isGuest()) {

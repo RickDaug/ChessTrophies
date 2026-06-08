@@ -102,6 +102,18 @@ export async function topByMetric(metric, limit = 100) {
   return sqlite.topByMetric(metric, limit);
 }
 
+// Admin user directory: { total, users:[...] } with usernames + emails.
+export async function adminListUsers(opts) {
+  if (usingPostgres) return (await loadPg()).adminListUsers(opts);
+  return sqlite.adminListUsers(opts);
+}
+
+// Idempotent per-platform share counter (admin "shares" stat).
+export async function incShareCount(platform) {
+  if (usingPostgres) return (await loadPg()).incShareCount(platform);
+  return sqlite.incShareCount(platform);
+}
+
 // --- Generic single-statement helpers --------------------------------------
 //
 // For ad-hoc parameterized SQL in HTTP route handlers (friends/blocks/etc.)

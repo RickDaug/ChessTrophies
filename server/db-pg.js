@@ -220,7 +220,23 @@ CREATE INDEX IF NOT EXISTS idx_team_games_created ON team_games(created_at DESC)
 CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
 CREATE INDEX IF NOT EXISTS idx_friend_requests_to ON friend_requests(to_id);
 CREATE INDEX IF NOT EXISTS idx_blocks_blocker ON blocks(blocker_id);
+
+-- Social-share counts: one row per platform, incremented via upsert. Powers the
+-- admin dashboard's "which platform is used most to share" stat.
+CREATE TABLE IF NOT EXISTS share_counts (
+  platform TEXT PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 0,
+  updated_at BIGINT
+);
 `);
+}
+
+// Increment (or create) the counter for a share platform. Idempotent upsert.
+export async function incShareCount(platform) {
+  await pool.query(`
+    INSERT INTO share_counts (platform, count, updated_at) VALUES ($1, 1, $2)
+    ON CONFLICT(platform) DO UPDATE SET count = share_counts.count + 1, updated_at = excluded.updated_at
+  `, [platform, Date.now()]);
 }
 
 // Helpers (async mirrors of db.js) -----------------------------------------
@@ -336,4 +352,48 @@ export async function topByMetric(metric, limit = 100) {
     [limit]
   );
   return rows;
+}
+
+// Admin user directory (async mirror of db.js adminListUsers). Same allowlisted
+// ORDER BY; `q` uses ILIKE for case-insensitive substring match (Postgres
+// equivalent of LIKE ... COLLATE NOCASE). All SQL is parameterized.
+const ADMIN_USER_SORTS = {
+  elo: 'elo DESC, id ASC',
+  checkers8: 'elo_checkers_8 DESC, id ASC',
+  checkers10: 'elo_checkers_10 DESC, id ASC',
+  games: '(wins + losses + draws) DESC, id ASC',
+  recent: 'last_seen DESC, id ASC',
+  joined: 'created_at DESC, id ASC',
+};
+export async function adminListUsers({ sort = 'elo', limit = 1000, q = '' } = {}) {
+  const orderExpr = ADMIN_USER_SORTS[sort] || ADMIN_USER_SORTS.elo;
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 1000, 1), 1000);
+  const trimmed = String(q == null ? '' : q).trim();
+  let where = '';
+  const whereParams = [];
+  if (trimmed) {
+    const escaped = trimmed.replace(/[\\%_]/g, c => '\\' + c);
+    const pattern = '%' + escaped + '%';
+    where = "WHERE (username ILIKE $1 ESCAPE '\\' OR email ILIKE $2 ESCAPE '\\')";
+    whereParams.push(pattern, pattern);
+  }
+  const totalRes = await pool.query(`SELECT COUNT(*) AS n FROM users ${where}`, whereParams);
+  const total = totalRes.rows[0] ? Number(totalRes.rows[0].n) : 0;
+  // Limit placeholder follows the (0 or 2) where params positionally.
+  const limPlaceholder = '$' + (whereParams.length + 1);
+  const res = await pool.query(`
+    SELECT id, username, email, elo, elo_checkers_8, elo_checkers_10,
+           wins, losses, draws, last_seen, created_at, email_verified, is_premium
+    FROM users ${where}
+    ORDER BY ${orderExpr} LIMIT ${limPlaceholder}
+  `, [...whereParams, lim]);
+  const users = res.rows.map(r => ({
+    id: r.id, username: r.username, email: r.email,
+    elo: r.elo, eloCheckers8: r.elo_checkers_8, eloCheckers10: r.elo_checkers_10,
+    wins: r.wins, losses: r.losses, draws: r.draws,
+    games: (r.wins || 0) + (r.losses || 0) + (r.draws || 0),
+    lastSeen: r.last_seen, createdAt: r.created_at,
+    emailVerified: !!r.email_verified, isPremium: !!r.is_premium,
+  }));
+  return { total, users };
 }

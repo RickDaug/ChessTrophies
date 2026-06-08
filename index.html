@@ -97,6 +97,15 @@
   .btn-ghost { background: transparent; color: var(--text); box-shadow: none; }
   .btn-block { width: 100%; }
   .btn-danger { background: #2a1820; color: var(--danger); box-shadow: none; }
+  /* Disabled / "Coming soon" buttons (seasonal ranked switch). Kept visible so
+     users see the feature exists but can't trigger it. */
+  .btn:disabled, .btn[aria-disabled="true"], .btn.is-coming-soon { opacity: .55; cursor: not-allowed; box-shadow: none; }
+  .btn:disabled:hover, .btn[aria-disabled="true"]:hover, .btn.is-coming-soon:hover { background: var(--accent); }
+  .btn.is-coming-soon:active { transform: none; }
+  .coming-soon-badge { background: var(--panel-2); color: var(--muted); }
+  /* Social share button grid (Invite & Share modal). */
+  .share-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .share-grid .share-btn { padding: 12px 10px; font-size: 14px; }
   input[type="text"], input[type="email"], input[type="password"] {
     width: 100%; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border);
     background: var(--panel); color: var(--text); font-size: 15px; outline: none; transition: border .15s;
@@ -1343,11 +1352,17 @@
       <div class="muted small" style="margin-bottom:4px">Shareable link</div>
       <div id="invite-link" style="font-family:monospace;font-size:11px;word-break:break-all;color:var(--text)">—</div>
     </div>
-    <div class="row" style="gap:8px;margin-top:10px">
-      <button class="btn" id="btn-invite-share" style="flex:1">Share</button>
-      <button class="btn btn-secondary" id="btn-invite-copy-link" style="flex:1">Copy link</button>
+    <div class="muted small" style="margin:14px 0 6px">Share</div>
+    <div class="share-grid" id="share-grid">
+      <button class="btn btn-secondary share-btn" data-share="x" type="button">𝕏 / Twitter</button>
+      <button class="btn btn-secondary share-btn" data-share="facebook" type="button">Facebook</button>
+      <button class="btn btn-secondary share-btn" data-share="whatsapp" type="button">WhatsApp</button>
+      <button class="btn btn-secondary share-btn" data-share="reddit" type="button">Reddit</button>
+      <button class="btn btn-secondary share-btn" data-share="telegram" type="button">Telegram</button>
+      <button class="btn btn-secondary share-btn" data-share="copy" type="button">Copy link</button>
+      <button class="btn btn-secondary share-btn" data-share="native" id="btn-share-native" type="button" style="display:none">Share…</button>
     </div>
-    <div class="row" style="gap:8px;margin-top:10px">
+    <div class="row" style="gap:8px;margin-top:14px">
       <button class="btn btn-ghost btn-block" id="btn-invite-cancel">Done</button>
     </div>
   </div>

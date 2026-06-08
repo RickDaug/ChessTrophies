@@ -78,6 +78,16 @@ if (process.env.REDIS_URL) {
   console.log('[scale] single-instance mode (REDIS_URL not set)');
 }
 
+// Ranked play on/off — a seasonal switch via env. Ranked is OFF by default
+// ("coming soon") and only enabled when RANKED_ENABLED is '1' or 'true'
+// (case-insensitive). Read once at boot. This single flag gates the public
+// /api/config response AND the server-side enforcement in the socket handlers
+// (game.js reads it via the same parse), so the UI can't be trusted to bypass it.
+function rankedEnabled() {
+  const v = String(process.env.RANKED_ENABLED || '').trim().toLowerCase();
+  return v === '1' || v === 'true';
+}
+
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many auth attempts. Please try again later.' } });
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Please slow down.' } });
 
@@ -92,6 +102,11 @@ app.use((req, res, next) => {
 
 // Health
 app.get('/health', (req, res) => res.json({ ok: true, time: Date.now() }));
+
+// Public runtime config (NO auth). The client reads this to decide whether to
+// show ranked matchmaking UI. Server enforcement is separate (socket handlers),
+// so this is purely a hint — disabling ranked is enforced server-side regardless.
+app.get('/api/config', (req, res) => res.json({ rankedEnabled: rankedEnabled() }));
 
 function requireStringField(body, name, { min = 1, max = 255 } = {}) {
   const value = body[name];
@@ -472,6 +487,21 @@ app.post('/api/guest/release', (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Social-share tracking -------------------------------------------------
+// Public (no auth), rate-limited by the global apiLimiter. The client pings this
+// when a user shares the game so the admin dashboard can see which platform is
+// used most. Anything outside the allowlist is bucketed as 'other'. Stored as an
+// idempotent per-platform counter (share_counts table) via the store facade.
+const SHARE_PLATFORMS = new Set(['x', 'facebook', 'whatsapp', 'reddit', 'telegram', 'copy', 'native', 'other']);
+app.post('/api/share/track', async (req, res, next) => {
+  try {
+    const raw = typeof (req.body && req.body.platform) === 'string' ? req.body.platform.trim().toLowerCase() : '';
+    const platform = SHARE_PLATFORMS.has(raw) ? raw : 'other';
+    await store.incShareCount(platform);
+    res.json({ ok: true, platform });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
 // --- Admin stats -----------------------------------------------------------
 // Lightweight usage dashboard data. Gated by the ADMIN_KEY env var (passed as
 // ?key= or the x-admin-key header). Disabled (403) when ADMIN_KEY is unset, so
@@ -499,7 +529,40 @@ app.get('/api/admin/stats', async (req, res, next) => {
       games24h:       await n('SELECT COUNT(*) AS n FROM games WHERE created_at > ?', [now - DAY]),
       serverTime:     now,
     };
+    // Social-share counts by platform. A stable object is preferred so the admin
+    // page can render every bucket even at 0; total is the sum.
+    const PLATFORMS = ['x', 'facebook', 'whatsapp', 'reddit', 'telegram', 'copy', 'native', 'other'];
+    const byPlatform = {};
+    for (const p of PLATFORMS) byPlatform[p] = 0;
+    let shareTotal = 0;
+    const shareRows = await store.all('SELECT platform, count FROM share_counts');
+    for (const row of (shareRows || [])) {
+      const p = String(row.platform);
+      const c = Number(row.count) || 0;
+      byPlatform[p] = (byPlatform[p] || 0) + c; // tolerate unexpected legacy keys
+      shareTotal += c;
+    }
+    stats.shares = { total: shareTotal, byPlatform };
     res.json(stats);
+  } catch (e) { next(e); }
+});
+
+// --- Admin user directory ---------------------------------------------------
+// Real users with usernames + emails (to invite top performers to tournaments)
+// and top-N performers. Gated by ADMIN_KEY exactly like /api/admin/stats. Sort
+// is allowlisted (never interpolated from raw input); `q` is a parameterized
+// case-insensitive substring match on username OR email (LIKE-escaped).
+app.get('/api/admin/users', async (req, res, next) => {
+  try {
+    const provided = req.get('x-admin-key') || req.query.key || '';
+    if (!process.env.ADMIN_KEY || provided !== process.env.ADMIN_KEY) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const sort = typeof req.query.sort === 'string' ? req.query.sort : 'elo';
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 1000, 1), 1000);
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const result = await store.adminListUsers({ sort, limit, q });
+    res.json(result);
   } catch (e) { next(e); }
 });
 

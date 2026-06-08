@@ -52,6 +52,11 @@ async function main() {
     // needs no external network and never hangs on them.
     await ctx.route('**/*', (route) => {
       const u = new URL(route.request().url());
+      // Stub same-origin API calls the client makes on load (/api/config, etc.)
+      // so they don't 404 in this static-file harness and trip the error check.
+      if (u.origin === BASE && u.pathname.startsWith('/api/')) {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+      }
       if (u.origin === BASE) return route.continue();
       if (/socket\.io/.test(u.href)) return route.fulfill({ contentType: 'application/javascript', body: 'window.io=function(){return {on(){},emit(){},close(){}}};' });
       return route.fulfill({ status: 200, body: '' });
