@@ -24,6 +24,17 @@ for (const p of ['../checkers.js', './checkers.js']) {
 }
 if (!CT_Checkers) console.error('[checkers] engine not found at ../checkers.js or ./checkers.js — checkers disabled');
 
+// Ranked play on/off — a seasonal switch via env (mirrors server.js). Ranked is
+// OFF by default and only enabled when RANKED_ENABLED is '1' or 'true'
+// (case-insensitive). Enforced server-side here so a tampered client can't queue
+// ranked matchmaking while ranked is disabled. Casual paths (friendly challenge,
+// checkers friend challenge, rematches) are NOT gated.
+const RANKED_DISABLED_MSG = 'Ranked play is coming soon.';
+function rankedEnabled() {
+  const v = String(process.env.RANKED_ENABLED || '').trim().toLowerCase();
+  return v === '1' || v === 'true';
+}
+
 const activeGames = new Map();     // gameId -> { white, black, chess, mode, started }
 const userActiveGame = new Map();  // uid -> gameId (1v1, mirrors userActiveTeamGame)
 const matchmakingQueue = new Map(); // userId -> { socketId, elo, joinedAt, mode }
@@ -405,6 +416,12 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
     // Skill-based matchmaking
     socket.on('mm_join', async ({ mode, tc }) => {
       const uid = socket.data.userId; if (!uid) return;
+      // Ranked seasonal switch: reject ranked 1v1 matchmaking when ranked is off.
+      // Casual random matchmaking (mode='casual') is unaffected.
+      if (normalizeMode(mode) === 'ranked' && !rankedEnabled()) {
+        socket.emit('mm_err', { error: RANKED_DISABLED_MSG });
+        return;
+      }
       if (!consumeBucket(mmBuckets, uid, 3, 0.2)) {
         socket.emit('rate_limited', { event: 'mm_join', retryInMs: 5000 });
         return;
@@ -423,6 +440,12 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
     // --- 2v2 team matchmaking ---
     socket.on('team_mm_join', async ({ inviteId, tc }) => {
       const uid = socket.data.userId; if (!uid) return;
+      // 2v2 (solo queue + friend duo) is always ranked — gate it entirely when
+      // ranked is off.
+      if (!rankedEnabled()) {
+        socket.emit('team_mm_err', { error: RANKED_DISABLED_MSG });
+        return;
+      }
       if (!consumeBucket(teamMmBuckets, uid, 3, 0.2)) {
         socket.emit('rate_limited', { event: 'team_mm_join', retryInMs: 5000 });
         return;
@@ -757,6 +780,12 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
     socket.on('checkers_mm_join', async ({ mode, size, rules } = {}) => {
       const uid = socket.data.userId; if (!uid) return;
       if (!CT_Checkers) { socket.emit('checkers_err', { error: 'checkers unavailable' }); return; }
+      // Ranked seasonal switch: reject ranked checkers matchmaking when ranked is
+      // off. Casual checkers matchmaking (mode='casual') is unaffected.
+      if (normalizeCheckersMode(mode) === 'ranked' && !rankedEnabled()) {
+        socket.emit('checkers_err', { error: RANKED_DISABLED_MSG });
+        return;
+      }
       if (!consumeBucket(checkersMmBuckets, uid, 3, 0.2)) {
         socket.emit('rate_limited', { event: 'checkers_mm_join', retryInMs: 5000 });
         return;

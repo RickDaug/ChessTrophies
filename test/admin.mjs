@@ -81,6 +81,72 @@ async function main() {
     assert(viaQuery.ok, `stats via ?key= failed: ${viaQuery.status}`);
     log('?key= query form works ✓');
 
+    // --- Share tracking + shares stat ------------------------------------
+    // Stats should ALWAYS include a stable shares object (zeros before any track).
+    assert(s.shares && typeof s.shares === 'object', 'stats should include a shares object');
+    assert(typeof s.shares.total === 'number', 'shares.total should be a number');
+    assert(s.shares.byPlatform && typeof s.shares.byPlatform === 'object', 'shares.byPlatform should be an object');
+    for (const p of ['x','facebook','whatsapp','reddit','telegram','copy','native','other']) {
+      assert(typeof s.shares.byPlatform[p] === 'number', `shares.byPlatform.${p} should be a number`);
+    }
+    assert(s.shares.total === 0, `shares.total should start at 0, got ${s.shares.total}`);
+    log('shares object present + zeroed before tracking ✓');
+
+    // POST /api/share/track is public (no auth) + rate-limited.
+    const t1 = await post('/api/share/track', { platform: 'x' });
+    assert(t1.ok, `share/track x failed: ${t1.status}`);
+    assert((await t1.json()).platform === 'x', 'track x should echo platform x');
+    await post('/api/share/track', { platform: 'x' });
+    await post('/api/share/track', { platform: 'whatsapp' });
+    // Unknown platform -> bucketed as 'other'.
+    const tBad = await post('/api/share/track', { platform: 'myspace' });
+    assert((await tBad.json()).platform === 'other', 'unknown platform should bucket as other');
+    log('share/track records platforms + buckets unknowns to other ✓');
+
+    const s2 = await (await fetch(`${BASE}/api/admin/stats`, { headers: { 'x-admin-key': ADMIN_KEY } })).json();
+    assert(s2.shares.total === 4, `shares.total should be 4 after 4 tracks, got ${s2.shares.total}`);
+    assert(s2.shares.byPlatform.x === 2, `shares.byPlatform.x should be 2, got ${s2.shares.byPlatform.x}`);
+    assert(s2.shares.byPlatform.whatsapp === 1, `shares.byPlatform.whatsapp should be 1, got ${s2.shares.byPlatform.whatsapp}`);
+    assert(s2.shares.byPlatform.other === 1, `shares.byPlatform.other should be 1, got ${s2.shares.byPlatform.other}`);
+    log('shares aggregate reflects tracked counts ✓');
+
+    // --- Admin user directory --------------------------------------------
+    // No/wrong key -> 403.
+    const uNoKey = await fetch(`${BASE}/api/admin/users`);
+    assert(uNoKey.status === 403, `users without key should be 403, got ${uNoKey.status}`);
+    const usersRes = await fetch(`${BASE}/api/admin/users`, { headers: { 'x-admin-key': ADMIN_KEY } });
+    assert(usersRes.ok, `admin/users failed: ${usersRes.status}`);
+    const ud = await usersRes.json();
+    assert(typeof ud.total === 'number' && Array.isArray(ud.users), 'admin/users should return {total,users[]}');
+    assert(ud.total >= 1 && ud.users.length >= 1, 'admin/users should return our user');
+    const u0 = ud.users.find(x => x.username === username);
+    assert(u0, 'our signed-up user should appear in admin/users');
+    for (const f of ['id','username','email','elo','eloCheckers8','eloCheckers10','wins','losses','draws','games','lastSeen','createdAt','emailVerified','isPremium']) {
+      assert(f in u0, `admin/users row missing field: ${f}`);
+    }
+    assert(u0.email === email, `admin/users should expose the real email (${u0.email})`);
+    assert(u0.username === username, 'admin/users should expose the username');
+    assert(u0.games === (u0.wins + u0.losses + u0.draws), 'games should equal wins+losses+draws');
+    log('admin/users returns username+email + full row shape ✓');
+
+    // q filter (case-insensitive substring on username/email).
+    const byU = await (await fetch(`${BASE}/api/admin/users?q=${encodeURIComponent(username.slice(0, 3).toLowerCase())}`, { headers: { 'x-admin-key': ADMIN_KEY } })).json();
+    assert(byU.users.some(x => x.username === username), 'q on username substring should match');
+    const byE = await (await fetch(`${BASE}/api/admin/users?q=${encodeURIComponent('admin.local')}`, { headers: { 'x-admin-key': ADMIN_KEY } })).json();
+    assert(byE.users.some(x => x.email === email), 'q on email substring should match');
+    const byNone = await (await fetch(`${BASE}/api/admin/users?q=zzz_no_such_user_zzz`, { headers: { 'x-admin-key': ADMIN_KEY } })).json();
+    assert(byNone.total === 0 && byNone.users.length === 0, 'q with no match should return empty');
+    log('admin/users q filter (username + email) works ✓');
+
+    // limit cap + sort allowlist (sort should not error on a bad value).
+    const lim = await (await fetch(`${BASE}/api/admin/users?limit=1`, { headers: { 'x-admin-key': ADMIN_KEY } })).json();
+    assert(lim.users.length <= 1, 'limit=1 should cap the rows');
+    const sorted = await (await fetch(`${BASE}/api/admin/users?sort=joined&limit=5`, { headers: { 'x-admin-key': ADMIN_KEY } })).json();
+    assert(Array.isArray(sorted.users), 'sort=joined should return users[]');
+    const badSort = await fetch(`${BASE}/api/admin/users?sort=DROP+TABLE`, { headers: { 'x-admin-key': ADMIN_KEY } });
+    assert(badSort.ok, 'bad sort value should fall back to default, not error');
+    log('admin/users honors limit + allowlisted sort ✓');
+
     log('PASS — admin stats endpoint gated + returns sane usage numbers');
     return 0;
   } finally {

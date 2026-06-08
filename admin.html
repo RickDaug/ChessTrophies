@@ -9,18 +9,41 @@
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; padding:24px; }
   h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:28px 0 12px; color:var(--text); }
   .sub { color:var(--muted); font-size:13px; margin-bottom:18px; }
   .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:20px; }
-  input { background:var(--panel); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:9px 12px; font-size:14px; min-width:260px; }
+  input, select { background:var(--panel); border:1px solid var(--border); color:var(--text); border-radius:8px; padding:9px 12px; font-size:14px; }
+  input { min-width:260px; }
+  input.sm { min-width:200px; }
   button { background:var(--accent); color:#1a1300; border:none; border-radius:8px; padding:9px 16px; font-weight:700; cursor:pointer; font-size:14px; }
   button.ghost { background:transparent; color:var(--muted); border:1px solid var(--border); font-weight:500; }
   .err { color:#ff9b9b; font-size:13px; margin-bottom:14px; min-height:18px; }
+  .ok { color:#9bffb0; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
   .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; }
   .card .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
   .card .val { font-size:30px; font-weight:800; margin-top:6px; }
   .card.hi { border-color:rgba(245,196,81,.5); }
   .foot { color:var(--muted); font-size:12px; margin-top:18px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .shares-row { display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); }
+  .shares-row:last-child { border-bottom:none; }
+  .shares-row .pf { width:120px; text-transform:capitalize; color:var(--muted); font-size:13px; }
+  .shares-row .barfill { flex:1; height:14px; background:#1d293f; border-radius:7px; overflow:hidden; }
+  .shares-row .barfill > i { display:block; height:100%; background:var(--accent); border-radius:7px; }
+  .shares-row .cnt { width:70px; text-align:right; font-weight:700; font-size:13px; }
+  .shares-row.top .pf { color:var(--accent); font-weight:700; }
+  .shares-row.top .cnt { color:var(--accent); }
+  .badge { display:inline-block; background:rgba(245,196,81,.15); color:var(--accent); border:1px solid rgba(245,196,81,.4); border-radius:6px; padding:2px 8px; font-size:12px; font-weight:700; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  thead th { text-align:left; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  tbody td { padding:8px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  tbody tr:hover { background:rgba(255,255,255,.03); }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  td.muted, .muted { color:var(--muted); }
+  .tbl-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:12px; }
+  .yes { color:#9bffb0; font-weight:700; }
+  .count-note { color:var(--muted); font-size:13px; margin:8px 0; }
 </style>
 </head>
 <body>
@@ -32,8 +55,47 @@
     <button id="auto" class="ghost">Auto-refresh: off</button>
   </div>
   <div class="err" id="err"></div>
+
   <div class="grid" id="grid"></div>
   <div class="foot" id="foot"></div>
+
+  <h2>Share analytics</h2>
+  <div class="panel" id="shares"><div class="muted">Load stats to view share analytics.</div></div>
+
+  <h2>Users</h2>
+  <div class="bar">
+    <input id="q" class="sm" type="text" placeholder="Search username or email…" autocomplete="off">
+    <select id="sort">
+      <option value="elo">Sort: ELO (top performers)</option>
+      <option value="checkers8">Sort: Checkers 8×8</option>
+      <option value="checkers10">Sort: Checkers 10×10</option>
+      <option value="games">Sort: Games played</option>
+      <option value="recent">Sort: Recently active</option>
+      <option value="joined">Sort: Newest</option>
+    </select>
+    <select id="limit">
+      <option value="100">Top 100</option>
+      <option value="500">Top 500</option>
+      <option value="1000">Top 1000</option>
+    </select>
+    <button id="usersRefresh">Refresh</button>
+    <button id="copyEmails" class="ghost">Copy emails</button>
+    <span id="copyMsg" class="ok" style="font-size:13px;"></span>
+  </div>
+  <div class="err" id="usersErr"></div>
+  <div class="count-note" id="usersCount"></div>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>Username</th><th>Email</th>
+          <th>ELO</th><th>Checkers 8×8</th><th>Checkers 10×10</th>
+          <th>Games</th><th>Last seen</th><th>Joined</th><th>Verified</th><th>Premium</th>
+        </tr>
+      </thead>
+      <tbody id="usersBody"><tr><td colspan="11" class="muted" style="padding:14px 10px;">Load stats with a valid key to view users.</td></tr></tbody>
+    </table>
+  </div>
 
 <script>
   (function () {
@@ -43,7 +105,17 @@
     var grid = document.getElementById('grid');
     var foot = document.getElementById('foot');
     var autoBtn = document.getElementById('auto');
+    var sharesEl = document.getElementById('shares');
+    var qEl = document.getElementById('q');
+    var sortEl = document.getElementById('sort');
+    var limitEl = document.getElementById('limit');
+    var usersErr = document.getElementById('usersErr');
+    var usersCount = document.getElementById('usersCount');
+    var usersBody = document.getElementById('usersBody');
+    var copyMsg = document.getElementById('copyMsg');
     var timer = null;
+    var qTimer = null;
+    var currentUsers = [];
     keyEl.value = localStorage.getItem(KEY_STORE) || '';
 
     var CARDS = [
@@ -60,36 +132,186 @@
       { k:'games24h',      label:'Games · 24h' },
     ];
 
-    function render(s) {
-      grid.innerHTML = CARDS.map(function (c) {
-        var v = (s && s[c.k] != null) ? s[c.k] : '–';
-        return '<div class="card' + (c.hi ? ' hi' : '') + '"><div class="label">' + c.label + '</div><div class="val">' + v + '</div></div>';
-      }).join('');
-      foot.textContent = 'Updated ' + new Date().toLocaleTimeString();
+    // ----- helpers -----
+    function esc(s) {
+      var d = document.createElement('div');
+      d.textContent = (s == null ? '' : String(s));
+      return d.innerHTML;
+    }
+    function getKey() { return keyEl.value.trim(); }
+    function headers() { return { 'x-admin-key': getKey() }; }
+    function fmtNum(n) {
+      if (n == null || n === '') return '–';
+      var x = Number(n);
+      return isNaN(x) ? esc(n) : x.toLocaleString();
+    }
+    function fmtDate(ms) {
+      if (ms == null || Number(ms) === 0) return null; // signal "never"
+      var d = new Date(Number(ms));
+      if (isNaN(d.getTime())) return null;
+      return d;
+    }
+    function fmtDateText(ms, neverLabel) {
+      var d = fmtDate(ms);
+      if (!d) return neverLabel || '—';
+      return d.toLocaleString();
     }
 
-    async function load() {
-      var key = keyEl.value.trim();
+    // ----- stat cards -----
+    function renderStats(s) {
+      grid.innerHTML = CARDS.map(function (c) {
+        var v = (s && s[c.k] != null) ? Number(s[c.k]).toLocaleString() : '–';
+        return '<div class="card' + (c.hi ? ' hi' : '') + '"><div class="label">' + c.label + '</div><div class="val">' + v + '</div></div>';
+      }).join('');
+      var st = s && s.serverTime ? fmtDateText(s.serverTime) : '';
+      foot.textContent = 'Updated ' + new Date().toLocaleTimeString() + (st ? '  ·  server time ' + st : '');
+      renderShares(s && s.shares);
+    }
+
+    // ----- share analytics -----
+    function renderShares(sh) {
+      if (!sh || !sh.byPlatform || typeof sh.byPlatform !== 'object') {
+        sharesEl.innerHTML = '<div class="muted">No shares yet</div>';
+        return;
+      }
+      var entries = Object.keys(sh.byPlatform).map(function (k) {
+        return { platform: k, count: Number(sh.byPlatform[k]) || 0 };
+      }).filter(function (e) { return e.count > 0; });
+
+      if (!entries.length) {
+        sharesEl.innerHTML = '<div class="muted">No shares yet</div>';
+        return;
+      }
+      entries.sort(function (a, b) { return b.count - a.count; });
+      var total = (sh.total != null) ? Number(sh.total) : entries.reduce(function (t, e) { return t + e.count; }, 0);
+      var max = entries[0].count;
+      var topName = entries[0].platform;
+
+      var html = '<div style="margin-bottom:12px;">Total shares: <span class="badge">' + total.toLocaleString() +
+        '</span>  ·  Most-used: <span class="badge">' + esc(topName) + ' (' + max.toLocaleString() + ')</span></div>';
+      html += entries.map(function (e, i) {
+        var pct = max > 0 ? Math.round((e.count / max) * 100) : 0;
+        return '<div class="shares-row' + (i === 0 ? ' top' : '') + '">' +
+          '<span class="pf">' + esc(e.platform) + '</span>' +
+          '<span class="barfill"><i style="width:' + pct + '%"></i></span>' +
+          '<span class="cnt">' + e.count.toLocaleString() + '</span></div>';
+      }).join('');
+      sharesEl.innerHTML = html;
+    }
+
+    // ----- stats fetch -----
+    async function loadStats() {
+      var key = getKey();
       if (!key) { errEl.textContent = 'Enter your admin key.'; return; }
       localStorage.setItem(KEY_STORE, key);
       errEl.textContent = '';
       try {
-        var res = await fetch('/api/admin/stats', { headers: { 'x-admin-key': key } });
-        if (res.status === 403) { errEl.textContent = 'Forbidden — wrong key, or ADMIN_KEY is not set on the server.'; return; }
+        var res = await fetch('/api/admin/stats', { headers: headers() });
+        if (res.status === 403) { errEl.textContent = 'Forbidden — wrong/missing admin key, or ADMIN_KEY is not set on the server.'; return; }
         if (!res.ok) { errEl.textContent = 'Error: HTTP ' + res.status; return; }
-        render(await res.json());
+        renderStats(await res.json());
       } catch (e) {
         errEl.textContent = 'Could not reach the server: ' + (e && e.message ? e.message : e);
       }
     }
 
-    document.getElementById('load').addEventListener('click', load);
-    keyEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
+    // ----- users table -----
+    function renderUsers(data) {
+      var users = (data && Array.isArray(data.users)) ? data.users : [];
+      currentUsers = users;
+      var total = (data && data.total != null) ? Number(data.total) : users.length;
+      usersCount.textContent = 'Showing ' + users.length.toLocaleString() + ' of ' + total.toLocaleString() + ' total users';
+
+      if (!users.length) {
+        usersBody.innerHTML = '<tr><td colspan="11" class="muted" style="padding:14px 10px;">No users match.</td></tr>';
+        return;
+      }
+      usersBody.innerHTML = users.map(function (u, i) {
+        var ls = fmtDate(u.lastSeen);
+        var cr = fmtDate(u.createdAt);
+        return '<tr>' +
+          '<td class="num muted">' + (i + 1) + '</td>' +
+          '<td>' + esc(u.username) + '</td>' +
+          '<td class="muted">' + esc(u.email) + '</td>' +
+          '<td class="num">' + fmtNum(u.elo) + '</td>' +
+          '<td class="num">' + fmtNum(u.eloCheckers8) + '</td>' +
+          '<td class="num">' + fmtNum(u.eloCheckers10) + '</td>' +
+          '<td class="num">' + fmtNum(u.games) + '</td>' +
+          '<td class="muted">' + (ls ? esc(ls.toLocaleString()) : 'never') + '</td>' +
+          '<td class="muted">' + (cr ? esc(cr.toLocaleDateString()) : '—') + '</td>' +
+          '<td>' + (u.emailVerified ? '<span class="yes">✓</span>' : '') + '</td>' +
+          '<td>' + (u.isPremium ? '<span class="yes">✓</span>' : '') + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+
+    async function loadUsers() {
+      var key = getKey();
+      if (!key) { usersErr.textContent = 'Enter your admin key (top of page).'; return; }
+      usersErr.textContent = '';
+      var params = new URLSearchParams();
+      params.set('sort', sortEl.value);
+      params.set('limit', limitEl.value);
+      var q = qEl.value.trim();
+      if (q) params.set('q', q);
+      try {
+        var res = await fetch('/api/admin/users?' + params.toString(), { headers: headers() });
+        if (res.status === 403) { usersErr.textContent = 'Forbidden — wrong/missing admin key.'; return; }
+        if (!res.ok) { usersErr.textContent = 'Error: HTTP ' + res.status; return; }
+        renderUsers(await res.json());
+      } catch (e) {
+        usersErr.textContent = 'Could not reach the server: ' + (e && e.message ? e.message : e);
+      }
+    }
+
+    // ----- copy emails -----
+    async function copyEmails() {
+      copyMsg.textContent = '';
+      var emails = currentUsers
+        .map(function (u) { return (u.email || '').trim(); })
+        .filter(function (e) { return e; });
+      if (!emails.length) { copyMsg.textContent = 'No emails to copy.'; return; }
+      var text = emails.join(', ');
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta); ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        }
+        copyMsg.textContent = 'Copied ' + emails.length + ' email' + (emails.length === 1 ? '' : 's') + ' to clipboard.';
+      } catch (e) {
+        copyMsg.textContent = 'Copy failed: ' + (e && e.message ? e.message : e);
+      }
+      setTimeout(function () { copyMsg.textContent = ''; }, 4000);
+    }
+
+    // combined refresh used by the main "Load stats" button + auto-refresh
+    function loadAll() { loadStats(); loadUsers(); }
+
+    // ----- wiring -----
+    document.getElementById('load').addEventListener('click', loadAll);
+    keyEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') loadAll(); });
     autoBtn.addEventListener('click', function () {
       if (timer) { clearInterval(timer); timer = null; autoBtn.textContent = 'Auto-refresh: off'; }
-      else { timer = setInterval(load, 30000); autoBtn.textContent = 'Auto-refresh: 30s'; load(); }
+      else { timer = setInterval(loadStats, 30000); autoBtn.textContent = 'Auto-refresh: 30s'; loadStats(); }
     });
-    if (keyEl.value) load();
+
+    document.getElementById('usersRefresh').addEventListener('click', loadUsers);
+    document.getElementById('copyEmails').addEventListener('click', copyEmails);
+    sortEl.addEventListener('change', loadUsers);
+    limitEl.addEventListener('change', loadUsers);
+    qEl.addEventListener('input', function () {
+      clearTimeout(qTimer);
+      qTimer = setTimeout(loadUsers, 350);
+    });
+    qEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') { clearTimeout(qTimer); loadUsers(); } });
+
+    if (keyEl.value) loadAll();
   })();
 </script>
 </body>

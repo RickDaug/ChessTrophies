@@ -157,6 +157,25 @@ CREATE INDEX IF NOT EXISTS idx_friend_requests_to ON friend_requests(to_id);
 CREATE INDEX IF NOT EXISTS idx_blocks_blocker ON blocks(blocker_id);
 `);
 
+// Social-share counts: one row per platform, incremented via upsert. Powers the
+// admin dashboard's "which platform is used most to share" stat. Transient/
+// aggregate telemetry (no FKs).
+db.exec(`
+CREATE TABLE IF NOT EXISTS share_counts (
+  platform TEXT PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER
+);
+`);
+
+// Increment (or create) the counter for a share platform. Idempotent upsert.
+export function incShareCount(platform) {
+  return db.prepare(`
+    INSERT INTO share_counts (platform, count, updated_at) VALUES (?, 1, ?)
+    ON CONFLICT(platform) DO UPDATE SET count = count + 1, updated_at = excluded.updated_at
+  `).run(platform, Date.now());
+}
+
 // Email verification: a per-user 6-digit code (one live code per user) with an
 // attempt counter to throttle guessing. We store only the sha256 of the code.
 // Migration: an earlier version keyed this table by a long link token
@@ -279,6 +298,51 @@ export function topByMetric(metric, limit = 100) {
                             elo_checkers_8, elo_checkers_10,
                             ${trophiesExpr} AS trophies
                      FROM users ORDER BY ${orderExpr} DESC, elo DESC LIMIT ?`).all(limit);
+}
+
+// Admin user directory: list users with usernames + emails (and ratings/record)
+// for the admin dashboard. `sort` is allowlisted to a fixed ORDER BY expression
+// (never interpolated from raw input). `q` is an optional case-insensitive
+// substring match on username OR email (LIKE wildcards in the input are escaped).
+// Returns { total, users:[...] } where total ignores the limit (but honors q).
+const ADMIN_USER_SORTS = {
+  elo: 'elo DESC, id ASC',
+  checkers8: 'elo_checkers_8 DESC, id ASC',
+  checkers10: 'elo_checkers_10 DESC, id ASC',
+  games: '(wins + losses + draws) DESC, id ASC',
+  recent: 'last_seen DESC, id ASC',
+  joined: 'created_at DESC, id ASC',
+};
+export function adminListUsers({ sort = 'elo', limit = 1000, q = '' } = {}) {
+  const orderExpr = ADMIN_USER_SORTS[sort] || ADMIN_USER_SORTS.elo;
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 1000, 1), 1000);
+  const trimmed = String(q == null ? '' : q).trim();
+  let where = '';
+  const whereParams = [];
+  if (trimmed) {
+    // Escape LIKE special chars; case-insensitive substring on username OR email.
+    const escaped = trimmed.replace(/[\\%_]/g, c => '\\' + c);
+    const pattern = '%' + escaped + '%';
+    where = "WHERE (username LIKE ? ESCAPE '\\' COLLATE NOCASE OR email LIKE ? ESCAPE '\\' COLLATE NOCASE)";
+    whereParams.push(pattern, pattern);
+  }
+  const totalRow = db.prepare(`SELECT COUNT(*) AS n FROM users ${where}`).get(...whereParams);
+  const total = totalRow ? Number(totalRow.n) : 0;
+  const rows = db.prepare(`
+    SELECT id, username, email, elo, elo_checkers_8, elo_checkers_10,
+           wins, losses, draws, last_seen, created_at, email_verified, is_premium
+    FROM users ${where}
+    ORDER BY ${orderExpr} LIMIT ?
+  `).all(...whereParams, lim);
+  const users = rows.map(r => ({
+    id: r.id, username: r.username, email: r.email,
+    elo: r.elo, eloCheckers8: r.elo_checkers_8, eloCheckers10: r.elo_checkers_10,
+    wins: r.wins, losses: r.losses, draws: r.draws,
+    games: (r.wins || 0) + (r.losses || 0) + (r.draws || 0),
+    lastSeen: r.last_seen, createdAt: r.created_at,
+    emailVerified: !!r.email_verified, isPremium: !!r.is_premium,
+  }));
+  return { total, users };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

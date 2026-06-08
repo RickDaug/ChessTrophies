@@ -67,7 +67,7 @@ async function main() {
   let proc, errOut = '';
   const sockets = [];
   try {
-    proc = spawn(process.execPath, ['server.js'], { cwd: SERVER_DIR, env: { ...process.env, PORT: String(port), DATABASE_PATH: dbPath, CORS_ORIGIN: '*', NODE_ENV: 'development' }, stdio: ['ignore', 'ignore', 'pipe'] });
+    proc = spawn(process.execPath, ['server.js'], { cwd: SERVER_DIR, env: { ...process.env, PORT: String(port), DATABASE_PATH: dbPath, CORS_ORIGIN: '*', NODE_ENV: 'development', RANKED_ENABLED: '1' }, stdio: ['ignore', 'ignore', 'pipe'] });
     proc.stderr.on('data', d => { errOut += d; });
     proc.on('exit', c => { if (c) log('server exited', c, errOut); });
     await waitForHealth(`${BASE}/health`);

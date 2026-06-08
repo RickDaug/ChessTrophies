@@ -370,6 +370,50 @@
   };
 
   // ---------------------------------------------------------------------------
+  // Server feature flags (GET /api/config). The whole client gates ranked UI on
+  // a SINGLE source of truth: rankedEnabled. Default FALSE (safe) so a config
+  // fetch failure / unreachable server hides ranked rather than dead-ending a
+  // user in a queue that can never match. Flip the server env to re-enable the
+  // UI with no client change.
+  // ---------------------------------------------------------------------------
+  var _rankedEnabled = false;
+  function rankedEnabled() { return _rankedEnabled === true; }
+  async function fetchServerConfig() {
+    try {
+      const cfg = await api('/api/config');
+      _rankedEnabled = !!(cfg && cfg.rankedEnabled);
+    } catch (e) {
+      _rankedEnabled = false; // safe default on any failure
+    }
+    // Re-paint any ranked entry points now that we know the flag.
+    try { applyRankedGate(); } catch (e) {}
+    return _rankedEnabled;
+  }
+
+  // Fire-and-forget share analytics. platform: x|facebook|whatsapp|reddit|
+  // telegram|copy|native. Public endpoint — never blocks the share action and
+  // swallows all errors (the share itself must always succeed).
+  function trackShare(platform) {
+    try {
+      api('/api/share/track', { method: 'POST', body: JSON.stringify({ platform: platform }) }).catch(function () {});
+    } catch (e) { /* never let analytics break a share */ }
+  }
+
+  // The canonical site URL to share, plus the referral param when logged in. We
+  // reuse the SAME ?invitedBy=<userId> param the existing referral link uses.
+  const SHARE_SITE_URL = 'https://www.playchesstrophies.com/';
+  function buildShareUrl() {
+    let url = SHARE_SITE_URL;
+    const u = state.user;
+    // Match the referral link: append ?invitedBy=<userId> for real (non-guest)
+    // accounts so shares are attributed.
+    if (u && u.id && !u.isGuest) {
+      url += '?invitedBy=' + encodeURIComponent(u.id);
+    }
+    return url;
+  }
+
+  // ---------------------------------------------------------------------------
   // Time controls (game clocks). Key format "<minutes>+<incrementSeconds>".
   // The server pairs only players on the SAME tc key, so these strings matter.
   // ---------------------------------------------------------------------------
@@ -1086,6 +1130,14 @@
       await api('/api/auth/verify', { method: 'POST', body: JSON.stringify({ code }) });
       closeModal('verify-email');
       toast('Email verified — thank you! ✓', true);
+      // Persist emailVerified=true to the local DB IMMEDIATELY so a reload before
+      // the follow-up /api/me sync still sees verified and never re-prompts.
+      if (state.user) {
+        state.user.emailVerified = true;
+        const _db = loadDB();
+        if (_db.users[state.user.id]) { _db.users[state.user.id].emailVerified = true; saveDB(_db); }
+      }
+      updateVerifyBanner();
       await refreshVerifiedStatus();
     } catch (err) {
       if (err && err.status === 401) { closeModal('verify-email'); handleAuthExpired('Your session expired — please sign in again to verify your email.'); return; }
@@ -1188,15 +1240,22 @@
       totalTrophies === 0 ? 'No trophies yet — start a match' :
       `${u.streakTrophies.length} streak ${u.streakTrophies.length === 1 ? 'trophy' : 'trophies'} · ${u.achievements.length} achievements`;
     renderFriendsSummary();
-    // Inject ad slot (or empty for premium users)
+    // Inject ad slot (or empty for premium users). Premium users get NO ad slot at
+    // all — clear the markup AND hide the container so it can't leave a gap.
     const adWrap = $('#lobby-ad-slot');
-    if (adWrap) adWrap.innerHTML = renderAdSlot('banner');
-    // Show/hide Premium upgrade card based on status
+    if (adWrap) {
+      adWrap.innerHTML = renderAdSlot('banner');
+      adWrap.style.display = u.isPremium ? 'none' : '';
+    }
+    // Hide the "Go Premium / Remove ads" upsell for users who are already premium
+    // (they don't need the upsell); show it for everyone else.
     const upWrap = $('#lobby-premium-card');
     if (upWrap) upWrap.style.display = u.isPremium ? 'none' : '';
     const premiumBadge = $('#premium-badge');
     if (premiumBadge) premiumBadge.style.display = u.isPremium ? '' : 'none';
     updateVerifyBanner();
+    // Paint ranked entry points per the seasonal switch (Coming soon when off).
+    applyRankedGate();
     // Daily play-streak card (consecutive days the user finished any game).
     renderPlayStreak();
     // Keep the (possibly hidden) checkers stat row in sync with state.user.checkers.
@@ -1210,8 +1269,51 @@
     const banner = $('#verify-banner');
     if (!banner) return;
     const u = state.user;
+    // Hide the banner the moment the server says verified — and once verified it
+    // must NEVER reappear. Only show for a server-logged-in user we KNOW is
+    // unverified (emailVerified === false). Any other value (true/undefined)
+    // keeps it hidden.
     const show = !!u && isServerLoggedIn() && u.emailVerified === false;
     banner.style.display = show ? 'flex' : 'none';
+  }
+
+  // Seasonal ranked switch — drives EVERY ranked entry point off the single
+  // rankedEnabled() flag. When false: disable + badge the ranked buttons with a
+  // clear "Coming soon" state. When true: restore them. Practice / friendly /
+  // pass-and-play / friend challenges / the nav tabs are never touched here.
+  // Idempotent + safe to call before the flag is known (defaults to disabled).
+  function applyRankedGate() {
+    const enabled = rankedEnabled();
+    // [selector, original label] for each ranked button.
+    const targets = [
+      ['#btn-find-match', 'Find ranked opponent'],
+      ['#btn-duo-online', 'Find ranked 2v2'],
+      ['#btn-duo-ranked', 'Find ranked 2v2'],
+      ['#ck-btn-find-match', 'Find ranked checkers opponent'],
+      // 2v2 invite-from-friend (ranked duo) — disabling the trigger is enough;
+      // the friend-challenge modal also routes to ranked 2v2.
+      ['#btn-fc-ranked', 'Invite to 2v2 (random opponents)'],
+    ];
+    targets.forEach(function (t) {
+      const btn = $(t[0]);
+      if (!btn) return;
+      if (!btn.dataset.rankedLabel) btn.dataset.rankedLabel = btn.textContent;
+      const baseLabel = btn.dataset.rankedLabel || t[1];
+      if (enabled) {
+        btn.disabled = false;
+        btn.classList.remove('is-coming-soon');
+        btn.removeAttribute('aria-disabled');
+        btn.textContent = baseLabel;
+      } else {
+        btn.disabled = true;
+        btn.classList.add('is-coming-soon');
+        btn.setAttribute('aria-disabled', 'true');
+        // Append a small "Coming soon" badge (kept inside the button so it
+        // collapses with the button; CSP-safe — no inline handlers).
+        btn.innerHTML = escapeHTML(baseLabel) +
+          ' <span class="pill coming-soon-badge" style="margin-left:8px">Coming soon</span>';
+      }
+    });
   }
   function _addLobbyChatButton() {
   const user = state.user;
@@ -1397,6 +1499,7 @@ function renderFriendsSummary() {
   // (The former duplicate "Start a challenge" card was removed; it opened the same
   // picker and called the same matchmaking, so it added no distinct behavior.)
   $('#btn-find-match').addEventListener('click', () => {
+    if (!rankedEnabled()) { toast('Ranked play is coming soon.'); return; }
     state.pendingChallenge = null;
     openTimeControlPicker({}, () => startOnlineOrFakeMatchmaking('ranked'));
   });
@@ -1531,8 +1634,8 @@ function renderFriendsSummary() {
     // 2v2 lobby buttons
     // - btn-duo-online -> real ranked 2v2 via the server (3-min queue, real opponents)
     // - btn-duo-ranked -> kept as alias for older builds (treated as online)
-    { const b = $('#btn-duo-online'); if (b) b.addEventListener('click', () => openTimeControlPicker({ title: 'Choose a 2v2 time control', startLabel: 'Find ranked 2v2' }, () => startOnlineTeamMatchmaking())); }
-    { const b = $('#btn-duo-ranked'); if (b) b.addEventListener('click', () => openTimeControlPicker({ title: 'Choose a 2v2 time control', startLabel: 'Find ranked 2v2' }, () => startOnlineTeamMatchmaking())); }
+    { const b = $('#btn-duo-online'); if (b) b.addEventListener('click', () => { if (!rankedEnabled()) { toast('Ranked 2v2 is coming soon.'); return; } openTimeControlPicker({ title: 'Choose a 2v2 time control', startLabel: 'Find ranked 2v2' }, () => startOnlineTeamMatchmaking()); }); }
+    { const b = $('#btn-duo-ranked'); if (b) b.addEventListener('click', () => { if (!rankedEnabled()) { toast('Ranked 2v2 is coming soon.'); return; } openTimeControlPicker({ title: 'Choose a 2v2 time control', startLabel: 'Find ranked 2v2' }, () => startOnlineTeamMatchmaking()); }); }
     { const b = $('#duo-quit'); if (b) b.addEventListener('click', () => { if (window.Duo.quit()) { window.__duo.game = null; showScreen('lobby'); } }); }
   const practiceEloInput = $('#practice-elo');
   const practiceEloLabel = $('#practice-elo-label');
@@ -1572,6 +1675,8 @@ function renderFriendsSummary() {
     const ckCards = $('#checkers-play-cards'); if (ckCards) ckCards.style.display = isCk ? '' : 'none';
     const chessStats = $('#stat-grid-chess'); if (chessStats) chessStats.style.display = isCk ? 'none' : '';
     const ckStats = $('#stat-grid-checkers'); if (ckStats) { ckStats.style.display = isCk ? '' : 'none'; if (isCk) renderCheckersLobbyStats(); }
+    // Keep the ranked "Coming soon" state correct as cards toggle in/out.
+    applyRankedGate();
   }
   // Reconcile the displayed rules with the chosen size (ACF=8 only, Intl=10 only).
   function syncCkRulesToSize() {
@@ -1600,6 +1705,7 @@ function renderFriendsSummary() {
   { const el = $('#ck-practice-elo'); const lbl = $('#ck-practice-elo-label');
     if (el && lbl) { const upd = () => { lbl.textContent = clampElo(el.value); }; upd(); el.addEventListener('input', upd); } }
   { const b = $('#ck-btn-find-match'); if (b) b.addEventListener('click', () => {
+      if (!rankedEnabled()) { toast('Ranked checkers is coming soon.'); return; }
       if (window.CT_Checkers_UI) window.CT_Checkers_UI.startFindRanked(ckLobby.size, ckLobby.rules);
     }); }
   // Friendly checkers challenge from the friend-challenge modal.
@@ -1737,6 +1843,7 @@ function renderFriendsSummary() {
     inviteFriendlyChallenge();
   });
   $('#btn-fc-ranked').addEventListener('click', () => {
+    if (!rankedEnabled()) { toast('Ranked 2v2 is coming soon.'); return; }
     closeModal('friend-challenge');
     // Real online: send a duo invite via the server. The friend (if online and
     // authenticated against the same backend) receives a popup; on accept we
@@ -1795,37 +1902,78 @@ function renderFriendsSummary() {
   // Invite & Share — shares a referral link so friends can join the app. (The old
   // private-room/pass-and-play code path was removed; play is online-only now.)
   $('#btn-invite').addEventListener('click', () => {
-    state.user.invitesSent = state.user.invitesSent || [];
-    // Keep populating invitesSent so the Recruiter trophy still tracks shares.
-    state.user.invitesSent.push('share_' + Date.now().toString(36));
-    const db = loadDB(); db.users[state.user.id] = state.user; saveDB(db);
-    const baseUrl = window.location.href.split('?')[0];
-    const url = baseUrl + '?invitedBy=' + encodeURIComponent(state.user.id);
-    $('#invite-link').textContent = url;
+    if (state.user) {
+      state.user.invitesSent = state.user.invitesSent || [];
+      // Keep populating invitesSent so the Recruiter trophy still tracks shares.
+      state.user.invitesSent.push('share_' + Date.now().toString(36));
+      const db = loadDB(); db.users[state.user.id] = state.user; saveDB(db);
+    }
+    // Show the canonical site share URL (with the referral param when logged in),
+    // matching what the share buttons actually send.
+    $('#invite-link').textContent = buildShareUrl();
+    // Reveal the native Share button only where the Web Share API exists.
+    const nativeBtn = $('#btn-share-native');
+    if (nativeBtn) nativeBtn.style.display = (typeof navigator !== 'undefined' && navigator.share) ? '' : 'none';
     openModal('invite');
   });
-  $('#btn-invite-share').addEventListener('click', async () => {
-    const url = $('#invite-link').textContent;
-    const text = 'Play chess with me on ChessTrophies!';
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: 'ChessTrophies', text, url });
-      } catch (e) { /* user cancelled */ }
-    } else {
-      try {
-        await navigator.clipboard.writeText(text + '\n' + url);
-        toast('Copied invite to clipboard');
-      } catch (e) {
-        toast('Link: ' + url);
-      }
-    }
-  });
-  $('#btn-invite-copy-link').addEventListener('click', async () => {
+
+  // Social share + tracking. Each button opens the correct share URL for the
+  // canonical site (with the referral ?invitedBy param when logged in) AND calls
+  // POST /api/share/track with the platform name. CSP-safe: delegated click, no
+  // inline handlers; external share targets open via window.open (navigation, not
+  // a frame, so frame-src 'none' is unaffected).
+  const SHARE_MESSAGE = 'Play chess with me on ChessTrophies!';
+  function openShareWindow(href) {
     try {
-      await navigator.clipboard.writeText($('#invite-link').textContent);
+      const w = window.open(href, '_blank', 'noopener,noreferrer');
+      if (!w) { /* popup blocked */ location.href = href; }
+    } catch (e) { try { location.href = href; } catch (e2) {} }
+  }
+  async function copyShareLink(url) {
+    try {
+      await navigator.clipboard.writeText(url);
       toast('Link copied!');
-    } catch (e) { toast('Link: ' + $('#invite-link').textContent); }
-  });
+    } catch (e) {
+      toast('Link: ' + url);
+    }
+  }
+  function shareUrlFor(platform, url, text) {
+    const eu = encodeURIComponent(url);
+    const et = encodeURIComponent(text);
+    switch (platform) {
+      case 'x':        return 'https://twitter.com/intent/tweet?text=' + et + '&url=' + eu;
+      case 'facebook': return 'https://www.facebook.com/sharer/sharer.php?u=' + eu;
+      case 'whatsapp': return 'https://api.whatsapp.com/send?text=' + encodeURIComponent(text + ' ' + url);
+      case 'reddit':   return 'https://www.reddit.com/submit?url=' + eu + '&title=' + et;
+      case 'telegram': return 'https://t.me/share/url?url=' + eu + '&text=' + et;
+      default:         return url;
+    }
+  }
+  async function handleShare(platform) {
+    const url = buildShareUrl();
+    const text = SHARE_MESSAGE;
+    // Track first (fire-and-forget) so analytics fire regardless of what the
+    // share target does.
+    trackShare(platform);
+    if (platform === 'copy') { await copyShareLink(url); return; }
+    if (platform === 'native') {
+      if (navigator.share) {
+        try { await navigator.share({ title: 'ChessTrophies', text: text, url: url }); }
+        catch (e) { /* user cancelled — no-op */ }
+      } else {
+        await copyShareLink(url);
+      }
+      return;
+    }
+    openShareWindow(shareUrlFor(platform, url, text));
+  }
+  { const grid = $('#share-grid');
+    if (grid) grid.addEventListener('click', function (e) {
+      const btn = e.target.closest('[data-share]');
+      if (!btn) return;
+      handleShare(btn.getAttribute('data-share'));
+    });
+  }
   $('#btn-invite-cancel').addEventListener('click', () => { closeModal('invite'); });
 
   $$('[data-go]').forEach(el => {
@@ -3976,6 +4124,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     try { document.documentElement.classList.remove('ct-has-session'); } catch (e) {}
   }
   async function init() {
+    // Fetch the server feature flags (rankedEnabled) once, up front. Fire-and-
+    // forget: it defaults to FALSE on failure and re-paints the ranked UI itself
+    // via applyRankedGate() when it resolves, so it never blocks boot.
+    fetchServerConfig();
     const session = getSession();
     const db = loadDB();
     if (session && (session.userId || session.token)) {
@@ -3989,12 +4141,21 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         doneBoot();
         if (session.token) {
           fetchMe().then((profile) => {
+            // syncRemoteProfile maps the server-authoritative emailVerified onto the
+            // merged user AND persists it via saveDB, so the refreshed verified
+            // state survives reloads/sessions (this is the root-cause fix for the
+            // "verified yesterday, re-prompted today" bug — the stale cached
+            // emailVerified:false used to re-prompt every session).
             const fresh = syncRemoteProfile(profile);
             setSession({ userId: fresh.id, token: session.token });
             state.user = fresh;
             // Pull checkers ELO/W-L from the same /api/me payload onto state.user.checkers.
             try { if (window.CT_Checkers_UI) window.CT_Checkers_UI.applyCheckersProfile(profile); } catch (e) {}
             renderLobby();
+            // Re-evaluate the verify banner against the TRUE server state. Once the
+            // server says verified, this hides it for good (renderLobby already
+            // calls it, but call explicitly so the fix is obvious + order-safe).
+            updateVerifyBanner();
           }).catch(() => {});
         }
         return;
@@ -4059,6 +4220,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     hasAchievement, unlockAchievement, checkAchievementsFor, tierColor,
     renderLobby, renderProfile, renderBoard,
     openPremium, setPremium, renderAdSlot,
+    rankedEnabled, applyRankedGate,
     recordDailyPlay, renderPlayStreak,
     // Pure daily-play-streak helpers, exposed for testing.
     _streak: { todayKey, yesterdayKeyOf, computePlayStreak },
