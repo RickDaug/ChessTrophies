@@ -125,6 +125,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS elo_checkers_10 INTEGER NOT NULL DEFA
 -- Per-board-size ranked checkers games-played counters (participation filter).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS checkers8_games INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS checkers10_games INTEGER NOT NULL DEFAULT 0;
+-- Stripe subscription billing (additive; inert until Stripe is configured).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS friendships (
   user_id TEXT NOT NULL,
@@ -233,7 +236,82 @@ CREATE TABLE IF NOT EXISTS share_counts (
   count INTEGER NOT NULL DEFAULT 0,
   updated_at BIGINT
 );
+
+-- Stripe billing: payments ledger. One row per recorded revenue event;
+-- stripe_event_id is UNIQUE so webhook retries can't double-count (idempotent).
+-- Amounts stored in the smallest currency unit (cents). No FKs (a payment can
+-- still be recorded if the user row is missing/late).
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  stripe_event_id TEXT UNIQUE,
+  amount_cents INTEGER NOT NULL DEFAULT 0,
+  currency TEXT DEFAULT 'usd',
+  kind TEXT DEFAULT 'subscription',
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_payments_created ON payments(created_at DESC);
 `);
+}
+
+// --- Stripe billing (async mirrors of db.js) -------------------------------
+
+// Persist the Stripe Customer id for a user (set on first checkout).
+export async function setStripeCustomer(userId, customerId) {
+  await pool.query('UPDATE users SET stripe_customer_id = $1 WHERE id = $2', [customerId, userId]);
+}
+
+// Flip a user's premium flag + subscription status, keyed by Stripe Customer id.
+export async function setPremiumByCustomer(customerId, isPremium, status) {
+  await pool.query('UPDATE users SET is_premium = $1, subscription_status = $2 WHERE stripe_customer_id = $3',
+    [isPremium ? 1 : 0, status == null ? '' : String(status), customerId]);
+}
+
+// Flip a user's premium flag + subscription status, keyed by user id.
+export async function setPremiumByUserId(userId, isPremium, status) {
+  await pool.query('UPDATE users SET is_premium = $1, subscription_status = $2 WHERE id = $3',
+    [isPremium ? 1 : 0, status == null ? '' : String(status), userId]);
+}
+
+// Idempotently record a revenue event (ON CONFLICT (stripe_event_id) DO NOTHING
+// so a webhook retry for the same event is a no-op; the amount is counted once).
+export async function recordPayment({ userId, eventId, amountCents, currency, kind, createdAt }) {
+  await pool.query(`INSERT INTO payments
+      (id, user_id, stripe_event_id, amount_cents, currency, kind, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (stripe_event_id) DO NOTHING`,
+    [
+      'pay_' + (eventId || ('x' + Math.random().toString(36).slice(2))),
+      userId || null,
+      eventId || null,
+      Number(amountCents) || 0,
+      currency || 'usd',
+      kind || 'subscription',
+      Number(createdAt) || Date.now(),
+    ]);
+}
+
+export async function getUserByStripeCustomer(customerId) {
+  if (!customerId) return undefined;
+  const { rows } = await pool.query(
+    "SELECT * FROM users WHERE stripe_customer_id = $1 AND stripe_customer_id <> ''", [customerId]);
+  return rows[0];
+}
+
+// Revenue rollups for the admin dashboard. Current calendar month, current
+// calendar year, all-time, plus active-subscriber count (is_premium = 1).
+// Boundaries use the SERVER's clock.
+export async function revenueStats() {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const yearStart = new Date(now.getFullYear(), 0, 1).getTime();
+  const sum = async (sql, p = []) => { const r = await pool.query(sql, p); return r.rows[0] && r.rows[0].s != null ? Number(r.rows[0].s) : 0; };
+  const monthCents = await sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments WHERE created_at >= $1', [monthStart]);
+  const yearCents = await sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments WHERE created_at >= $1', [yearStart]);
+  const allTimeCents = await sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments');
+  const subRes = await pool.query('SELECT COUNT(*) AS n FROM users WHERE is_premium = 1');
+  const activeSubscribers = subRes.rows[0] ? Number(subRes.rows[0].n) : 0;
+  return { monthCents, yearCents, allTimeCents, activeSubscribers, currency: 'usd' };
 }
 
 // Increment (or create) the counter for a share platform. Idempotent upsert.

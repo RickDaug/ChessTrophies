@@ -185,6 +185,91 @@
     renderCaptured();
   }
 
+  // ---------------------------------------------------------------------------
+  //  MOVE ANIMATION — slide the moving piece across the board instead of
+  //  teleporting it, and for multi-jumps step through each hop (fading out each
+  //  captured piece as it is passed). Purely cosmetic: the engine state is
+  //  already updated by the caller BEFORE this runs, so `done` simply commits the
+  //  authoritative board via render(). Degrades to an instant render whenever the
+  //  board isn't visible, motion is reduced, or the move data is missing — so
+  //  headless/odd contexts behave exactly as before.
+  // ---------------------------------------------------------------------------
+  function moveWaypoints(move) {
+    if (move && move.path && move.path.length >= 2) return move.path.slice();
+    var note = move && (move.notation || (typeof move === 'string' ? move : null));
+    if (note) {
+      var parts = String(note).split(/[x\-]/).map(function (x) { return parseInt(x, 10); })
+        .filter(function (n) { return !isNaN(n); });
+      if (parts.length >= 2) return parts;
+    }
+    if (move && move.from != null && move.to != null) return [move.from, move.to];
+    return null;
+  }
+  // Force any in-flight animation to complete immediately (commit final state).
+  function flushAnim() {
+    if (!s._anim) return;
+    try { clearTimeout(s._anim.timer); } catch (e) {}
+    var fin = s._anim.finish; s._anim = null;
+    if (fin) fin();
+  }
+  function animateMove(move, done) {
+    var boardEl = $('#checkers-board');
+    var waypoints = moveWaypoints(move);
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function commit() { if (done) done(); }
+    if (!boardEl || !waypoints || waypoints.length < 2 || reduce) { commit(); return; }
+    var fromCell = boardEl.querySelector('[data-ck="' + waypoints[0] + '"]');
+    var fromPiece = fromCell && fromCell.querySelector('.ck-piece');
+    var boardRect = boardEl.getBoundingClientRect();
+    var startRect = fromCell && fromCell.getBoundingClientRect();
+    if (!fromPiece || !startRect || !boardRect.width) { commit(); return; }
+
+    flushAnim(); // never run two animations at once
+
+    if (getComputedStyle(boardEl).position === 'static') boardEl.style.position = 'relative';
+    // Float layer holds the REAL moving piece (re-parented, so the board's piece
+    // count is unchanged mid-animation — tests that count discs stay correct).
+    var floatEl = document.createElement('div');
+    floatEl.className = 'ck-anim-piece';
+    floatEl.style.cssText = 'position:absolute;display:flex;align-items:center;justify-content:center;' +
+      'pointer-events:none;z-index:6;transition:transform 160ms ease-in-out;' +
+      'left:' + (startRect.left - boardRect.left) + 'px;top:' + (startRect.top - boardRect.top) + 'px;' +
+      'width:' + startRect.width + 'px;height:' + startRect.height + 'px;transform:translate(0px,0px);';
+    floatEl.appendChild(fromPiece); // move (not clone) the actual piece element
+    boardEl.appendChild(floatEl);
+
+    var caps = (move && move.captures) ? move.captures.slice() : [];
+    var capEls = caps.map(function (cn) {
+      var cc = boardEl.querySelector('[data-ck="' + cn + '"]');
+      return cc && cc.querySelector('.ck-piece');
+    });
+
+    s.animating = true;
+    var finished = false;
+    function finish() {
+      if (finished) return; finished = true;
+      s.animating = false;
+      if (s._anim && s._anim.id === id) s._anim = null;
+      commit(); // render() rebuilds the board, discarding floatEl
+    }
+    var id = (s._animSeq = (s._animSeq || 0) + 1);
+    var i = 0;
+    var HOP = 160;
+    function step() {
+      if (finished) return;
+      if (i >= waypoints.length - 1) { finish(); return; }
+      var target = boardEl.querySelector('[data-ck="' + waypoints[i + 1] + '"]');
+      if (!target) { finish(); return; }
+      var tr = target.getBoundingClientRect();
+      var dx = tr.left - startRect.left, dy = tr.top - startRect.top;
+      if (capEls[i]) { capEls[i].style.transition = 'opacity 150ms'; capEls[i].style.opacity = '0'; }
+      requestAnimationFrame(function () { floatEl.style.transform = 'translate(' + dx + 'px,' + dy + 'px)'; });
+      i++;
+      s._anim = { id: id, timer: setTimeout(step, HOP + 12), finish: finish };
+    }
+    requestAnimationFrame(function () { s._anim = { id: id, timer: setTimeout(step, 12), finish: finish }; });
+  }
+
   // Origins (square numbers) that have a mandatory capture available this turn.
   function forcedCaptureOrigins() {
     var out = {};
@@ -282,6 +367,9 @@
   // ---------------------------------------------------------------------------
   function onCellClick(num) {
     if (!s.game || s.ended || s.aiThinking || s.applyingRemote) return;
+    // A tap during a move's slide animation shouldn't be swallowed — snap the
+    // animation to its final state and process the tap, so play never feels stuck.
+    if (s.animating) flushAnim();
     var turn = s.game.turn();
     // vs AI / online: only the human's color may move.
     if ((s.opponent && s.opponent.isAI) && turn !== s.myColor) return;
@@ -357,17 +445,22 @@
       // Opponent captured one of my pieces.
       if (move.captures && move.captures.length) s.lostAnyPiece = true;
     }
-    render();
-    if (s.game.isGameOver()) {
-      if (!s.isOnline) finishGame(s.game.winner(), s.game.gameOverReason());
-      return;
-    }
-    // vs AI: trigger the AI reply (offline only).
-    if (!s.isOnline && s.opponent && s.opponent.isAI && s.game.turn() !== s.myColor) {
-      s.aiThinking = true;
-      updateStatus();
-      setTimeout(makeAIMove, 350);
-    }
+    // Animate the piece across the board (multi-jumps hop through each capture),
+    // THEN commit the authoritative board + run post-move logic. The engine state
+    // is already updated above, so this only changes when the visuals settle.
+    animateMove(move, function () {
+      render();
+      if (s.game.isGameOver()) {
+        if (!s.isOnline) finishGame(s.game.winner(), s.game.gameOverReason());
+        return;
+      }
+      // vs AI: trigger the AI reply (offline only).
+      if (!s.isOnline && s.opponent && s.opponent.isAI && s.game.turn() !== s.myColor) {
+        s.aiThinking = true;
+        updateStatus();
+        setTimeout(makeAIMove, 350);
+      }
+    });
   }
 
   function makeAIMove() {
@@ -415,6 +508,9 @@
     s.lastMove = null;
     s.aiThinking = false;
     s.applyingRemote = false;
+    // Hard-reset any in-flight move animation from a previous game (no commit).
+    if (s._anim) { try { clearTimeout(s._anim.timer); } catch (e) {} s._anim = null; }
+    s.animating = false;
     s.myCapturesThisGame = 0;
     s.lostAnyPiece = false;
     s.hadKing = false;
@@ -574,11 +670,15 @@
       s.applyingRemote = false;
       if (applied) { afterMove(applied, false); return; }
     }
-    // Resynced from position: just re-render + bookkeeping.
+    // Resynced from position: animate the opponent's move using the move data
+    // (the OLD board is still in the DOM until render() runs inside the callback),
+    // then commit. Bookkeeping first.
     if (mv.captures && mv.captures.length && moveColor && moveColor !== s.myColor) s.lostAnyPiece = true;
     s.lastMove = (typeof mv === 'object') ? mv : s.lastMove;
-    render();
-    if (s.game.isGameOver()) return; // server will send checkers_game_over
+    animateMove((typeof mv === 'object') ? mv : { notation: mv }, function () {
+      render();
+      // game-over is driven by the server's checkers_game_over event.
+    });
   }
 
   function onGameOver(data) {

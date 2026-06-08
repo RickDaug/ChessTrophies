@@ -138,6 +138,11 @@ ensureColumn('users', 'checkers10_games', 'INTEGER', '0');
 // string ('8'|'10') for checkers rows; '' for chess.
 ensureColumn('games', 'game_type', 'TEXT', "'chess'");
 ensureColumn('games', 'variant', 'TEXT', "''");
+// --- Stripe subscription billing (additive; inert until Stripe is configured) ---
+// The Stripe Customer id for this user (set on first checkout) and the latest
+// subscription status string from Stripe webhooks. Default '' = no billing yet.
+ensureColumn('users', 'stripe_customer_id', 'TEXT', "''");
+ensureColumn('users', 'subscription_status', 'TEXT', "''");
 
 // Pending friend requests (from_id asked to befriend to_id; awaiting consent).
 // Confirmed friendships still live in the `friendships` table.
@@ -179,6 +184,82 @@ export function incShareCount(platform) {
     INSERT INTO share_counts (platform, count, updated_at) VALUES (?, 1, ?)
     ON CONFLICT(platform) DO UPDATE SET count = count + 1, updated_at = excluded.updated_at
   `).run(platform, Date.now());
+}
+
+// --- Stripe billing: payments ledger ---------------------------------------
+// One row per recorded Stripe revenue event (checkout completion / paid invoice).
+// `stripe_event_id` is UNIQUE so webhook retries can't double-count revenue
+// (idempotent on the Stripe event id). Amounts are stored in the smallest
+// currency unit (cents) as Stripe reports them. Aggregate telemetry (no FKs so a
+// payment can still be recorded if the user row is missing/late).
+db.exec(`
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  stripe_event_id TEXT UNIQUE,
+  amount_cents INTEGER NOT NULL DEFAULT 0,
+  currency TEXT DEFAULT 'usd',
+  kind TEXT DEFAULT 'subscription',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_payments_created ON payments(created_at DESC);
+`);
+
+// Persist the Stripe Customer id for a user (set on first checkout).
+export function setStripeCustomer(userId, customerId) {
+  return db.prepare('UPDATE users SET stripe_customer_id = ? WHERE id = ?').run(customerId, userId);
+}
+
+// Flip a user's premium flag + subscription status, keyed by Stripe Customer id.
+export function setPremiumByCustomer(customerId, isPremium, status) {
+  return db.prepare('UPDATE users SET is_premium = ?, subscription_status = ? WHERE stripe_customer_id = ?')
+    .run(isPremium ? 1 : 0, status == null ? '' : String(status), customerId);
+}
+
+// Flip a user's premium flag + subscription status, keyed by user id.
+export function setPremiumByUserId(userId, isPremium, status) {
+  return db.prepare('UPDATE users SET is_premium = ?, subscription_status = ? WHERE id = ?')
+    .run(isPremium ? 1 : 0, status == null ? '' : String(status), userId);
+}
+
+// Idempotently record a revenue event. INSERT OR IGNORE on the UNIQUE
+// stripe_event_id means a webhook retry for the same event is a no-op (the
+// amount is counted exactly once).
+export function recordPayment({ userId, eventId, amountCents, currency, kind, createdAt }) {
+  return db.prepare(`INSERT OR IGNORE INTO payments
+      (id, user_id, stripe_event_id, amount_cents, currency, kind, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(
+      'pay_' + (eventId || ('x' + Math.random().toString(36).slice(2))),
+      userId || null,
+      eventId || null,
+      Number(amountCents) || 0,
+      currency || 'usd',
+      kind || 'subscription',
+      Number(createdAt) || Date.now()
+    );
+}
+
+export function getUserByStripeCustomer(customerId) {
+  if (!customerId) return undefined;
+  return db.prepare("SELECT * FROM users WHERE stripe_customer_id = ? AND stripe_customer_id <> ''").get(customerId);
+}
+
+// Revenue rollups for the admin dashboard. Sums payments for the current
+// calendar month, current calendar year, and all-time, plus the count of active
+// subscribers (users.is_premium = 1). Boundaries use the SERVER's clock.
+export function revenueStats() {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const yearStart = new Date(now.getFullYear(), 0, 1).getTime();
+  const sum = (sql, p = []) => { const r = db.prepare(sql).get(...p); return r && r.s != null ? Number(r.s) : 0; };
+  return {
+    monthCents:      sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments WHERE created_at >= ?', [monthStart]),
+    yearCents:       sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments WHERE created_at >= ?', [yearStart]),
+    allTimeCents:    sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments'),
+    activeSubscribers: (() => { const r = db.prepare('SELECT COUNT(*) AS n FROM users WHERE is_premium = 1').get(); return r ? Number(r.n) : 0; })(),
+    currency: 'usd',
+  };
 }
 
 // Email verification: a per-user 6-digit code (one live code per user) with an

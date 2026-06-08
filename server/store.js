@@ -114,6 +114,38 @@ export async function incShareCount(platform) {
   return sqlite.incShareCount(platform);
 }
 
+// --- Stripe billing (backend-agnostic wrappers) ----------------------------
+
+export async function setStripeCustomer(userId, customerId) {
+  if (usingPostgres) return (await loadPg()).setStripeCustomer(userId, customerId);
+  return sqlite.setStripeCustomer(userId, customerId);
+}
+
+export async function setPremiumByCustomer(customerId, isPremium, status) {
+  if (usingPostgres) return (await loadPg()).setPremiumByCustomer(customerId, isPremium, status);
+  return sqlite.setPremiumByCustomer(customerId, isPremium, status);
+}
+
+export async function setPremiumByUserId(userId, isPremium, status) {
+  if (usingPostgres) return (await loadPg()).setPremiumByUserId(userId, isPremium, status);
+  return sqlite.setPremiumByUserId(userId, isPremium, status);
+}
+
+export async function recordPayment(p) {
+  if (usingPostgres) return (await loadPg()).recordPayment(p);
+  return sqlite.recordPayment(p);
+}
+
+export async function getUserByStripeCustomer(customerId) {
+  if (usingPostgres) return (await loadPg()).getUserByStripeCustomer(customerId);
+  return sqlite.getUserByStripeCustomer(customerId);
+}
+
+export async function revenueStats() {
+  if (usingPostgres) return (await loadPg()).revenueStats();
+  return sqlite.revenueStats();
+}
+
 // --- Generic single-statement helpers --------------------------------------
 //
 // For ad-hoc parameterized SQL in HTTP route handlers (friends/blocks/etc.)
