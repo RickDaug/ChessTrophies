@@ -1,0 +1,2 @@
+# Shell scripts MUST be LF — a CRLF line ending breaks `sh` inside the Linux container.
+*.sh text eol=lf
