@@ -41,8 +41,18 @@ function tryLoad() {
     if (CANDIDATE_DIRS.indexOf(dir) === -1) continue; // public is probe-only
     try {
       if (!rec.chess || !rec.ai) continue;
-      const Chess = _require(chessPath).Chess;
-      if (!Chess) { _diag.error = 'chess.min.js has no .Chess export'; continue; }
+      // Load chess.min.js (a UMD) via a CommonJS shim instead of _require(). In
+      // the Docker image /app is a "type":"module" package, and Node 24's
+      // require(ESM) loads the UMD as an ES module → its `exports.Chess =` makes
+      // no named export → `.Chess` is undefined (this is exactly why prod had
+      // botReady:false while dev — loading from the "type":"commonjs" repo root —
+      // worked). Evaluating with a fake module/exports forces the UMD's CommonJS
+      // branch regardless of the surrounding package type / Node version.
+      const chessSrc = fs.readFileSync(chessPath, 'utf8');
+      const _m = { exports: {} };
+      (new Function('module', 'exports', 'require', chessSrc))(_m, _m.exports, _require);
+      const Chess = _m.exports.Chess || (typeof _m.exports === 'function' ? _m.exports : null);
+      if (!Chess) { _diag.error = 'chess.min.js loaded but no Chess constructor'; continue; }
       globalThis.Chess = Chess;       // ct-ai.js + its _ChessCtor() read this
       const aiSrc = fs.readFileSync(aiPath, 'utf8');
       // Evaluate in this realm (indirect eval) so it installs globalThis.CT_AI.

@@ -138,7 +138,7 @@ app.use((req, res, next) => {
 });
 
 // Health
-app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'botengine-diag-2026-06-09', litestream: HAS_LITESTREAM, sentry: !!Sentry, botReady: botEngineReady(), multiInstance: !!process.env.REDIS_URL, ...(req.query.diag ? { botDiag: botEngineDiag() } : {}) }));
+app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'botengine-umd-2026-06-09', litestream: HAS_LITESTREAM, sentry: !!Sentry, botReady: botEngineReady(), multiInstance: !!process.env.REDIS_URL, ...(req.query.diag ? { botDiag: botEngineDiag() } : {}) }));
 
 // Public runtime config (NO auth). The client reads this to decide whether to
 // show ranked matchmaking UI. Server enforcement is separate (socket handlers),
