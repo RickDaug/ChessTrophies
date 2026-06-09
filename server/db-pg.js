@@ -354,6 +354,35 @@ CREATE TABLE IF NOT EXISTS season_stats (
   PRIMARY KEY (season_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_season_stats_board ON season_stats(season_id, points DESC, peak_elo DESC);
+
+CREATE TABLE IF NOT EXISTS arenas (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  tc TEXT NOT NULL,
+  starts_at BIGINT NOT NULL,
+  ends_at BIGINT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'upcoming',
+  champion_id TEXT,
+  created_at BIGINT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_arenas_window ON arenas(status, starts_at, ends_at);
+
+CREATE TABLE IF NOT EXISTS arena_scores (
+  arena_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  points INTEGER NOT NULL DEFAULT 0,
+  games INTEGER NOT NULL DEFAULT 0,
+  wins INTEGER NOT NULL DEFAULT 0,
+  draws INTEGER NOT NULL DEFAULT 0,
+  losses INTEGER NOT NULL DEFAULT 0,
+  streak INTEGER NOT NULL DEFAULT 0,
+  best_streak INTEGER NOT NULL DEFAULT 0,
+  peak_elo INTEGER NOT NULL DEFAULT 0,
+  joined_at BIGINT NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (arena_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_arena_scores_board ON arena_scores(arena_id, points DESC, games ASC, peak_elo DESC);
 `);
 }
 

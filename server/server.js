@@ -43,6 +43,7 @@ import { mountBilling, mountBillingWebhook, logBillingStatus, stripeRevenueStats
 import { mountStore, logStoreStatus } from './entitlements.js';
 import { mountPush, logPushStatus } from './push.js';
 import { mountPuzzles } from './puzzles.js';
+import { mountArena, startArenaScheduler, logArenaStatus } from './arena.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount, seasonInfo, previousSeasonId } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -161,6 +162,11 @@ mountPuzzles(app);
 // Web Push re-engagement (subscribe/unsubscribe/test + config). Env-gated like
 // billing/email: inert (503) until VAPID_PUBLIC_KEY/PRIVATE_KEY/SUBJECT are set.
 mountPush(app);
+
+// Arena tournaments — live time-boxed events with continuous pairing + a live
+// leaderboard. Kill-switchable via ARENA_ENABLED (default on). Routes only here;
+// the realtime pool/pairing + the finish-scoring hook live in game.js.
+mountArena(app);
 
 function requireStringField(body, name, { min = 1, max = 255 } = {}) {
   const value = body[name];
@@ -949,6 +955,10 @@ if (store.usingPostgres) {
   console.log('[db] SQLite backend active (default; set DB_BACKEND=postgres + DATABASE_URL to scale to Postgres)');
 }
 
+// Start the rolling arena scheduler AFTER the schema is ensured (above). Inert
+// when ARENA_ENABLED=0. Failure-isolated internally so it can never crash boot.
+startArenaScheduler(io);
+
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`ChessTrophies server listening on :${PORT}`);
@@ -966,6 +976,8 @@ httpServer.listen(PORT, () => {
   logStoreStatus();
   // ...and whether Web Push is configured (VAPID) or inert.
   logPushStatus();
+  // ...and whether arena tournaments are scheduling (ARENA_ENABLED).
+  logArenaStatus();
 });
 
 // --- Graceful shutdown + global error handlers ---------------------------------
