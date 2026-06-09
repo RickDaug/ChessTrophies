@@ -45,6 +45,7 @@ import { mountPush, logPushStatus, sendPushToUser } from './push.js';
 import { mountPuzzles } from './puzzles.js';
 import { mountArena, startArenaScheduler, logArenaStatus, liveArena, arenaEnabled, recentChampions } from './arena.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount, seasonInfo, previousSeasonId } from './game.js';
+import { botEngineReady } from './bot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -137,7 +138,7 @@ app.use((req, res, next) => {
 });
 
 // Health
-app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'arena-complete-2026-06-09', litestream: HAS_LITESTREAM, sentry: !!Sentry }));
+app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'botengine-fix-2026-06-09', litestream: HAS_LITESTREAM, sentry: !!Sentry, botReady: botEngineReady(), multiInstance: !!process.env.REDIS_URL }));
 
 // Public runtime config (NO auth). The client reads this to decide whether to
 // show ranked matchmaking UI. Server enforcement is separate (socket handlers),

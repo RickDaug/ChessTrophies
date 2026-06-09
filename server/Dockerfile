@@ -48,6 +48,12 @@ COPY vendor/ ./public/vendor/
 # server modules live at /app via `COPY server/ ./`). Placed AFTER `COPY
 # server/ ./` so it lands in /app and is not overwritten by it.
 COPY checkers.js ./checkers.js
+# Same for the CHESS engine: server/bot.js loads chess.min.js + ct-ai.js head-less
+# to power ranked bot-backfill + arena bot games. bot.js looks in /app (and /),
+# but the lines above only copy these into /app/public (the client bundle), so
+# without this runtime copy botEngineReady() is FALSE in the image and ranked
+# never bot-backfills (a lone player waits out the 120s search → "no opponent").
+COPY chess.min.js ct-ai.js ./
 
 ENV NODE_ENV=production
 EXPOSE 3000
