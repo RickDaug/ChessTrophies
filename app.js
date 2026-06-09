@@ -1014,7 +1014,10 @@
     // Lightweight confetti burst for trophy/streak celebrations. Visual only.
     try {
       if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      var count = intensity === 'big' ? 90 : 55;
+      // Scaled intensities: 'win' (a plain game win) < 'normal' (a trophy) <
+      // 'big' (multi-trophy / 7-win streak). Keeps a normal win from feeling as
+      // loud as a streak milestone.
+      var count = intensity === 'big' ? 90 : intensity === 'win' ? 38 : 55;
       var layer = document.getElementById('ct-confetti');
       if (!layer) { layer = document.createElement('div'); layer.id = 'ct-confetti'; document.body.appendChild(layer); }
       var colors = ['#f5c451','#7dd4ff','#c084fc','#34d399','#fb7185','#ffffff'];
@@ -1034,6 +1037,41 @@
       layer.appendChild(frag);
     } catch (e) {}
   }
+  // Briefly punctuate a checkmate on the board: flash the mated king's square red
+  // and topple the king (CSS). Visual only — does NOT touch the engine/board state.
+  // Returns the delay (ms) the caller should wait before showing the result modal
+  // so the moment is seen first; 0 when nothing was punctuated. Reduced-motion-safe
+  // (the CSS swaps the animation for a static tint), but we still honor the same
+  // gate the rest of the celebrations use so we never surprise reduced-motion users
+  // with movement.
+  function ctMateMoment(loserColor) {
+    try {
+      var boardEl = document.getElementById('board');
+      if (!boardEl || !loserColor) return 0;
+      // Find the mated king's square from the live position.
+      var sqName = null;
+      try {
+        var b = state.game.board(); // rank 8 -> rank 1
+        for (var r = 0; r < 8 && !sqName; r++) {
+          for (var f = 0; f < 8; f++) {
+            var pc = b[r][f];
+            if (pc && pc.type === 'k' && pc.color === loserColor) {
+              sqName = FILES[f] + (8 - r); break;
+            }
+          }
+        }
+      } catch (e) {}
+      if (!sqName) return 0;
+      var sqEl = boardEl.querySelector('[data-sq="' + sqName + '"]');
+      if (!sqEl) return 0;
+      sqEl.classList.remove('ct-mate'); void sqEl.offsetWidth; // restart animation
+      sqEl.classList.add('ct-mate');
+      // The .ct-mate class is left in place; the next renderBoard() (new game,
+      // rematch, review) rebuilds #board from scratch and drops it.
+      return 420;
+    } catch (e) { return 0; }
+  }
+
   function toast(msg, gold) {
     const div = document.createElement('div');
     div.className = 'toast' + (gold ? ' gold' : '');
@@ -3653,6 +3691,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
 
     const rewards = [];
     const isRanked = state.gameMode === 'ranked';
+    // Set true if the 7-win-streak milestone fired its own big confetti burst, so
+    // the win-celebration block below doesn't fire a second competing burst.
+    let streakBurstFired = false;
 
     if (isRanked) {
       // Compute ELO change
@@ -3710,6 +3751,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
             // Distinct grander cue for a completed 7-win streak (overrides the normal trophy sound timing).
             try { if (window.ChessSounds && window.ChessSounds.streakMilestone) window.ChessSounds.streakMilestone(); } catch (e) {}
             ctCelebrate('big');
+            streakBurstFired = true;
           me.streakVictims = []; // reset accumulator; streak continues, next 7 = next trophy
           rewards.push(trophyRewardHTML(trophy));
         }
@@ -3912,22 +3954,37 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     }
 
     // Show result modal
-    let title, body;
+    let title, body, outcome, stateClass;
     if (isDraw) {
       title = 'Draw';
+      outcome = 'Draw';
+      stateClass = 'ct-result-draw';
       body = reason === 'stalemate' ? 'Stalemate.' : 'Draw agreed by the rules.';
     } else if (myWon) {
       title = 'Victory! 🏆';
+      outcome = 'You win';
+      stateClass = 'ct-result-win';
       body = reason === 'checkmate' ? 'You delivered checkmate.' :
              reason === 'resignation' ? 'Your opponent resigned.' :
              reason === 'timeout' ? 'You won on time.' : 'You won.';
     } else {
       title = 'Defeat';
+      outcome = 'You lose';
+      stateClass = 'ct-result-lose';
       body = reason === 'checkmate' ? 'Checkmated.' :
              reason === 'resignation' ? 'You resigned.' :
              reason === 'timeout' ? 'You lost on time.' : 'Your opponent won.';
     }
-    $('#result-title').textContent = title;
+    var _titleEl = $('#result-title');
+    _titleEl.textContent = title;
+    _titleEl.classList.remove('ct-result-win', 'ct-result-lose', 'ct-result-draw', 'ct-trophy-shine');
+    _titleEl.classList.add(stateClass);
+    var _outcomeEl = $('#result-outcome');
+    if (_outcomeEl) {
+      _outcomeEl.textContent = outcome;
+      _outcomeEl.className = stateClass; // distinct win/lose/draw pill
+      _outcomeEl.style.display = '';
+    }
     $('#result-body').textContent = body;
     $('#result-rewards').innerHTML = rewards.join('') + renderAdSlot('medium');
     // Rematch UI: only for online 1v1 games (eligible flag set at match start and
@@ -3951,16 +4008,59 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       var _showGuestCta = !!(state.user && state.user.isGuest) && (myWon || _newTrophyCount > 0);
       _gBtn.style.display = _showGuestCta ? '' : 'none';
     }
-    openModal('result');
-    // Celebrate trophy unlocks: confetti + title shine, timed with the fanfare.
-    try {
-      var _newTrophies = (typeof unlocked !== 'undefined' ? unlocked.length : 0) + (typeof moreUnlocks !== 'undefined' ? moreUnlocks.length : 0);
-      if (_newTrophies > 0) {
-        var _t = $('#result-title'); if (_t) { _t.classList.remove('ct-trophy-shine'); void _t.offsetWidth; _t.classList.add('ct-trophy-shine'); }
-        ctCelebrate(_newTrophies >= 2 ? 'big' : 'normal');
-        setTimeout(function(){ ctCelebrate('normal'); }, 260);
-      }
-    } catch (e) {}
+    // Checkmate moment: punctuate the mate on the board (flash + king topple)
+    // BEFORE the modal slides up, so the player sees the kill on the board. The
+    // loser is the side that was checkmated (the side to move when mate happened).
+    var _mateDelay = 0;
+    if (reason === 'checkmate') {
+      var _loserColor = isDraw ? null : (myWon ? (state.userColor === 'w' ? 'b' : 'w') : state.userColor);
+      _mateDelay = ctMateMoment(_loserColor);
+    }
+
+    // Count any trophies/streaks earned this game — they get the BIGGER, layered
+    // celebration; a plain win gets a single tasteful burst. We coordinate both
+    // here so a win+trophy is ONE cohesive moment (never two competing bursts).
+    var _newTrophies = (typeof unlocked !== 'undefined' ? unlocked.length : 0) + (typeof moreUnlocks !== 'undefined' ? moreUnlocks.length : 0);
+    // Gate ALL win celebration on a real local-human WIN (covers checkmate,
+    // resignation, timeout in our favor). myWon is false for losses, draws, and —
+    // in online play — when the OPPONENT wins, so those never celebrate.
+    var _celebrateWin = myWon && !isDraw;
+
+    var _runCelebration = function () {
+      try {
+        openModal('result');
+        var _t = $('#result-title');
+        if (_celebrateWin || _newTrophies > 0) {
+          if (_t) { _t.classList.remove('ct-trophy-shine'); void _t.offsetWidth; _t.classList.add('ct-trophy-shine'); }
+        }
+        // One confetti decision, scaled: trophies/streaks > plain win. If the
+        // 7-win-streak already fired its 'big' burst, it IS the moment — don't
+        // stack another burst on top (keeps win+streak cohesive, not competing).
+        if (streakBurstFired) {
+          // streak 'big' already played; nothing more to fire.
+        } else if (_newTrophies >= 2) {
+          // Multiple unlocks: the loud, layered moment.
+          ctCelebrate('big');
+          setTimeout(function(){ ctCelebrate('normal'); }, 260);
+        } else if (_newTrophies === 1) {
+          // A single trophy alongside the win: a solid burst with a small echo.
+          ctCelebrate('normal');
+          setTimeout(function(){ ctCelebrate('normal'); }, 260);
+        } else if (_celebrateWin) {
+          // Plain win, no new trophy: ONE tasteful 'win'-tier burst — deliberately
+          // lighter than a trophy/streak moment so a normal win never feels as loud
+          // as a 7-streak.
+          ctCelebrate('win');
+        }
+      } catch (e) {}
+    };
+
+    if (_mateDelay > 0) {
+      // Hold the modal briefly so the board mate animation reads first.
+      setTimeout(_runCelebration, _mateDelay);
+    } else {
+      _runCelebration();
+    }
   }
 
   function checkOppMilestones(oppUser) {
@@ -4016,6 +4116,12 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     rematchState.eligible = false;
     rematchState.gameId = null;
     clearNetUI();
+    // Reset result-title/outcome state so it never bleeds into the next result
+    // (incl. the checkers result, which reuses this same modal).
+    try {
+      var _rt = $('#result-title'); if (_rt) _rt.classList.remove('ct-result-win', 'ct-result-lose', 'ct-result-draw', 'ct-trophy-shine');
+      var _ro = $('#result-outcome'); if (_ro) { _ro.style.display = 'none'; _ro.className = ''; }
+    } catch (e) {}
     closeModal('result');
     showScreen('lobby');
   _addLobbyChatButton();

@@ -425,6 +425,28 @@
     @media (prefers-reduced-motion: reduce) { .ct-confetti-piece, .ct-elo-pop, .ct-trophy-shine { animation: none !important; } }
   @keyframes mm-pulse{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.18);opacity:1}}
 
+    /* ---- Checkmate moment: flash the mated king's square + topple the king ---- */
+    @keyframes ct-mate-flash { 0% { box-shadow: inset 0 0 0 0 rgba(248,113,113,0); background-color: rgba(248,113,113,.85); } 35% { box-shadow: inset 0 0 0 3px rgba(248,113,113,.95); background-color: rgba(248,113,113,.9); } 100% { box-shadow: inset 0 0 0 0 rgba(248,113,113,0); } }
+    @keyframes ct-king-topple { 0% { transform: rotate(0deg); } 60% { transform: rotate(78deg); } 100% { transform: rotate(72deg); } }
+    .sq.ct-mate { animation: ct-mate-flash .42s ease-out 1; z-index: 3; }
+    .sq.ct-mate svg { transform-origin: 60% 90%; animation: ct-king-topple .42s cubic-bezier(.3,.7,.4,1.2) forwards; }
+    /* Reduced motion: still mark the mate, but with a static tint + no spin/topple. */
+    @media (prefers-reduced-motion: reduce) {
+      .sq.ct-mate { animation: none !important; background-color: rgba(248,113,113,.85) !important; box-shadow: inset 0 0 0 3px rgba(248,113,113,.95) !important; }
+      .sq.ct-mate svg { animation: none !important; transform: none !important; }
+    }
+
+    /* ---- Result modal polish: distinct win / lose / draw states ---- */
+    #result-title.ct-result-win { background-image: linear-gradient(135deg, #ffe9a8, #f5c451 45%, #ffcf5c); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent; }
+    #result-title.ct-result-lose { color: var(--danger); }
+    #result-title.ct-result-draw { color: var(--muted, #9aa4b2); }
+    /* When a win, layer the existing trophy shine on top of the gold gradient title. */
+    #result-title.ct-result-win.ct-trophy-shine { background-image: linear-gradient(135deg, #ffe9a8, #f5c451 45%, #ffcf5c), linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.7) 50%, transparent 70%); background-size: 100% 100%, 250% 100%; }
+    #result-outcome { font-weight: 700; letter-spacing: .02em; font-size: .8em; text-transform: uppercase; display: inline-block; padding: 3px 10px; border-radius: 999px; margin: 2px 0 4px; }
+    #result-outcome.ct-result-win { background: rgba(245,196,81,.16); color: var(--accent); }
+    #result-outcome.ct-result-lose { background: rgba(248,113,113,.14); color: var(--danger); }
+    #result-outcome.ct-result-draw { background: rgba(154,164,178,.16); color: var(--muted, #9aa4b2); }
+
     /* ---- Game Review (review.js) ---- */
     .rv-modal { max-width: 460px; }
     .rv-h { margin: 0 0 8px; }
@@ -1226,6 +1248,7 @@
   <div class="modal">
     <div class="handle"></div>
     <h2 id="result-title">Checkmate</h2>
+    <div><span id="result-outcome" style="display:none"></span></div>
     <p id="result-body" class="muted" style="margin:6px 0 16px">—</p>
     <div id="result-rewards"></div>
     <!-- Rematch UX (online 1v1 only). JS toggles between these states. -->
