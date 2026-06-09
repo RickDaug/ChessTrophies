@@ -663,6 +663,19 @@
       </div>
     </div>
 
+    <!-- Arena tournaments live card (rendered by ct-arena.js; hidden until it
+         confirms arenas are enabled + an event exists). -->
+    <div id="lobby-arena-card" class="card" data-act="open-arena" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(250,204,21,.12), var(--panel))">
+      <div class="pc-row" style="display:flex;align-items:center;gap:12px">
+        <div class="pc-icon" style="font-size:26px">⏱️</div>
+        <div style="flex:1;min-width:0">
+          <div class="pc-title" style="font-weight:800;font-size:16px" id="lobby-arena-title">Arena</div>
+          <div class="muted small" style="margin-top:4px" id="lobby-arena-sub">Join the live tournament.</div>
+        </div>
+        <div class="pill gold" id="lobby-arena-pill">Join</div>
+      </div>
+    </div>
+
     <div id="lobby-daily-card" class="card" data-act="open-daily" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
       <div class="pc-row" style="display:flex;align-items:center;gap:12px">
         <div class="pc-icon" style="font-size:26px">🧩</div>
@@ -1043,6 +1056,30 @@
     <h3 style="margin:8px 0">Standings</h3>
     <div id="season-list"></div>
     <p class="muted small center" style="margin-top:16px">Points: +3 per ranked win, +1 per draw. End-of-season rewards arrive after the month closes.</p>
+  </section>
+
+  <!-- ARENA TOURNAMENT (populated by ct-arena.js -> window.CT_Arena) -->
+  <section id="screen-arena" class="screen">
+    <div class="top-bar">
+      <h1>⏱️ Arena</h1>
+      <button class="btn btn-ghost small" id="btn-arena-back">← Lobby</button>
+    </div>
+    <div class="card" id="arena-banner" style="margin-bottom:12px;text-align:center">
+      <div style="font-weight:800;font-size:18px" id="arena-name">Arena</div>
+      <div class="muted small" id="arena-countdown" style="margin-top:4px">—</div>
+    </div>
+    <!-- Join/leave + live status. The button text + status are driven by ct-arena.js. -->
+    <div class="card" id="arena-control" style="margin-bottom:12px">
+      <button class="btn btn-block" id="btn-arena-join">Join arena</button>
+      <div class="muted small center" id="arena-status" style="margin-top:8px">Win games to climb the live leaderboard. Bots fill in so there's always an opponent.</div>
+    </div>
+    <div class="card" id="arena-me" style="margin-bottom:12px;display:none">
+      <div style="font-weight:700">Your standing</div>
+      <div class="muted small" id="arena-me-line" style="margin-top:4px"></div>
+    </div>
+    <h3 style="margin:8px 0">Live leaderboard</h3>
+    <div id="arena-list"></div>
+    <p class="muted small center" style="margin-top:16px">Win = 2 pts · Draw = 1 · a 3rd straight win and beyond = 3 pts 🔥. Top player at the bell is champion.</p>
   </section>
 
   <!-- TROPHIES -->
@@ -1585,6 +1622,9 @@
 <script defer src="shop.js?v=20260608a"></script>
 <script defer src="ct-push.js?v=20260608a"></script>
 <script defer src="coach.js?v=20260608a"></script>
+<!-- Arena tournaments UI (window.CT_Arena). Reuses CTNet + the online game flow;
+     degrades gracefully (lobby card stays hidden) if it fails to load. -->
+<script defer src="ct-arena.js?v=20260609a"></script>
 <script defer src="ct-sw-register.js?v=20260606c"></script>
 </body>
 </html>

@@ -31,7 +31,8 @@
     "test:puzzles": "node test/puzzles.mjs",
     "test:a11y": "node test/a11y.mjs",
     "test:arena": "node test/arena.mjs",
-    "test:arena-realtime": "node test/arena-realtime.mjs"
+    "test:arena-realtime": "node test/arena-realtime.mjs",
+    "test:arena-ui": "node test/arena-ui.mjs"
   },
   "repository": {
     "type": "git",

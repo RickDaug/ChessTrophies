@@ -61,6 +61,9 @@ jobs:
       - name: Arena realtime (pairing + bot-backfill + ELO isolation) test
         run: npm run test:arena-realtime
 
+      - name: Arena client UI (lobby card + screen + leaderboard) test
+        run: npm run test:arena-ui
+
       - name: Ranked seasonal switch test
         run: npm run test:ranked-flag
 

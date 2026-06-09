@@ -998,6 +998,9 @@
     if (id === 'rankings') renderRankings();
     if (id === 'feared') renderFeared();
     if (id === 'season') renderSeason();
+    // Arena screen owns a poll/countdown ticker — start it on enter, stop on any
+    // other screen (exit() is idempotent).
+    if (window.CT_Arena) { if (id === 'arena') window.CT_Arena.enter(); else if (window.CT_Arena.exit) window.CT_Arena.exit(); }
     if (id === 'trophies') renderTrophies();
     if (id === 'friends') { serverRequestsCache = null; renderFriendsList(); }
     // Academy lives in academy.js; it exposes window.CT_renderAcademy to populate #academy-content on demand.
@@ -1619,6 +1622,8 @@
     applyRankedGate();
     // Daily play-streak card (consecutive days the user finished any game).
     renderPlayStreak();
+    // Live arena card (shown only when an arena is live/upcoming; degrades hidden).
+    if (window.CT_Arena && window.CT_Arena.renderLobbyCard) window.CT_Arena.renderLobbyCard();
     // Keep the (possibly hidden) checkers stat row in sync with state.user.checkers.
     if (typeof renderCheckersLobbyStats === 'function') renderCheckersLobbyStats();
   }
@@ -2672,6 +2677,17 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
 
   function handleServerMatchFound(data) {
+    // Arena games arrive UNSOLICITED (continuous auto-pairing + re-pool). Accept
+    // them only when we're an active arena participant, and flag the game so
+    // gameOver routes back to the arena screen instead of the 1v1 result flow.
+    const isArenaMatch = !!(data && data.mode === 'arena');
+    if (isArenaMatch) {
+      if (!(window.CT_Arena && window.CT_Arena.isActive())) return;
+      state._waitingForServerMatch = true; // let the standard flow below run
+      state._arenaGame = true;
+    } else {
+      state._arenaGame = false;
+    }
     // Accept this match if we're queueing OR if a rematch is in flight (the
     // server starts a fresh 1v1 game and both sides get a normal match_found).
     const fromRematch = rematchState.phase === 'offered' || rematchState.phase === 'incoming';
@@ -2716,6 +2732,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       const m = clock1v1Map();
       clockSync(data.clock, m.topEl, m.botEl, m.topSide, m.botSide);
     }
+    if (state._arenaGame) {
+      rematchState.eligible = false; // arenas have no rematch — you re-pair instead
+      if (window.CT_Arena) window.CT_Arena.onMatchStarted();
+    }
   }
 
   function handleServerMoveMade(data) {
@@ -2758,6 +2778,20 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       return;
     }
     if (!state.isOnline || data.gameId !== state.gameId) return;
+    // ARENA: the server already scored this game into the leaderboard (no global
+    // ELO/stats) and re-pooled us. Skip the 1v1 result/rematch flow entirely —
+    // show a light result + return to the arena screen; the next match_found
+    // (re-pool) pulls us back in. CT_Arena handles the toast + refresh.
+    if (state._arenaGame) {
+      state._arenaGame = false;
+      state.awaitingServerGameOver = false;
+      clockStop();
+      state.isOnline = false;
+      state.gameId = null;
+      if (window.CT_Arena) window.CT_Arena.onGameEnded(data);
+      showScreen('arena');
+      return;
+    }
     state.awaitingServerGameOver = false;
     clockStop();
     // Opponent grace expiry sends a normal game_over (reason 'disconnect') — make
@@ -2898,6 +2932,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       window.CTNet.on('illegalMove', handleServerIllegalMove);
       window.CTNet.on('gameOver', handleServerGameOver);
       window.CTNet.on('rateLimited', (d) => toast('Slow down (' + (d && d.event) + ')'));
+      // Arena tournaments: forward join/leave acks + errors to CT_Arena.
+      window.CTNet.on('arenaJoined', (d) => window.CT_Arena && window.CT_Arena.onJoined(d));
+      window.CTNet.on('arenaErr', (d) => window.CT_Arena && window.CT_Arena.onErr(d));
+      window.CTNet.on('arenaLeft', (d) => window.CT_Arena && window.CT_Arena.onLeft(d));
       // Rematch (1v1) lifecycle
       window.CTNet.on('rematchOffered', handleRematchOffered);
       window.CTNet.on('rematchDeclined', (d) => handleRematchEnded(d, 'Rematch declined.'));
@@ -5399,6 +5437,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     if (act === 'open-premium') openPremium();
     else if (act === 'open-daily') openDailyPuzzle();
     else if (act === 'open-season') showScreen('season');
+    else if (act === 'open-arena') showScreen('arena');
   });
 
   // ---------------------------------------------------------------------------

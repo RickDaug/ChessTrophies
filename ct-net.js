@@ -141,6 +141,12 @@
     // just beaten during the winner's win streak ({ by, streakLen, rank }).
     socket.on('defeated', function (data) { emit('defeated', data); });
 
+    // ARENA tournaments: join/leave acks + errors. Arena games themselves arrive
+    // via the normal `match_found` (mode:'arena'), so no separate match event.
+    socket.on('arena_joined', function (data) { emit('arenaJoined', data); });
+    socket.on('arena_left', function (data) { emit('arenaLeft', data); });
+    socket.on('arena_err', function (data) { emit('arenaErr', data); });
+
     // --- CHECKERS / DRAUGHTS online contract (additive; mirrors chess 1v1) ---
     // Event names are centralized here so a differing server contract is a 1-line
     // change per event. The checkers UI (ct-checkers.js) subscribes to the
@@ -180,6 +186,18 @@
   function leaveQueue() {
     if (!ready) return false;
     socket.emit('mm_leave', {});
+    return true;
+  }
+
+  // --- Arena tournaments: join/leave the live arena's pairing pool ---
+  function joinArena(arenaId) {
+    if (!ready) return false;
+    socket.emit('arena_join', { arenaId: arenaId });
+    return true;
+  }
+  function leaveArena() {
+    if (!ready) return false;
+    socket.emit('arena_leave', {});
     return true;
   }
 
@@ -324,6 +342,8 @@
     isReady: isReady,
     joinQueue: joinQueue,
     leaveQueue: leaveQueue,
+    joinArena: joinArena,
+    leaveArena: leaveArena,
     sendMove: sendMove,
     resign: resign,
     // checkers (additive)

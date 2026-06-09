@@ -131,5 +131,18 @@ best-effort push). Failure-isolated.
       (real socket: join → bot-backfill → server-authoritative play → ELO isolation
       → leaderboard scoring → re-pool), in CI. Realtime regression green
       (ranked-bot/2v2/checkers untouched).
-- [ ] L3: client card + arena screen
+- [x] **L3: client UI (ct-arena.js + ct-net.js + app.js + index.html).** Lobby
+      arena card (live name + countdown + Join, hidden when no event); `#screen-arena`
+      with a live leaderboard (🔥 streak marker), your standing, countdown ticker,
+      and a Join/Leave control. `ct-net.js` gained `joinArena`/`leaveArena` +
+      `arenaJoined`/`arenaErr`/`arenaLeft` events. app.js: `handleServerMatchFound`
+      accepts `mode:'arena'` matches when `CT_Arena.isActive()` (continuous auto-
+      pairing) and flags `state._arenaGame`; `handleServerGameOver` routes arena
+      games AWAY from the 1v1 result/rematch flow back to the arena screen (the
+      server already scored + re-pooled), so the next `match_found` pulls you into
+      the next game — the continuous-play loop, reusing the entire existing online
+      board UI. Degrades gracefully (card hidden) if the module fails to load.
+      Gated by `test/arena-ui.mjs` (lobby card + screen + leaderboard + countdown,
+      CSP-clean), in CI. csp/build-smoke/a11y green. The realtime loop itself is
+      covered server-side by `test/arena-realtime.mjs`.
 - [ ] L4: champion trophy + admin stats + polish
