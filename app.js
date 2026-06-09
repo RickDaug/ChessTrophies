@@ -994,6 +994,7 @@
     if (id === 'lobby') renderLobby();
     if (id === 'profile') renderProfile();
     if (id === 'rankings') renderRankings();
+    if (id === 'feared') renderFeared();
     if (id === 'trophies') renderTrophies();
     if (id === 'friends') { serverRequestsCache = null; renderFriendsList(); }
     // Academy lives in academy.js; it exposes window.CT_renderAcademy to populate #academy-content on demand.
@@ -2836,6 +2837,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         serverFriendsCache = null;
         if ($('#screen-friends') && $('#screen-friends').classList.contains('active')) renderFriendsList();
       });
+      // VICTIM WALL / revenge loop: the server tells a freshly-beaten player they
+      // landed on the winner's streak. Show a tasteful "get revenge?" banner.
+      window.CTNet.on('defeated', handleDefeated);
       // Checkers online listeners (ct-checkers.js registers its own camelCased
       // CTNet handlers). wireNet() is idempotent; calling it here ensures the
       // handlers exist on the freshly-connected socket alongside the chess ones.
@@ -4500,6 +4504,15 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     });
   });
 
+  // Most Feared (Victim Wall) wiring — CSP-safe (no inline handlers).
+  { const b = $('#btn-open-feared'); if (b) b.addEventListener('click', () => showScreen('feared')); }
+  { const b = $('#btn-feared-refresh'); if (b) b.addEventListener('click', () => renderFeared()); }
+  { const b = $('#btn-feared-revenge'); if (b) b.addEventListener('click', () => {
+      if (typeof rankedEnabled === 'function' && !rankedEnabled()) { toast('Ranked play is coming soon.'); return; }
+      try { openTimeControlPicker({}, () => startOnlineOrFakeMatchmaking('ranked')); }
+      catch (e) { toast('Find a ranked game to climb the wall.'); }
+  }); }
+
   const METRIC_INFO = {
     elo:      { label: 'ELO',     key: u => u.elo,                            unit: '' },
     wins:     { label: 'Wins',    key: u => u.wins,                           unit: 'W' },
@@ -4625,6 +4638,117 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     users.sort((a, b) => rankScore(b, currentRankMetric) - rankScore(a, currentRankMetric));
     users = users.slice(0, Math.min(limit, users.length));
     renderRankingRows(users, false);
+  }
+
+  // ---------------------------------------------------------------------------
+  // VICTIM WALL / revenge loop — "Most Feared" board + "you were defeated" banner
+  // ---------------------------------------------------------------------------
+  // Render the public Most Feared wall (top active win streaks + recent victims).
+  async function renderFeared() {
+    const wrap = $('#feared-list');
+    if (!wrap) return;
+    wrap.innerHTML = `<div class="card muted center">Loading the wall…</div>`;
+    let players = [];
+    try {
+      const data = await api('/api/feared?limit=25');
+      players = (data && data.players) || [];
+    } catch (e) {
+      wrap.innerHTML = `<div class="card muted center">Couldn't load the wall right now. Try again.</div>`;
+      return;
+    }
+    if (!players.length) {
+      wrap.innerHTML = `<div class="card muted center">No active win streaks yet — be the first to strike fear. Win a ranked game to start your streak.</div>`;
+      return;
+    }
+    wrap.innerHTML = players.map((p, i) => {
+      const rankBadge = i === 0 ? '👑' : (i + 1) + '.';
+      const victims = (p.recentVictims || []).map(v => escapeHTML(v.name)).filter(Boolean);
+      const victimLine = victims.length
+        ? 'Toppled: ' + victims.join(', ')
+        : 'No recorded victims yet.';
+      return '<div class="card" style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
+        '<div style="font-size:18px;min-width:34px;text-align:center;font-weight:800">' + rankBadge + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:700;display:flex;align-items:center;gap:6px">' +
+            escapeHTML(p.username || 'Player') +
+            (p.isPremium ? ' <span title="Premium">⭐</span>' : '') +
+          '</div>' +
+          '<div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + victimLine + '</div>' +
+        '</div>' +
+        '<div style="text-align:right">' +
+          '<div style="font-weight:800;color:#fb7185">🔥 ' + (Number(p.currentStreak) || 0) + '</div>' +
+          '<div class="muted small">ELO ' + (Number(p.elo) || 0) + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // Socket `defeated` handler: a streaking winner just beat the local player. Show
+  // a tasteful in-app banner with a Rematch/revenge CTA. Tolerant of partial data.
+  function handleDefeated(d) {
+    try {
+      d = d || {};
+      const by = (typeof d.by === 'string' && d.by) ? d.by : 'a rival';
+      const rank = Number(d.rank || d.streakLen || 0) || 0;
+      const line = rank > 0
+        ? `You're #${rank} on ${by}'s win streak`
+        : `${by} just added you to their win streak`;
+      showDefeatedBanner(line, by);
+    } catch (e) {}
+  }
+
+  // A dismissible, CSP-safe banner (no inline handlers) with a "Rematch?" CTA that
+  // routes to ranked matchmaking (the existing challenge flow is friend-only, so a
+  // ranked-game CTA is the honest, always-available revenge path).
+  function showDefeatedBanner(line, by) {
+    try {
+      var prev = document.getElementById('ct-defeated-banner');
+      if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
+      var el = document.createElement('div');
+      el.id = 'ct-defeated-banner';
+      el.setAttribute('role', 'status');
+      el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:84px;z-index:90;' +
+        'max-width:440px;width:calc(100% - 24px);background:rgba(20,26,40,0.97);border:1px solid #fb7185;' +
+        'border-radius:14px;padding:14px 16px;box-shadow:0 10px 30px rgba(0,0,0,0.5);display:flex;' +
+        'align-items:center;gap:12px;backdrop-filter:blur(8px);';
+      var text = document.createElement('div');
+      text.style.cssText = 'flex:1;min-width:0';
+      var t1 = document.createElement('div');
+      t1.style.cssText = 'font-weight:700';
+      t1.textContent = '🩸 ' + line;
+      var t2 = document.createElement('div');
+      t2.className = 'muted small';
+      t2.textContent = 'Get revenge?';
+      text.appendChild(t1); text.appendChild(t2);
+      var go = document.createElement('button');
+      go.className = 'btn small';
+      go.style.cssText = 'padding:8px 14px;white-space:nowrap';
+      go.textContent = 'Rematch';
+      go.addEventListener('click', function () {
+        dismiss();
+        // Honest revenge path: queue a ranked game (the streak that beat them is
+        // ranked). Falls back to a toast if ranked is off / offline.
+        try {
+          if (typeof rankedEnabled === 'function' && !rankedEnabled()) { toast('Ranked play is coming soon.'); return; }
+          if (typeof openTimeControlPicker === 'function') {
+            openTimeControlPicker({}, function () { startOnlineOrFakeMatchmaking('ranked'); });
+          } else {
+            startOnlineOrFakeMatchmaking('ranked');
+          }
+        } catch (e) { toast('Find a ranked game to get your revenge.'); }
+      });
+      var x = document.createElement('button');
+      x.className = 'btn btn-secondary small';
+      x.style.cssText = 'padding:8px 12px';
+      x.setAttribute('aria-label', 'Dismiss');
+      x.textContent = '✕';
+      x.addEventListener('click', dismiss);
+      function dismiss() { if (el && el.parentNode) el.parentNode.removeChild(el); }
+      el.appendChild(text); el.appendChild(go); el.appendChild(x);
+      document.body.appendChild(el);
+      // Auto-dismiss after a while so it never lingers.
+      setTimeout(function () { dismiss(); }, 12000);
+    } catch (e) {}
   }
 
   // ---------------------------------------------------------------------------

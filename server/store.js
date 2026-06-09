@@ -207,6 +207,13 @@ export async function getRushBest(userId) {
   return sqlite.getRushBest(userId);
 }
 
+// --- Victim Wall / revenge loop (backend-agnostic wrapper) ------------------
+
+export async function recordStreakVictim(v) {
+  if (usingPostgres) return (await loadPg()).recordStreakVictim(v);
+  return sqlite.recordStreakVictim(v);
+}
+
 // --- Web Push subscriptions (backend-agnostic wrappers) --------------------
 
 export async function addPushSub(sub) {

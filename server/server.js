@@ -302,6 +302,81 @@ app.get('/api/rankings', async (req, res, next) => {
   } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 
+// --- Victim Wall / revenge loop --------------------------------------------
+// PUBLIC "Most Feared" board: the top ACTIVE win streaks (users.current_streak),
+// each with the winner's username + their most recent victim names. Server-side
+// recorded (see game.js recordVictimAndNotify) so it never depends on a client.
+// Mirrors the /api/rankings query style (parameterized, backend-agnostic facade).
+app.get('/api/feared', async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    // Top active streakers. current_streak > 0 = a live, unbroken win streak.
+    const leaders = await store.all(
+      `SELECT id, username, current_streak, best_streak, elo, is_premium
+       FROM users
+       WHERE current_streak > 0
+       ORDER BY current_streak DESC, best_streak DESC, elo DESC
+       LIMIT ?`,
+      [limit]
+    );
+    // Attach each leader's recent victim names (most recent first, capped).
+    const players = [];
+    for (const u of leaders) {
+      let victims = [];
+      try {
+        const rows = await store.all(
+          `SELECT victim_name, streak_len, created_at
+           FROM streak_victims
+           WHERE winner_id = ?
+           ORDER BY created_at DESC
+           LIMIT 5`,
+          [u.id]
+        );
+        victims = rows.map(r => ({
+          name: r.victim_name || 'a challenger',
+          streakLen: Number(r.streak_len) || 0,
+        }));
+      } catch (e) { /* a leader with no victim rows just shows an empty list */ }
+      players.push({
+        id: u.id,
+        username: u.username,
+        currentStreak: Number(u.current_streak) || 0,
+        bestStreak: Number(u.best_streak) || 0,
+        elo: Number(u.elo) || 0,
+        isPremium: !!u.is_premium,
+        recentVictims: victims,
+      });
+    }
+    res.json({ players });
+  } catch (e) { if (!e.status) e.status = 500; next(e); }
+});
+
+// AUTH: the caller's own victim list — who beat THEM during a streak (so they
+// can see "get revenge?" targets). Most recent first.
+app.get('/api/me/victims', requireAuth, async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 100);
+    const rows = await store.all(
+      `SELECT v.winner_id, u.username AS winner_name, u.current_streak,
+              v.streak_len, v.created_at
+       FROM streak_victims v
+       LEFT JOIN users u ON u.id = v.winner_id
+       WHERE v.victim_id = ?
+       ORDER BY v.created_at DESC
+       LIMIT ?`,
+      [req.userId, limit]
+    );
+    const victims = rows.map(r => ({
+      winnerId: r.winner_id,
+      winnerName: r.winner_name || 'a rival',
+      winnerCurrentStreak: Number(r.current_streak) || 0,
+      streakLen: Number(r.streak_len) || 0,
+      at: Number(r.created_at) || 0,
+    }));
+    res.json({ victims });
+  } catch (e) { if (!e.status) e.status = 500; next(e); }
+});
+
 // Username search for friend autocomplete. Returns up to `limit` (default 8,
 // max 20) non-friend users whose username starts with `q` (case-insensitive),
 // excluding the requester. Empty/blank `q` returns an empty list.

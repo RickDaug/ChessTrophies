@@ -966,6 +966,13 @@
   <!-- RANKINGS -->
   <section id="screen-rankings" class="screen">
     <div class="top-bar"><h1>Rankings</h1></div>
+    <div class="card" id="feared-promo" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">
+      <div>
+        <div style="font-weight:700">🩸 Most Feared</div>
+        <div class="muted small">See who's on the longest active win streaks.</div>
+      </div>
+      <button class="btn small" id="btn-open-feared" style="padding:8px 14px;white-space:nowrap">View wall</button>
+    </div>
     <div class="tabs" id="rank-metric-tabs">
       <div class="tab active" data-metric="elo">ELO</div>
       <div class="tab" data-metric="wins">Wins</div>
@@ -982,6 +989,17 @@
     </div>
     <div id="rank-list"></div>
     <p class="muted small center" id="rank-footer-note" style="margin-top:20px">Global rankings update as players around the world compete.</p>
+  </section>
+
+  <!-- MOST FEARED (Victim Wall / revenge loop) -->
+  <section id="screen-feared" class="screen">
+    <div class="top-bar"><h1>🩸 Most Feared</h1></div>
+    <p class="muted small">The players on the longest <strong>active</strong> win streaks — and the rivals they've toppled. Lose to a streaking player and you'll land on their wall. Get revenge.</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="btn btn-secondary small" id="btn-feared-refresh" style="padding:8px 14px">Refresh</button>
+      <button class="btn small" id="btn-feared-revenge" style="padding:8px 14px">Find a ranked game</button>
+    </div>
+    <div id="feared-list"></div>
   </section>
 
   <!-- TROPHIES -->

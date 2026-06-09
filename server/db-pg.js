@@ -324,7 +324,35 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
+
+-- Victim Wall / revenge loop. One row per streak victim; mirrors db.js. No FK on
+-- winner_id/victim_id so a bot victim (no users row) can still be recorded.
+CREATE TABLE IF NOT EXISTS streak_victims (
+  id TEXT PRIMARY KEY,
+  winner_id TEXT NOT NULL,
+  victim_id TEXT NOT NULL,
+  victim_name TEXT NOT NULL DEFAULT '',
+  streak_len INTEGER NOT NULL DEFAULT 1,
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_streak_victims_winner ON streak_victims(winner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_streak_victims_victim ON streak_victims(victim_id, created_at DESC);
 `);
+}
+
+// --- Victim Wall (async mirror of db.js) -----------------------------------
+
+// Record one streak-victim row. Parameterized.
+export async function recordStreakVictim({ winnerId, victimId, victimName, streakLen, createdAt }) {
+  await pool.query(
+    `INSERT INTO streak_victims (id, winner_id, victim_id, victim_name, streak_len, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      'sv_' + Math.random().toString(36).slice(2) + Date.now().toString(36),
+      winnerId, victimId, String(victimName || ''), Number(streakLen) || 1,
+      Number(createdAt) || Date.now(),
+    ]
+  );
 }
 
 // --- Web Push subscriptions (async mirrors of db.js) -----------------------

@@ -137,6 +137,10 @@
     socket.on('friend_request', function (data) { emit('friendRequest', data); });
     socket.on('friend_accepted', function (data) { emit('friendAccepted', data); });
 
+    // VICTIM WALL / revenge loop: the server fires `defeated` to a player who was
+    // just beaten during the winner's win streak ({ by, streakLen, rank }).
+    socket.on('defeated', function (data) { emit('defeated', data); });
+
     // --- CHECKERS / DRAUGHTS online contract (additive; mirrors chess 1v1) ---
     // Event names are centralized here so a differing server contract is a 1-line
     // change per event. The checkers UI (ct-checkers.js) subscribes to the

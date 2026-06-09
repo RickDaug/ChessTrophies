@@ -462,6 +462,42 @@ export function removeDeadSub(endpoint) {
   return db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint);
 }
 
+// --- Victim Wall / revenge loop --------------------------------------------
+// One row per "streak victim": recorded SERVER-SIDE whenever a player beats
+// someone during (or extending) a ranked win streak. winner_id is the streaking
+// winner; victim_id/victim_name are the defeated player (a real user id for a
+// human loser, or a synthetic 'bot_...' id for the engine bot — victim_name is
+// always the human-readable label shown on the wall). streak_len is the winner's
+// NEW streak length at the moment of this win (1 = first win of a new streak).
+// Powers the public "Most Feared" board + the loser's "get revenge?" prompt,
+// independent of any client. No FK on winner_id/victim_id so a bot victim (which
+// has no users row) can still be recorded; the wall joins winner_id -> users for
+// the live username/streak. All SQL is parameterized.
+db.exec(`
+CREATE TABLE IF NOT EXISTS streak_victims (
+  id TEXT PRIMARY KEY,
+  winner_id TEXT NOT NULL,
+  victim_id TEXT NOT NULL,
+  victim_name TEXT NOT NULL DEFAULT '',
+  streak_len INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_streak_victims_winner ON streak_victims(winner_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_streak_victims_victim ON streak_victims(victim_id, created_at DESC);
+`);
+
+// Record one streak-victim row. Parameterized; never overlaps an existing id.
+export function recordStreakVictim({ winnerId, victimId, victimName, streakLen, createdAt }) {
+  return db.prepare(
+    `INSERT INTO streak_victims (id, winner_id, victim_id, victim_name, streak_len, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(
+    'sv_' + Math.random().toString(36).slice(2) + Date.now().toString(36),
+    winnerId, victimId, String(victimName || ''), Number(streakLen) || 1,
+    Number(createdAt) || Date.now()
+  );
+}
+
 // --- Cosmetic store: entitlements ------------------------------------------
 // One row per (user, sku) ownership grant for a one-time cosmetic purchase
 // (themed piece-set). UNIQUE(user_id, sku) makes grants idempotent — a webhook

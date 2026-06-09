@@ -10,6 +10,7 @@ import * as store from './store.js';
 import * as scale from './scale-store.js';
 import * as scaleTeam from './scale-team.js';
 import { botMove, botEngineReady } from './bot.js';
+import { sendPushToUser } from './push.js';
 
 // --- RANKED bot-backfill (cold-start: no humans online) --------------------
 // When a player waits in the ranked 1v1 queue past this window with no human
@@ -1766,6 +1767,100 @@ async function finishBotGame(io, game, override = {}) {
   });
   userActiveGame.delete(humanUid);
   activeGames.delete(game.id);
+
+  // VICTIM WALL: a ranked WIN extends the human's streak. Record the bot as the
+  // victim (so the human's "Most Feared" wall fills even from backfill bot wins).
+  // The loser is the bot => no notification. Failure-isolated; never throws.
+  if (humanWon) {
+    try {
+      await recordVictimAndNotify(io, {
+        winnerId: humanUid,
+        loserId: game.botUid,
+        loserName: BOT_DISPLAY_NAME,
+        loserIsBot: true,
+      });
+    } catch (e) { console.error('[victim] botgame hook failed', e && e.message); }
+  }
+}
+
+// ===========================================================================
+// VICTIM WALL / revenge loop (the signature differentiator)
+// ===========================================================================
+// Called from the RANKED finish paths AFTER the winner's stats/streak have been
+// written, whenever there is a decisive result (a win, not a draw). It records a
+// `streak_victims` row (winner + the defeated player + the winner's NEW streak
+// length) so the public "Most Feared" wall and the loser's "get revenge?" prompt
+// never depend on the client. If the loser is a HUMAN it best-effort notifies
+// them — an in-app socket `defeated` event AND a Web Push (a no-op when push is
+// unconfigured). Bot losers are skipped for notifications (no user id).
+//
+// CRITICAL: this is fully failure-isolated. It is `await`ed only for ordering,
+// but every line runs inside one try/catch that swallows ALL errors — a DB,
+// notify, or push failure can NEVER propagate back into finishGame/finishBotGame
+// and so can never affect the real game result/ELO write. Callers also wrap the
+// call defensively.
+// `deps` lets tests inject mock notify/push (defaulting to the real ones) so the
+// "(mock) notify fires" + "a notify failure can't break finishGame" paths are
+// unit-testable. Production callers pass no deps and get the real functions.
+async function recordVictimAndNotify(io, { winnerId, loserId, loserName, loserIsBot }, deps) {
+  const notify = (deps && deps.notify) || notifyUser;
+  const push = (deps && deps.push) || sendPushToUser;
+  try {
+    if (!winnerId || !loserId) return;
+    // Winner's live username + NEW streak length (already incremented by the
+    // finish UPDATE that ran before this). Read via the backend-agnostic facade.
+    let winnerName = '';
+    let streakLen = 1;
+    try {
+      const w = await store.get(
+        'SELECT username, current_streak FROM users WHERE id = ?', [winnerId]);
+      if (w) {
+        winnerName = w.username || '';
+        streakLen = Number(w.current_streak) || 1;
+      }
+    } catch (e) { /* fall back to defaults; recording still proceeds */ }
+
+    // Record the victim row (server-side source of truth for the wall).
+    try {
+      await store.recordStreakVictim({
+        winnerId,
+        victimId: loserId,
+        victimName: loserName || '',
+        streakLen,
+        createdAt: Date.now(),
+      });
+    } catch (e) { console.error('[victim] record failed', e && e.message); }
+
+    // Notify the LOSER only when they are a real human (skip the engine bot).
+    if (loserIsBot || isBotUid(loserId)) return;
+
+    const rank = streakLen; // their position on the winner's current streak
+    // In-app socket banner (only reaches them if they have a live socket).
+    try {
+      notify(loserId, 'defeated', { by: winnerName, streakLen, rank });
+    } catch (e) { console.error('[victim] notifyUser failed', e && e.message); }
+
+    // Best-effort Web Push (no-op when push unconfigured; never throws).
+    try {
+      await push(loserId, {
+        title: 'You were defeated',
+        body: `You're #${rank} on ${winnerName || 'a rival'}'s win streak — get revenge?`,
+        url: '/',
+        tag: 'ct-defeated',
+      });
+    } catch (e) { console.error('[victim] push failed', e && e.message); }
+  } catch (e) {
+    // Absolute backstop: nothing here may ever reach the game-finish path.
+    console.error('[victim] recordVictimAndNotify failed', e && e.message);
+  }
+}
+
+// Test-only export of the victim-wall hook so test/victim.mjs can verify it
+// records a row + fires (mock) notify, and that a notify/push failure is isolated
+// (never throws). Not used by production code (the finish paths call the internal
+// function directly above).
+export function __test_recordVictimAndNotify(io, args, deps) {
+  return recordVictimAndNotify(io, args, deps);
 }
 
 async function finishGame(io, game, override = {}) {
@@ -1884,6 +1979,23 @@ async function finishGame(io, game, override = {}) {
   userActiveGame.delete(game.white);
   userActiveGame.delete(game.black);
   activeGames.delete(game.id);
+
+  // VICTIM WALL: on a DECISIVE ranked human-vs-human result, the winner's streak
+  // just incremented — record the loser as a victim and notify them ("get
+  // revenge?"). Skipped for draws and for casual games (no streak movement).
+  // Failure-isolated so it can never disturb the result/ELO write above.
+  if (game.mode === 'ranked' && !isDraw && winnerId) {
+    const loserId = winnerId === game.white ? game.black : game.white;
+    const loserUser = loserId === game.white ? whiteUser : blackUser;
+    try {
+      await recordVictimAndNotify(io, {
+        winnerId,
+        loserId,
+        loserName: (loserUser && loserUser.username) || '',
+        loserIsBot: false,
+      });
+    } catch (e) { console.error('[victim] game hook failed', e && e.message); }
+  }
 
   // Stash a short-lived snapshot so a rematch can be set up after the game
   // object is gone. Auto-deleted after the TTL.
