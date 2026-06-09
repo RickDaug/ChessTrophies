@@ -72,6 +72,39 @@
        20, 30, 10,  0,  0, 10, 30, 20,
     ],
   };
+  // Endgame king PST — rewards CENTRALISATION (and penalises the corners/edges)
+  // instead of the middlegame table's back-rank hugging. In the endgame the king
+  // is a fighting piece, so we want it marching to the centre. We taper between
+  // this and PST.k by the game phase so normal middlegames are unaffected.
+  var KING_EG_PST = [
+    -50,-30,-30,-30,-30,-30,-30,-50,
+    -30,-30,  0,  0,  0,  0,-30,-30,
+    -30,-10, 20, 30, 30, 20,-10,-30,
+    -30,-10, 30, 40, 40, 30,-10,-30,
+    -30,-10, 30, 40, 40, 30,-10,-30,
+    -30,-10, 20, 30, 30, 20,-10,-30,
+    -30,-30,  0,  0,  0,  0,-30,-30,
+    -50,-30,-30,-30,-30,-30,-30,-50,
+  ];
+  // "Distance from the centre" of each square (Manhattan-style, 0 at the four
+  // central squares, 6 at a corner). Used to drive the LOSING king to the edge/
+  // corner for K+Q / K+R mates — the bigger this is for the lone king, the more
+  // cornered it is, which is what the mating side wants.
+  var EDGE_DISTANCE = [
+    6, 5, 4, 3, 3, 4, 5, 6,
+    5, 4, 3, 2, 2, 3, 4, 5,
+    4, 3, 2, 1, 1, 2, 3, 4,
+    3, 2, 1, 0, 0, 1, 2, 3,
+    3, 2, 1, 0, 0, 1, 2, 3,
+    4, 3, 2, 1, 1, 2, 3, 4,
+    5, 4, 3, 2, 2, 3, 4, 5,
+    6, 5, 4, 3, 3, 4, 5, 6,
+  ];
+  // Non-pawn phase weights: total over a full opening army is 24 (queens 4 each,
+  // rooks 2, minors 1) — the standard "phase" granularity. We derive a 0..256
+  // taper where 256 = full middlegame, 0 = bare-king endgame.
+  var PHASE_WEIGHT = { n: 1, b: 1, r: 2, q: 4, p: 0, k: 0 };
+  var PHASE_TOTAL = 24; // 2*(4) queens + 4*(2) rooks + 8*(1) minors
   // Mate scores are kept well clear of any plausible material eval so alpha-beta
   // never confuses a big material swing for a mate. MATE_BASE - ply makes the
   // engine prefer faster mates (smaller ply) and, when losing, slower ones.
@@ -87,14 +120,73 @@
     if (chess.in_draw() || chess.in_stalemate() || chess.in_threefold_repetition() || chess.insufficient_material()) return 0;
     var score = 0;
     var board = chess.board();
+    // --- First pass: material + non-king PSTs, plus the data the endgame king
+    // evaluation needs (phase score, both king squares, per-side material). ---
+    var phase = 0;                 // 0..PHASE_TOTAL of remaining non-pawn material
+    var wKi = -1, bKi = -1;        // king board indices (r*8+f)
+    var wNonPawn = 0, bNonPawn = 0;// non-pawn, non-king material per side (cp)
+    var wHeavy = 0, bHeavy = 0;    // queen+rook material per side (the "mating" force)
     for (var r = 0; r < 8; r++) for (var f = 0; f < 8; f++) {
       var p = board[r][f];
       if (!p) continue;
       var val = PIECE_VALUES[p.type];
+      phase += PHASE_WEIGHT[p.type] || 0;
+      if (p.type === 'k') {
+        if (p.color === 'w') wKi = r * 8 + f; else bKi = r * 8 + f;
+      } else if (p.type !== 'p') {
+        if (p.color === 'w') wNonPawn += val; else bNonPawn += val;
+        if (p.type === 'q' || p.type === 'r') { if (p.color === 'w') wHeavy += val; else bHeavy += val; }
+      }
       var idx = p.color === 'w' ? (r * 8 + f) : ((7 - r) * 8 + f);
-      var psTable = PST[p.type];
-      var bonus = psTable ? psTable[idx] : 0;
-      score += (p.color === 'w' ? 1 : -1) * (val + bonus);
+      if (p.type === 'k') {
+        // King PST is tapered by phase below; skip it here and add it after.
+        score += (p.color === 'w' ? 1 : -1) * val;
+      } else {
+        var psTable = PST[p.type];
+        var bonus = psTable ? psTable[idx] : 0;
+        score += (p.color === 'w' ? 1 : -1) * (val + bonus);
+      }
+    }
+    // --- Tapered king PST: blend the middlegame (back-rank) table with the
+    // endgame (centralisation) table by how much material is left. eg = 1 at a
+    // bare-king endgame, 0 in a full middlegame. ---
+    var eg = 1 - Math.min(phase, PHASE_TOTAL) / PHASE_TOTAL; // 0 (mid) .. 1 (end)
+    if (wKi >= 0) {
+      var wIdx = wKi; // white reads the table directly
+      var wKpst = PST.k[wIdx] * (1 - eg) + KING_EG_PST[wIdx] * eg;
+      score += wKpst;
+    }
+    if (bKi >= 0) {
+      var bFlip = ((7 - (bKi >> 3)) * 8) + (bKi & 7); // mirror rank for black
+      var bKpst = PST.k[bFlip] * (1 - eg) + KING_EG_PST[bFlip] * eg;
+      score -= bKpst;
+    }
+    // --- Mate-driving term for won K+heavy-vs-lone-king endgames. Only kicks in
+    // once we're well into the endgame AND one side is essentially just a lone
+    // king while the other has a queen or rook. Then: drive the LOSING king to
+    // the edge/corner (reward its EDGE_DISTANCE) and bring the winning king
+    // CLOSER (kings adjacent = the box tightens). This is the classic corner-
+    // distance + king-proximity (`cmd`) mate heuristic that lets an otherwise
+    // material-only engine actually deliver K+Q-vs-K and K+R-vs-K. ---
+    if (eg > 0.6 && wKi >= 0 && bKi >= 0) {
+      // Winner = the side with heavy material whose opponent has none.
+      var winner = 0; // +1 white winning, -1 black winning, 0 neither
+      if (wHeavy > 0 && bNonPawn === 0) winner = 1;
+      else if (bHeavy > 0 && wNonPawn === 0) winner = -1;
+      if (winner !== 0) {
+        var loserKi = winner === 1 ? bKi : wKi;
+        var winnerKi = winner === 1 ? wKi : bKi;
+        // Push the loser to the edge/corner: EDGE_DISTANCE is 0 in the centre and
+        // 6 in a corner, so rewarding the loser king's edge-distance corners it.
+        var cornerDrive = EDGE_DISTANCE[loserKi]; // 0 centre .. 6 corner
+        // King proximity: closer winning king = tighter box. kingDist 1..7.
+        var df = Math.abs((loserKi >> 3) - (winnerKi >> 3));
+        var dr = Math.abs((loserKi & 7) - (winnerKi & 7));
+        var kingDist = Math.max(df, dr); // Chebyshev, 1 (adjacent) .. 7
+        // Weighted so this term is decisive vs. shuffling but small vs. material.
+        var mateTerm = cornerDrive * 16 + (7 - kingDist) * 10;
+        score += winner * mateTerm;
+      }
     }
     return score;
   }
@@ -279,6 +371,18 @@
       // iteration via scoreCastle); descriptors must never reach chess.move().
       ordered = scored.filter(function (s) { return !s.castle; }).map(function (s) { return s.move; });
     }
+    // Never slack/jitter away a forced mate: if the best fully-searched move wins
+    // by a mate score (in OUR favour), play it straight. This keeps even the
+    // weakened levels from dawdling once a forced mate is on the board (so Hard
+    // and up reliably convert K+Q / K+R), without affecting normal play.
+    if (lastScored && lastScored.length) {
+      var topVal = -Infinity * sign; // worst for us
+      var topMove = null;
+      for (var ti = 0; ti < lastScored.length; ti++) {
+        if (sign * lastScored[ti].val > sign * topVal) { topVal = lastScored[ti].val; topMove = lastScored[ti].move; }
+      }
+      if (topMove && sign * topVal >= (MATE_BASE - 1000)) return topMove;
+    }
     // Apply the difficulty weakening to the best fully-completed iteration's scores.
     if (lastScored && (cfg.noise > 0 || cfg.slackN > 1)) {
       var jittered = lastScored.map(function (s) {
@@ -298,7 +402,15 @@
   }
 
   // --- Analysis helpers (used by Game Review: eval bar + blunder detection) ---
-  function _ChessCtor() { return (typeof window !== 'undefined' ? window : self).Chess; }
+  // Resolve the live global on the main thread (window), inside a Worker (self),
+  // or under Node (globalThis) so the engine is testable head-less.
+  function _g() {
+    if (typeof window !== 'undefined') return window;
+    if (typeof self !== 'undefined') return self;
+    if (typeof globalThis !== 'undefined') return globalThis;
+    return this;
+  }
+  function _ChessCtor() { return _g().Chess; }
 
   // White-positive evaluation of a position, searching `depth` plies (0 = static
   // eval + quiescence). Checkmate is ~±99999. Never throws.
@@ -342,8 +454,9 @@
     } catch (e) { return null; }
   }
 
-  // Expose on the correct global: window on the main thread, self inside a worker.
-  var glob = (typeof window !== 'undefined') ? window : (typeof self !== 'undefined' ? self : this);
+  // Expose on the correct global: window on the main thread, self inside a worker,
+  // globalThis under Node (head-less tests).
+  var glob = _g();
   var api = { chooseMove: chooseMove, evaluate: evaluatePosition, bestMove: bestMove };
 
   // Worker-backed async search — ONLY on the main thread (window + Worker present).
