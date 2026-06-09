@@ -2,10 +2,19 @@
 # Serves the API from server/ and the static client from /app/public.
 FROM node:24-trixie-slim
 
-# Native build deps for better-sqlite3
+# Native build deps for better-sqlite3 + ca-certificates/wget for the Litestream download
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ \
+    python3 make g++ ca-certificates wget \
     && rm -rf /var/lib/apt/lists/*
+
+# Litestream — continuous SQLite -> object-storage backups. The binary is always
+# installed but stays INERT at runtime unless LITESTREAM_REPLICA_URL is set
+# (docker-entrypoint.sh then runs the server under it; otherwise plain `node server.js`).
+ARG LITESTREAM_VERSION=0.3.13
+RUN wget -qO /tmp/litestream.tar.gz "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-v${LITESTREAM_VERSION}-linux-amd64.tar.gz" \
+    && tar -C /usr/local/bin -xzf /tmp/litestream.tar.gz litestream \
+    && rm /tmp/litestream.tar.gz \
+    && litestream version
 
 WORKDIR /app
 
@@ -35,4 +44,7 @@ COPY checkers.js ./checkers.js
 
 ENV NODE_ENV=production
 EXPOSE 3000
-CMD ["node", "server.js"]
+# Entrypoint runs the server under Litestream when backups are configured, else
+# plain `node server.js` (see server/docker-entrypoint.sh, copied via `COPY server/ ./`).
+# NOTE: railway.json `startCommand` overrides this CMD — keep them in sync.
+CMD ["sh", "docker-entrypoint.sh"]

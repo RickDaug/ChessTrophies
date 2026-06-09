@@ -1,0 +1,18 @@
+# Litestream — continuous SQLite -> object-storage backup for the ChessTrophies API.
+#
+# This makes the single-volume SQLite database RECOVERABLE: Litestream streams the
+# WAL to an S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze B2, …) every few
+# seconds, and restores it on boot if the volume is ever lost/empty.
+#
+# It is INERT unless backups are configured — docker-entrypoint.sh only invokes
+# Litestream when LITESTREAM_REPLICA_URL is set; otherwise the server boots plainly.
+#
+# Env expanded at runtime (Litestream supports ${VAR}):
+#   LITESTREAM_DB_PATH      = the SQLite file (set by the entrypoint to $DATABASE_PATH)
+#   LITESTREAM_REPLICA_URL  = e.g. s3://my-bucket/chesstrophies   (owner sets this)
+# Plus S3 credentials via env: LITESTREAM_ACCESS_KEY_ID / LITESTREAM_SECRET_ACCESS_KEY
+#   (and, for R2/B2/MinIO, an endpoint via the replica `endpoint:` or the URL host).
+dbs:
+  - path: ${LITESTREAM_DB_PATH}
+    replicas:
+      - url: ${LITESTREAM_REPLICA_URL}
