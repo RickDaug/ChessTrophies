@@ -132,6 +132,9 @@ ensureColumn('users', 'elo_checkers_10', 'INTEGER', '1200');
 // ranked game at that board size). Additive; default 0.
 ensureColumn('users', 'checkers8_games', 'INTEGER', '0');
 ensureColumn('users', 'checkers10_games', 'INTEGER', '0');
+// Token version — bumped on password reset/change to revoke all previously-issued
+// JWTs (a stolen 30-day token dies the moment the owner resets their password).
+ensureColumn('users', 'token_version', 'INTEGER', '0');
 // Tag game rows by type/variant so the existing `games` table can also record
 // checkers games. Existing rows default to chess (game_type='chess'), so the
 // historical data is unchanged. `variant` holds the checkers board size as a

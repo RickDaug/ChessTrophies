@@ -1260,7 +1260,10 @@
       if (newPassword.length < 6) { $('#cp-error').textContent = 'New password must be at least 6 characters.'; return; }
       cpSubmit.disabled = true;
       try {
-        await api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+        const r = await api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+        // The server revoked the old token (token_version bump); adopt the fresh
+        // one it returned so this session stays signed in.
+        if (r && r.token) { try { setSession(Object.assign({}, getSession(), { token: r.token })); } catch (e) {} }
         closeModal('change-password');
         toast('Password changed.', true);
       } catch (err) {

@@ -68,7 +68,7 @@ export async function login({ identifier, password }) {
   const ok = await bcrypt.compare(safePassword, u ? u.pw_hash : DUMMY_HASH);
   if (!ok || !u) throw new Error('Email/username or password is incorrect.');
   store.markActive(u.id); // fire-and-forget activity ping for admin stats
-  return makeToken(u.id);
+  return makeToken(u.id, u.token_version || 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +120,9 @@ export async function resetPassword(token, newPassword) {
   if (!row) throw new Error('This reset link is invalid or has expired.');
 
   const pw_hash = await bcrypt.hash(safePassword, 12);
-  await store.run('UPDATE users SET pw_hash = ? WHERE id = ?', [pw_hash, row.user_id]);
+  // Bump token_version too, so any JWT issued before this reset is revoked — the
+  // core "I was hacked → reset my password" lockout (a stolen token dies here).
+  await store.run('UPDATE users SET pw_hash = ?, token_version = COALESCE(token_version, 0) + 1 WHERE id = ?', [pw_hash, row.user_id]);
   // Mark used and remove the row so the token can never be replayed.
   await store.run('DELETE FROM password_resets WHERE token_hash = ?', [tokenHash]);
   return true;
@@ -236,12 +238,14 @@ export async function changePassword(userId, currentPassword, newPassword) {
   if (!currentOk) throw new Error('Current password is incorrect.');
   const safePassword = normalizeString(newPassword, 'password', { min: 6, max: 128 });
   const pw_hash = await bcrypt.hash(safePassword, 12);
-  await store.run('UPDATE users SET pw_hash = ? WHERE id = ?', [pw_hash, u.id]);
-  return true;
+  // Bump token_version to revoke OTHER sessions; mint a fresh token so the current
+  // session (the one that just changed the password) stays signed in.
+  await store.run('UPDATE users SET pw_hash = ?, token_version = COALESCE(token_version, 0) + 1 WHERE id = ?', [pw_hash, u.id]);
+  return { ok: true, token: makeToken(u.id, (u.token_version || 0) + 1) };
 }
 
-export function makeToken(userId) {
-  return jwt.sign({ uid: userId }, SECRET, { expiresIn: TOKEN_EXPIRY });
+export function makeToken(userId, tokenVersion = 0) {
+  return jwt.sign({ uid: userId, tv: tokenVersion | 0 }, SECRET, { expiresIn: TOKEN_EXPIRY });
 }
 
 export function verifyToken(token) {
@@ -261,6 +265,13 @@ export async function requireAuth(req, res, next) {
     req.userId = payload.uid;
     req.user = await store.getUserById(payload.uid);
     if (!req.user) return res.status(401).json({ error: 'User not found' });
+    // Token revocation: a password reset/change bumps the user's token_version,
+    // invalidating every JWT issued before it. Legacy tokens (no `tv`) and users
+    // with no bump both default to 0, so nothing is mass-logged-out — only tokens
+    // older than a reset/change are rejected (client's 401 handler re-prompts login).
+    if ((payload.tv || 0) !== (req.user.token_version || 0)) {
+      return res.status(401).json({ error: 'Session expired' });
+    }
     next();
   } catch (e) { next(e); }
 }

@@ -121,7 +121,7 @@ app.use((req, res, next) => {
 });
 
 // Health
-app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'litestream-2026-06-08', litestream: HAS_LITESTREAM }));
+app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'jwt-revoke-2026-06-08', litestream: HAS_LITESTREAM }));
 
 // Public runtime config (NO auth). The client reads this to decide whether to
 // show ranked matchmaking UI. Server enforcement is separate (socket handlers),
@@ -253,8 +253,10 @@ app.post('/api/auth/change-password', authLimiter, requireAuth, async (req, res,
     const body = req.body || {};
     const currentPassword = requireStringField(body, 'currentPassword', { min: 1, max: 128 });
     const newPassword = requireStringField(body, 'newPassword', { min: 6, max: 128 });
-    await changePassword(req.userId, currentPassword, newPassword);
-    res.json({ ok: true });
+    const r = await changePassword(req.userId, currentPassword, newPassword);
+    // Return a fresh token (changePassword bumped token_version, revoking the old
+    // one) so the client can keep THIS session signed in.
+    res.json({ ok: true, token: (r && r.token) || undefined });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
