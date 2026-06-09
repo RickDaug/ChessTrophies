@@ -11,6 +11,7 @@ import * as scale from './scale-store.js';
 import * as scaleTeam from './scale-team.js';
 import { botMove, botEngineReady } from './bot.js';
 import { sendPushToUser } from './push.js';
+import { recordArenaResult, liveArena, joinArena, arenaEnabled, ARENA_BOT_WAIT_MS } from './arena.js';
 
 // --- RANKED bot-backfill (cold-start: no humans online) --------------------
 // When a player waits in the ranked 1v1 queue past this window with no human
@@ -102,6 +103,16 @@ const userSocket = new Map();      // userId -> socketId
 const socketUser = new Map();      // socketId -> userId
 const chatBuckets = new Map();     // userId -> { tokens, lastRefill }
 const mmBuckets = new Map();       // userId -> { tokens, lastRefill }
+
+// --- Arena tournaments (realtime; Layer 2 of ARENA_DESIGN.md) ---------------
+// arenaPool is the WAITING ROOM: users currently looking for an arena game.
+// Once paired they're removed; when their arena game ends they're re-pooled
+// (requeueArena). arenaMembership remembers which live arena each participant
+// belongs to, so re-pooling survives across games. Single-instance only (gated
+// on !scaleR, exactly like ranked bot-backfill).
+const arenaPool = new Map();        // uid -> { socketId, elo, arenaId, joinedAt }
+const arenaMembership = new Map();  // uid -> arenaId (current arena the user joined)
+let arenaPairTimer = null;
 
 // --- Rematch (1v1) state ---
 // recentGames: short-lived snapshot of a finished 1v1 so a rematch can be set up
@@ -205,7 +216,10 @@ export function getOnlineUserCount() {
 // Kept to a single timed control + unlimited so the matchmaking pool stays one
 // timed bucket (mirrors the two-option client picker in app.js). Any legacy key
 // from older clients folds into 'unlimited' rather than spawning a stray bucket.
-const TC_ALLOWLIST = new Set(['10+0', 'unlimited']);
+// '5+0'/'3+2' are blitz controls used by arena tournaments (arena.js ARENA_TC).
+// The client's 1v1 picker still only offers 10+0/unlimited; these are reachable
+// only via server-created arena games, so adding them changes no existing flow.
+const TC_ALLOWLIST = new Set(['10+0', '5+0', '3+2', 'unlimited']);
 
 // Normalise an incoming tc value to an allowlisted key (defaults to 'unlimited').
 function normalizeTc(tc) {
@@ -410,6 +424,12 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
   scaleR = redisClient || null;
   startTimeoutSweep(io);            // covers in-memory games (1v1 single-instance + 2v2)
   if (scaleR) { scale.startSweep(io, scaleR); scaleTeam.startSweep(io, scaleR); } // redis-backed 1v1 + 2v2 sweeps
+  // Arena pairing loop (single-instance only, like ranked bot-backfill). Inert
+  // when arenas are disabled or under Redis scaling; failure-isolated per pass.
+  if (!arenaPairTimer && arenaEnabled() && !scaleR) {
+    arenaPairTimer = setInterval(() => { Promise.resolve(runArenaPairing(io)).catch(() => {}); }, ARENA_PAIR_INTERVAL_MS);
+    if (typeof arenaPairTimer.unref === 'function') arenaPairTimer.unref();
+  }
   io.on('connection', (socket) => {
     socket.on('auth', async ({ token }) => {
       // Flood/brute-force protection: cap failed auth attempts per socket.
@@ -513,6 +533,35 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       if (scaleR) { try { await scale.leaveQueue(scaleR, uid); } catch (e) {} return; }
       matchmakingQueue.delete(uid);
       cancelBotBackfill(uid);
+    });
+
+    // --- Arena tournaments: join/leave the live arena's pairing pool ---
+    socket.on('arena_join', async ({ arenaId } = {}) => {
+      const uid = socket.data.userId; if (!uid) return;
+      if (!arenaEnabled()) { socket.emit('arena_err', { error: 'Arenas are not enabled.' }); return; }
+      if (scaleR) { socket.emit('arena_err', { error: 'Arenas are unavailable right now.' }); return; } // single-instance only
+      if (!consumeBucket(mmBuckets, uid, 3, 0.2)) { socket.emit('rate_limited', { event: 'arena_join', retryInMs: 5000 }); return; }
+      if (isUserInAnyGame(uid)) { socket.emit('arena_err', { error: 'Finish your current game first.' }); return; }
+      try {
+        const live = await liveArena();
+        if (!live || (arenaId && arenaId !== live.id)) { socket.emit('arena_err', { error: 'No arena is live right now.' }); return; }
+        const ok = await joinArena(live.id, uid, Date.now()); // ensure a scores row exists
+        if (!ok) { socket.emit('arena_err', { error: 'This arena is not open to join.' }); return; }
+        const user = await readUser(uid);
+        arenaMembership.set(uid, live.id);
+        arenaPool.set(uid, { socketId: socket.id, elo: (user && user.elo) || 1200, arenaId: live.id, joinedAt: Date.now() });
+        socket.emit('arena_joined', { arenaId: live.id });
+        runArenaPairing(io); // try to pair immediately
+      } catch (e) {
+        console.error('[arena] join failed', e && e.message);
+        socket.emit('arena_err', { error: 'Could not join the arena.' });
+      }
+    });
+    socket.on('arena_leave', () => {
+      const uid = socket.data.userId; if (!uid) return;
+      arenaPool.delete(uid);
+      arenaMembership.delete(uid);
+      socket.emit('arena_left', {});
     });
 
     // --- 2v2 team matchmaking ---
@@ -1122,6 +1171,8 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       if (uid) {
         matchmakingQueue.delete(uid);
         cancelBotBackfill(uid); // stop any pending ranked bot-backfill for this user
+        arenaPool.delete(uid);       // drop from the arena pairing pool
+        arenaMembership.delete(uid); // and forget arena membership (no re-pool)
         checkersQueue.delete(uid); // additive: drop from checkers MM queue too
         userSocket.delete(uid);
         socketUser.delete(socket.id);
@@ -1305,7 +1356,7 @@ function startGame(io, a, b) {
 // Color-forced game start: `white`/`black` are {uid, socketId, elo, mode, tc}.
 // Used by the rematch path (to swap colors deterministically) and by startGame
 // (after it has randomized which entry is white).
-async function startGameWithColors(io, white, black) {
+async function startGameWithColors(io, white, black, opts = {}) {
   const a = white; // keep `a` for tc/mode reads below (matches old startGame)
   const gameId = newGameId();
   const chess = new Chess();
@@ -1327,13 +1378,17 @@ async function startGameWithColors(io, white, black) {
     white: white.uid,
     black: black.uid,
     chess,
-    mode: normalizeMode(a.mode),
+    // opts.mode bypasses normalizeMode for server-created games whose mode the
+    // client can't supply (e.g. 'arena'); normal matchmaking passes no opts and
+    // keeps the security property that an unknown client mode folds to 'ranked'.
+    mode: opts.mode || normalizeMode(a.mode),
     started: Date.now(),
     tc,
     clock,
     whiteEloBefore: whiteUser.elo,
     blackEloBefore: blackUser.elo,
   };
+  if (opts.arenaId) game.arenaId = opts.arenaId; // arena games carry their event id
   activeGames.set(gameId, game);
   userActiveGame.set(white.uid, gameId);
   userActiveGame.set(black.uid, gameId);
@@ -1427,9 +1482,10 @@ async function maybeStartBotGame(io, uid) {
 
 // Create a ranked 1v1 game where one seat is the engine bot. Colors random; the
 // bot plays at the human's CURRENT rating (fair => ELO-neutral in expectation).
-async function startBotGame(io, human) {
+async function startBotGame(io, human, opts = {}) {
   const user = await readUser(human.uid);
   if (!user) return;
+  const botMode = opts.mode || 'ranked'; // 'arena' for arena bot games
   const humanElo = Number.isFinite(user.elo) ? user.elo : 1200;
   const botUid = newBotUid();
   const gameId = newGameId();
@@ -1448,7 +1504,7 @@ async function startBotGame(io, human) {
     white: whiteUid,
     black: blackUid,
     chess,
-    mode: 'ranked',
+    mode: botMode,
     started: Date.now(),
     tc,
     clock,
@@ -1463,6 +1519,7 @@ async function startBotGame(io, human) {
     whiteEloBefore: humanIsWhite ? humanElo : humanElo,
     blackEloBefore: humanIsWhite ? humanElo : humanElo,
   };
+  if (opts.arenaId) game.arenaId = opts.arenaId; // arena bot games carry the event id
   activeGames.set(gameId, game);
   userActiveGame.set(human.uid, gameId);
   const sock = io.sockets.sockets.get(human.socketId);
@@ -1472,7 +1529,7 @@ async function startBotGame(io, human) {
     gameId,
     white: humanIsWhite ? humanPublic : botPublic,
     black: humanIsWhite ? botPublic : humanPublic,
-    mode: 'ranked',
+    mode: botMode,
     tc,
     clock: clockSnapshotForStart(clock, parsed),
     // Top-level bot hint (additive; ignored by the existing display which reads
@@ -1528,6 +1585,100 @@ async function maybeBotReply(io, game) {
   } catch (e) {
     console.error('[bot-reply] failed', e && e.message);
   }
+}
+
+// ===========================================================================
+// ARENA pairing (realtime) — Layer 2 of ARENA_DESIGN.md
+// ===========================================================================
+// Continuously pair the arena waiting pool into mode:'arena' games, bot-backfill
+// anyone who waits too long, and re-pool players when their arena game ends.
+// Single-instance only (gated on !scaleR, like ranked bot-backfill). Every entry
+// point is failure-isolated — an arena error can never disturb ranked/casual.
+const ARENA_PAIR_INTERVAL_MS = Number(process.env.ARENA_PAIR_INTERVAL_MS) || 3000;
+
+// Re-add a player to the pool after their arena game ends, IF the arena is still
+// live, they're still connected, and they haven't left. Called from the finish
+// hooks. Failure-isolated.
+async function requeueArena(io, uid) {
+  try {
+    const arenaId = arenaMembership.get(uid);
+    if (!arenaId) return;
+    const socketId = userSocket.get(uid);
+    const sock = socketId && io.sockets.sockets.get(socketId);
+    if (!sock) { arenaMembership.delete(uid); return; }
+    if (isUserInAnyGame(uid)) return; // still finishing another game; that hook will re-pool
+    const live = await liveArena().catch(() => null);
+    if (!live || live.id !== arenaId) { arenaMembership.delete(uid); return; } // arena ended
+    // readUser is sync on SQLite / async on Postgres — normalize before awaiting.
+    const user = await Promise.resolve(readUser(uid)).catch(() => null);
+    arenaPool.set(uid, { socketId, elo: (user && user.elo) || 1200, arenaId, joinedAt: Date.now() });
+  } catch (e) { console.error('[arena] requeue failed', e && e.message); }
+}
+
+// One pairing pass over the arena pool. Pairs closest-elo waiters, bot-backfills
+// anyone past the wait threshold. Never throws.
+async function runArenaPairing(io) {
+  try {
+    if (!arenaEnabled() || scaleR || arenaPool.size === 0) return;
+    const live = await liveArena().catch(() => null);
+    if (!live) { arenaPool.clear(); return; } // no live arena: nobody to pair
+    const waiting = [];
+    for (const [uid, e] of [...arenaPool]) {
+      if (e.arenaId !== live.id) { arenaPool.delete(uid); continue; }   // stale (prior arena)
+      if (isUserInAnyGame(uid)) continue;                               // already playing
+      const socketId = userSocket.get(uid) || e.socketId;
+      const sock = io.sockets.sockets.get(socketId);
+      if (!sock) { arenaPool.delete(uid); arenaMembership.delete(uid); continue; } // disconnected
+      waiting.push({ uid, socketId, elo: e.elo, joinedAt: e.joinedAt });
+    }
+    if (waiting.length === 0) return;
+    waiting.sort((x, y) => x.joinedAt - y.joinedAt);
+    const used = new Set();
+    for (let i = 0; i < waiting.length; i++) {
+      if (used.has(waiting[i].uid)) continue;
+      let best = -1, bestD = Infinity;
+      for (let j = i + 1; j < waiting.length; j++) {
+        if (used.has(waiting[j].uid)) continue;
+        const d = Math.abs(waiting[i].elo - waiting[j].elo);
+        if (d < bestD) { bestD = d; best = j; }
+      }
+      if (best === -1) continue;
+      const A = waiting[i], B = waiting[best];
+      used.add(A.uid); used.add(B.uid);
+      arenaPool.delete(A.uid); arenaPool.delete(B.uid);
+      startArenaPair(io, A, B, live);
+    }
+    // Bot-backfill leftover singles who've waited long enough.
+    if (botEngineReady()) {
+      const now = Date.now();
+      for (const w of waiting) {
+        if (used.has(w.uid)) continue;
+        if (now - w.joinedAt < ARENA_BOT_WAIT_MS) continue;
+        used.add(w.uid);
+        arenaPool.delete(w.uid);
+        startArenaBotGame(io, w, live);
+      }
+    }
+  } catch (e) { console.error('[arena] pairing pass failed', e && e.message); }
+}
+
+// Start a human-vs-human arena game (mode:'arena', stamped with the arena id).
+function startArenaPair(io, A, B, live) {
+  try {
+    const a = { uid: A.uid, socketId: A.socketId, elo: A.elo, mode: 'arena', tc: live.tc };
+    const b = { uid: B.uid, socketId: B.socketId, elo: B.elo, mode: 'arena', tc: live.tc };
+    const [white, black] = Math.random() < 0.5 ? [a, b] : [b, a];
+    Promise.resolve(startGameWithColors(io, white, black, { mode: 'arena', arenaId: live.id }))
+      .catch((e) => { console.error('[arena] pair start failed', e && e.message); requeueArena(io, A.uid); requeueArena(io, B.uid); });
+  } catch (e) { console.error('[arena] startArenaPair failed', e && e.message); }
+}
+
+// Start an arena game vs the engine bot (reuses startBotGame with arena opts).
+function startArenaBotGame(io, w, live) {
+  try {
+    Promise.resolve(startBotGame(io, { uid: w.uid, socketId: w.socketId, tc: live.tc }, { mode: 'arena', arenaId: live.id }))
+      .catch((e) => { console.error('[arena] bot game failed', e && e.message); requeueArena(io, w.uid); });
+  } catch (e) { console.error('[arena] startArenaBotGame failed', e && e.message); }
 }
 
 // ===========================================================================
@@ -1765,13 +1916,16 @@ async function finishBotGame(io, game, override = {}) {
   const humanWon = !isDraw && winnerId === humanUid;
   const botWon = !isDraw && !humanWon; // winnerId is the bot seat
   // Human's ELO change vs the bot's rating (= human's rating at match time).
+  // ARENA bot games never move global ELO (the leaderboard is points, not ELO),
+  // so the delta is 0 and the persist below is skipped.
+  const isArena = game.mode === 'arena';
   const humanScore = isDraw ? 0.5 : (humanWon ? 1 : 0);
-  const humanDelta = eloDelta(game.botElo, game.botElo, humanScore);
+  const humanDelta = isArena ? 0 : eloDelta(game.botElo, game.botElo, humanScore);
   // Stat counters for the human only.
   const winInc = humanWon ? 1 : 0;
   const lossInc = botWon ? 1 : 0;
   const drawInc = isDraw ? 1 : 0;
-  try {
+  if (!isArena) try {
     if (store.usingPostgres) {
       const up = `UPDATE users SET elo = elo + ?,
           wins = wins + ?, losses = losses + ?, draws = draws + ?,
@@ -1807,7 +1961,7 @@ async function finishBotGame(io, game, override = {}) {
   // VICTIM WALL: a ranked WIN extends the human's streak. Record the bot as the
   // victim (so the human's "Most Feared" wall fills even from backfill bot wins).
   // The loser is the bot => no notification. Failure-isolated; never throws.
-  if (humanWon) {
+  if (!isArena && humanWon) {
     try {
       await recordVictimAndNotify(io, {
         winnerId: humanUid,
@@ -1821,13 +1975,28 @@ async function finishBotGame(io, game, override = {}) {
   // SEASON LADDER: credit the HUMAN's current-season row (W/L/D + points + peak
   // elo). The bot seat is never credited (its uid has no users row). Surgical +
   // failure-isolated: a season-stat write must NEVER affect the ELO write above.
-  try {
+  if (!isArena) try {
     await recordSeasonResult({
       userId: humanUid,
       result: isDraw ? 'draw' : (humanWon ? 'win' : 'loss'),
       elo: game.botElo + humanDelta, // the human's NEW elo after this game
     });
   } catch (e) { console.error('[season] botgame hook failed', e && e.message); }
+
+  // ARENA: score the human into the arena leaderboard (bots are never scored —
+  // recordArenaResult only touches JOINED participants) and re-pool them for
+  // their next pairing. Failure-isolated: never affects the result above.
+  if (isArena && game.arenaId) {
+    try {
+      await recordArenaResult({
+        arenaId: game.arenaId,
+        userId: humanUid,
+        result: isDraw ? 'draw' : (humanWon ? 'win' : 'loss'),
+        elo: game.botElo,
+      });
+    } catch (e) { console.error('[arena] botgame hook failed', e && e.message); }
+    requeueArena(io, humanUid);
+  }
 }
 
 // ===========================================================================
@@ -1943,6 +2112,12 @@ async function recordSeasonResult({ userId, result, elo }, deps) {
 export function __test_recordSeasonResult(args, deps) {
   return recordSeasonResult(args, deps);
 }
+
+// Arena test hooks: drive a pairing pass + inspect/seed the in-memory pool so
+// the realtime pairing + bot-backfill can be exercised without real sockets.
+export function __test_runArenaPairing(io) { return runArenaPairing(io); }
+export function __test_arenaPoolSize() { return arenaPool.size; }
+export function __test_seedArenaPool(uid, entry) { arenaMembership.set(uid, entry.arenaId); arenaPool.set(uid, entry); }
 
 async function finishGame(io, game, override = {}) {
   if (game._ended) return;
@@ -2095,6 +2270,20 @@ async function finishGame(io, game, override = {}) {
         elo: (blackUser ? blackUser.elo : 0) + bd,
       });
     } catch (e) { console.error('[season] game hook failed', e && e.message); }
+  }
+
+  // ARENA: score BOTH players into the arena leaderboard + re-pool them. Arena
+  // games are mode!=='ranked', so the ELO/games-row path above never moved their
+  // rating — the arena currency is points, not ELO. Surgical + failure-isolated.
+  if (game.mode === 'arena' && game.arenaId) {
+    const whiteResult = isDraw ? 'draw' : (winnerId === game.white ? 'win' : 'loss');
+    const blackResult = isDraw ? 'draw' : (winnerId === game.black ? 'win' : 'loss');
+    try {
+      await recordArenaResult({ arenaId: game.arenaId, userId: game.white, result: whiteResult, elo: whiteUser ? whiteUser.elo : 0 });
+      await recordArenaResult({ arenaId: game.arenaId, userId: game.black, result: blackResult, elo: blackUser ? blackUser.elo : 0 });
+    } catch (e) { console.error('[arena] game hook failed', e && e.message); }
+    requeueArena(io, game.white);
+    requeueArena(io, game.black);
   }
 
   // Stash a short-lived snapshot so a rematch can be set up after the game

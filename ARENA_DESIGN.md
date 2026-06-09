@@ -115,6 +115,21 @@ best-effort push). Failure-isolated.
       serves it. All scoring done via portable SQL through the store facade (no
       transaction needed — a user is only ever in one game at a time). Touches NOTHING
       in the realtime game loop yet.
-- [ ] L2: pool + pairing + bot-backfill + `recordArenaResult` finish hook (game.js)
+- [x] **L2: realtime pool + pairing + bot-backfill + finish hook (game.js).**
+      `arena_join`/`arena_leave` socket events feed an `arenaPool` waiting room; a
+      pairing pass (3s interval, single-instance only like ranked bot-backfill)
+      pairs closest-elo waiters into `mode:'arena'` games and bot-backfills anyone
+      past `ARENA_BOT_WAIT_MS`. Arena games are created via `startGameWithColors`/
+      `startBotGame` `opts` bypass (`mode:'arena'` + `arenaId`; `normalizeMode`
+      would otherwise fold unknown→ranked). `recordArenaResult` is hooked into
+      BOTH `finishGame` (human-v-human) and `finishBotGame` (human only), surgical
+      + failure-isolated like the Seasons/Victim-Wall hooks. **Arena games NEVER
+      touch global ELO or W/L/D** (mode!=='ranked' skips the ELO path; finishBotGame
+      gets an `isArena` guard on its stat writes) — the arena currency is points.
+      On finish both players are re-pooled (`requeueArena`) for continuous play.
+      Added `5+0`/`3+2` to the TC allowlist. Gated by `test/arena-realtime.mjs`
+      (real socket: join → bot-backfill → server-authoritative play → ELO isolation
+      → leaderboard scoring → re-pool), in CI. Realtime regression green
+      (ranked-bot/2v2/checkers untouched).
 - [ ] L3: client card + arena screen
 - [ ] L4: champion trophy + admin stats + polish

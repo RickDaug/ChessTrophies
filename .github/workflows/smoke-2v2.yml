@@ -58,6 +58,9 @@ jobs:
       - name: Arena tournaments (scoring + lifecycle + REST) test
         run: npm run test:arena
 
+      - name: Arena realtime (pairing + bot-backfill + ELO isolation) test
+        run: npm run test:arena-realtime
+
       - name: Ranked seasonal switch test
         run: npm run test:ranked-flag
 

@@ -30,7 +30,8 @@
     "test:trophies-repeat": "node test/trophies-repeat.mjs",
     "test:puzzles": "node test/puzzles.mjs",
     "test:a11y": "node test/a11y.mjs",
-    "test:arena": "node test/arena.mjs"
+    "test:arena": "node test/arena.mjs",
+    "test:arena-realtime": "node test/arena-realtime.mjs"
   },
   "repository": {
     "type": "git",

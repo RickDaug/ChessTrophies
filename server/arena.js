@@ -18,7 +18,7 @@ import * as store from './store.js';
 export const ARENA_DURATION_MS = 30 * 60 * 1000; // each arena runs 30 min
 export const ARENA_BREAK_MS = 10 * 60 * 1000;    // gap before the next one
 export const ARENA_TC = '5+0';                   // blitz: quick games, fast re-pair
-export const ARENA_BOT_WAIT_MS = 8 * 1000;       // pool wait before a bot game (L2)
+export const ARENA_BOT_WAIT_MS = Number(process.env.ARENA_BOT_WAIT_MS) || 8 * 1000; // pool wait before a bot game (L2)
 
 // Themed arena names, cycled deterministically by start slot.
 const ARENA_NAMES = [
