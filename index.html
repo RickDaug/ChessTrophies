@@ -158,10 +158,17 @@
   .overlay-piece { position: absolute; width: 11.11%; height: 11.11%; will-change: transform, opacity; transition: transform .26s ease, opacity .26s ease; transform: translate3d(0,0,0); }
   .overlay-piece svg { width: 100%; height: 100%; }
   .capture-flyaway { opacity: 1; }
+  /* drag-and-drop: a floating clone that follows the pointer ("lifted" piece) */
+  .drag-piece { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; will-change: transform; transform: translate3d(0,0,0); }
+  .drag-piece svg { width: 100%; height: 100%; filter: drop-shadow(0 6px 10px rgba(0,0,0,.5)); }
+  .drag-piece.lift { transition: transform .04s ease; }
+  /* hide the source piece's svg while it's being dragged (the clone stands in) */
+  .sq.dragging svg { opacity: 0; }
   @media (prefers-reduced-motion: reduce) {
     .overlay-piece { transition: none !important; }
+    .drag-piece.lift { transition: none !important; }
   }
-  .sq { display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; transition: background-color .15s; min-width: 0; min-height: 0; aspect-ratio: 1/1; }
+  .sq { display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; transition: background-color .15s; min-width: 0; min-height: 0; aspect-ratio: 1/1; touch-action: none; }
   .sq.light { background: var(--light-sq); }
   .sq.dark  { background: var(--dark-sq); }
   .sq.selected { background: var(--highlight) !important; }

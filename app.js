@@ -370,6 +370,7 @@
     applyingRemoteMove: false, // guard so afterMove doesn't echo opponent moves back to server
     awaitingServerGameOver: false, // when online, defer local handleGameOver until server sends game_over
     selectedTc: '10+0', // last-chosen time control for online matchmaking
+    drag: null,           // active drag-and-drop session (see onBoardPointerDown)
   };
 
   // ---------------------------------------------------------------------------
@@ -3345,6 +3346,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
           sq.classList.add('check');
         }
         sq.addEventListener('click', () => handleSquareClick(name));
+        sq.addEventListener('pointerdown', (ev) => onBoardPointerDown(ev, name));
         boardEl.appendChild(sq);
       }
     }
@@ -3413,6 +3415,209 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     if (sidePiece && sidePiece.color === turn) {
       selectSquare(name);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // DRAG-AND-DROP (Pointer Events). Coexists with click-to-move:
+  //  - pointerdown on a movable piece begins a *potential* drag and selects the
+  //    square (reusing selectSquare -> the same legal-target highlights as click).
+  //  - moving past a small threshold "lifts" the piece (a floating clone follows
+  //    the pointer); page scroll is suppressed for the duration (touch-action:none
+  //    on .sq + we don't let the gesture bubble once lifted).
+  //  - pointerup over a legal target applies the move through tryMove/afterMove —
+  //    the SAME path click-to-move uses (no reimplemented legality/animation).
+  //  - a quick tap (down+up, no lift) does nothing here and lets the native click
+  //    drive selection/move exactly as before. We only suppress the click when we
+  //    actually consumed the gesture as a drag-drop (so we never double-apply).
+  // ---------------------------------------------------------------------------
+  function dragReducedMotion() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  function onBoardPointerDown(ev, name) {
+    // Only primary button / single touch; ignore right-click & multi-touch.
+    if (ev.button != null && ev.button !== 0) return;
+    if (state.drag) return; // already dragging something
+    // Same gates as handleSquareClick: game live, our turn, no modal/animation.
+    if (!state.game || state.game.game_over() || state.aiThinking || state.promotionPending || state.animatingMove) return;
+    const piece = state.game.get(name);
+    const turn = state.game.turn();
+    if (!piece || piece.color !== turn) return; // empty / opponent piece: let click handle
+    if (state.opponent && state.opponent.isAI && turn !== state.userColor) return;
+    if (state.isOnline && turn !== state.userColor) return;
+
+    const boardEl = $('#board');
+    const sqEl = boardEl ? boardEl.querySelector('[data-sq="' + name + '"]') : null;
+    if (!boardEl || !sqEl) return;
+
+    // IMPORTANT: do NOT select here. A pure tap must be handled entirely by the
+    // native click (selecting here would make the trailing click toggle the
+    // selection OFF again). We only select once the gesture actually LIFTS into a
+    // drag (see dragBeginLift), which reuses the same selectSquare highlighting.
+    const boardRect = boardEl.getBoundingClientRect();
+    const drag = {
+      from: name,
+      piece: piece.type,
+      color: piece.color,
+      sqEl: sqEl,
+      pointerId: ev.pointerId,
+      startX: ev.clientX,
+      startY: ev.clientY,
+      lifted: false,
+      clone: null,
+      size: boardRect.width / 8,
+      boardRect: boardRect,
+      consumed: false, // true once we apply a move (suppress the trailing click)
+      moveHandler: null,
+      upHandler: null,
+      cancelHandler: null,
+    };
+    state.drag = drag;
+
+    drag.moveHandler = (e) => onBoardPointerMove(e);
+    drag.upHandler = (e) => onBoardPointerUp(e);
+    drag.cancelHandler = (e) => onBoardPointerCancel(e);
+    // Listen on window so the drag keeps tracking even off the board.
+    window.addEventListener('pointermove', drag.moveHandler, { passive: false });
+    window.addEventListener('pointerup', drag.upHandler);
+    window.addEventListener('pointercancel', drag.cancelHandler);
+    try { sqEl.setPointerCapture(ev.pointerId); } catch (e) {}
+  }
+
+  function dragBeginLift(drag, clientX, clientY) {
+    drag.lifted = true;
+    // Now show the legal-target highlights (reuses the click-to-move selection).
+    // selectSquare -> renderBoard rebuilds the board, so re-acquire the square el.
+    if (state.selected !== drag.from) {
+      selectSquare(drag.from);
+      const fresh = $('#board') && $('#board').querySelector('[data-sq="' + drag.from + '"]');
+      if (fresh) drag.sqEl = fresh;
+    }
+    drag.sqEl.classList.add('dragging');
+    const clone = document.createElement('div');
+    clone.className = 'drag-piece' + (dragReducedMotion() ? '' : ' lift');
+    clone.style.width = drag.size + 'px';
+    clone.style.height = drag.size + 'px';
+    clone.innerHTML = pieceSVG(drag.piece, drag.color);
+    const overlay = $('#board-overlay') || $('#board');
+    overlay.appendChild(clone);
+    drag.clone = clone;
+    dragMoveClone(drag, clientX, clientY);
+  }
+
+  function dragMoveClone(drag, clientX, clientY) {
+    if (!drag.clone) return;
+    // Position relative to the board (overlay is inset:0 over the board).
+    const x = clientX - drag.boardRect.left - drag.size / 2;
+    const y = clientY - drag.boardRect.top - drag.size / 2;
+    const scale = dragReducedMotion() ? 1 : 1.08;
+    drag.clone.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0) scale(' + scale + ')';
+  }
+
+  function onBoardPointerMove(ev) {
+    const drag = state.drag;
+    if (!drag || ev.pointerId !== drag.pointerId) return;
+    if (!drag.lifted) {
+      const dx = ev.clientX - drag.startX;
+      const dy = ev.clientY - drag.startY;
+      if ((dx * dx + dy * dy) < 25) return; // ~5px threshold before we treat it as a drag
+      dragBeginLift(drag, ev.clientX, ev.clientY);
+    }
+    // While lifted, suppress page scroll / text selection.
+    if (ev.cancelable) ev.preventDefault();
+    dragMoveClone(drag, ev.clientX, ev.clientY);
+  }
+
+  function dragSquareAt(drag, clientX, clientY) {
+    const r = drag.boardRect;
+    if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null;
+    const el = document.elementFromPoint(clientX, clientY);
+    const sq = el && el.closest ? el.closest('#board .sq[data-sq]') : null;
+    return sq ? sq.dataset.sq : null;
+  }
+
+  function teardownDrag(drag) {
+    window.removeEventListener('pointermove', drag.moveHandler, { passive: false });
+    window.removeEventListener('pointerup', drag.upHandler);
+    window.removeEventListener('pointercancel', drag.cancelHandler);
+    try { drag.sqEl.releasePointerCapture(drag.pointerId); } catch (e) {}
+    if (drag.clone) { drag.clone.remove(); drag.clone = null; }
+    drag.sqEl.classList.remove('dragging');
+    if (state.drag === drag) state.drag = null;
+  }
+
+  function onBoardPointerUp(ev) {
+    const drag = state.drag;
+    if (!drag || ev.pointerId !== drag.pointerId) return;
+
+    if (!drag.lifted) {
+      // No real drag happened — a tap. Let the native click drive selection/move
+      // exactly as today; just tear down our drag bookkeeping.
+      teardownDrag(drag);
+      return;
+    }
+
+    const dest = dragSquareAt(drag, ev.clientX, ev.clientY);
+    const isLegal = dest && dest !== drag.from && state.legalTargets.indexOf(dest) !== -1;
+
+    if (isLegal) {
+      // Apply via the SAME path click-to-move uses (handles promotion modal,
+      // Chess960 castling, animation, online send — all of it).
+      drag.consumed = true;
+      const from = drag.from;
+      // Remove the floating clone & dragging class BEFORE the move so afterMove's
+      // animation (overlay piece) renders cleanly from the real board.
+      teardownDrag(drag);
+      clearSelection();
+      const move = tryMove(from, dest);
+      if (move) {
+        afterMove(move);
+      } else {
+        // tryMove returned null because it opened the promotion modal (state set);
+        // showPromotion -> its click handler will call afterMove. Nothing to undo.
+        renderBoard();
+      }
+      // Suppress the click event that follows this pointerup so we don't re-handle
+      // the same gesture as a click-to-move (double-apply guard).
+      suppressNextBoardClick();
+      return;
+    }
+
+    // Not a legal target (or dropped off-board): snap back. Keep the selection so
+    // the user still sees the highlighted piece/targets (matches a no-op click).
+    teardownDrag(drag);
+    suppressNextBoardClick(); // the lift consumed the gesture; don't let click toggle it off
+    renderBoard();
+  }
+
+  function onBoardPointerCancel(ev) {
+    const drag = state.drag;
+    if (!drag || ev.pointerId !== drag.pointerId) return;
+    const wasLifted = drag.lifted;
+    teardownDrag(drag);
+    if (wasLifted) { suppressNextBoardClick(); renderBoard(); }
+  }
+
+  // After a drag we consumed, the browser still synthesizes a `click` on the
+  // source square (from the pointerdown). Swallow exactly one board click so the
+  // gesture isn't double-handled by handleSquareClick.
+  var _suppressBoardClick = false;
+  function suppressNextBoardClick() {
+    if (_suppressBoardClick) return;
+    _suppressBoardClick = true;
+    const boardEl = $('#board');
+    if (!boardEl) { _suppressBoardClick = false; return; }
+    const handler = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      boardEl.removeEventListener('click', handler, true);
+      _suppressBoardClick = false;
+    };
+    boardEl.addEventListener('click', handler, true);
+    // Safety: if no click arrives (some browsers don't synthesize one), clear soon.
+    setTimeout(() => {
+      if (_suppressBoardClick) { boardEl.removeEventListener('click', handler, true); _suppressBoardClick = false; }
+    }, 400);
   }
 
   function selectSquare(name) {
