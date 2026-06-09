@@ -36,6 +36,10 @@ async function main() {
   const srv = http.createServer((req, res) => {
     let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
     if (p === '/api/guest') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ username: 'BraveGuest', isGuest: true, activeGuests: 1 })); return; }
+    // Signup → token; /api/me → the fresh account profile (so the guest→account
+    // migration path runs against a real account record).
+    if (p === '/api/auth/signup') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ token: 'testtoken' })); return; }
+    if (p === '/api/me') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: 'acct_test', username: 'NewUser123', email: 'newuser@example.com', region: '', elo: 800, wins: 0, losses: 0, draws: 0, currentStreak: 0, bestStreak: 0, isPremium: false, emailVerified: true, eloCheckers8: 1200, eloCheckers10: 1200, arenaWins: 0 })); return; }
     if (p.startsWith('/api/')) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); return; }
     const file = path.join(DIST, p);
     if (!file.startsWith(DIST)) { res.writeHead(403); res.end('no'); return; }
@@ -111,8 +115,42 @@ async function main() {
     assert(after.lobby && !after.auth, 'restored guest should land in the lobby, not the auth screen');
     log('#1 reload restores the guest into the lobby WITH progress (no auth screen) ✓');
 
+    // --- MIGRATION: a guest with a daily streak -> account keeps it -----------
+    {
+      const ctx2 = await browser.newContext();
+      await ctx2.route('**/*', (route) => {
+        const u = new URL(route.request().url());
+        if (u.origin === BASE) return route.continue();
+        if (/socket\.io/.test(u.href)) return route.fulfill({ contentType: 'application/javascript', body: 'window.io=function(){return {on(){},emit(){},close(){},io:{on(){}}}};' });
+        return route.fulfill({ status: 200, body: '' });
+      });
+      const pg2 = await ctx2.newPage();
+      pg2.on('pageerror', e => errors.push('migration pageerror: ' + e));
+      await pg2.goto(`${BASE}/index.html`, { waitUntil: 'domcontentloaded' });
+      await pg2.waitForFunction(() => window.CT && window.CT.state, { timeout: 15000 });
+      await pg2.click('#btn-continue-guest');
+      await pg2.waitForFunction(() => document.getElementById('screen-lobby')?.classList.contains('active'), { timeout: 10000 });
+      // The guest earns a 5-day streak (as if via daily puzzles).
+      await pg2.evaluate(() => { window.CT.state.user.playStreak = { streak: 5, best: 5, lastDate: new Date().toISOString().slice(0, 10) }; });
+      // Convert: open the signup form + submit.
+      await pg2.evaluate(() => window.CT.showScreen('auth'));
+      await pg2.click('#screen-auth .tab[data-tab="signup"]');
+      await pg2.fill('#signup-username', 'NewUser123');
+      await pg2.fill('#signup-email', 'newuser@example.com');
+      await pg2.fill('#signup-password', 'passw0rd');
+      await pg2.click('#form-signup button[type="submit"]');
+      await pg2.waitForFunction(() => window.CT.state.user && !window.CT.state.user.isGuest, { timeout: 8000 })
+        .catch(() => fail('signup did not complete (user still a guest)'));
+      const m = await pg2.evaluate(() => ({ isGuest: !!window.CT.state.user.isGuest, streak: (window.CT.state.user.playStreak || {}).streak || 0, id: window.CT.state.user.id }));
+      assert(!m.isGuest, 'after signup the user should not be a guest');
+      assert(m.id === 'acct_test', `should be the new server account, got ${m.id}`);
+      assert(m.streak === 5, `the 5-day streak should carry onto the account, got ${m.streak}`);
+      log('#migration guest 5-day streak carried onto the new account ✓');
+      await ctx2.close();
+    }
+
     assert(errors.length === 0, 'page errors:\n' + errors.join('\n'));
-    log('PASS — guest persistence + winnable first game + universal loss-aversion CTA');
+    log('PASS — guest persistence + winnable first game + universal CTA + guest→account migration');
   } finally {
     await browser.close();
     srv.close();

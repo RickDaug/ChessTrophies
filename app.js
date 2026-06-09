@@ -256,6 +256,10 @@
   }
 
   async function signup(email, username, password, region, startingElo) {
+    // If the current session is a GUEST, snapshot it now so we can carry their
+    // local progress onto the new account (state.user is still the guest until the
+    // form handler swaps it after this resolves).
+    const _guestForMigration = (typeof state !== 'undefined' && state.user && state.user.isGuest) ? state.user : null;
     if (!email || !username || !password) throw new Error('Please fill in all fields.');
     if (!isValidEmail(email)) throw new Error('Enter a valid email address.');
     if (!isValidUsername(username)) throw new Error('Username must be 3–20 letters, numbers, or underscores.');
@@ -272,7 +276,7 @@
       const profile = await fetchMe();
       const user = syncRemoteProfile(profile);
       setSession({ userId: user.id, token });
-      return user;
+      return migrateGuestProgress(_guestForMigration, user);
     } catch (serverErr) {
       // Server reachable and said no (email/username taken, invalid): surface it.
       // Only a genuinely unreachable backend falls through to an offline account.
@@ -299,7 +303,34 @@
     db.users[user.id] = user;
     saveDB(db);
     setSession({ userId: user.id, offline: true });
-    return user;
+    return migrateGuestProgress(_guestForMigration, user);
+  }
+
+  // When a GUEST signs up, carry their local progress onto the brand-new account
+  // so they don't feel they lost what they built. The account is fresh (empty
+  // trophy/streak arrays from syncRemoteProfile / newUser), so we assign the
+  // guest's earned values directly: daily streak, trophies, achievements, and the
+  // learning/trophy flags. The daily streak also follows to the SERVER via the
+  // progress sync the signup form triggers afterwards (and the sync's merge keeps
+  // the better streak, so a server pull can't clobber it). Stats (elo/W-L) are NOT
+  // carried — guests play practice only (always 0) and the account is canonical.
+  function migrateGuestProgress(guest, account) {
+    try {
+      if (!guest || !account || !guest.isGuest || guest.id === account.id) return account;
+      const db = loadDB();
+      const acct = db.users[account.id];
+      if (!acct) return account;
+      if (guest.playStreak) acct.playStreak = guest.playStreak;
+      if (Array.isArray(guest.streakTrophies) && guest.streakTrophies.length) acct.streakTrophies = guest.streakTrophies.slice();
+      if (Array.isArray(guest.achievements) && guest.achievements.length) acct.achievements = guest.achievements.slice();
+      if (guest.flags && typeof guest.flags === 'object') {
+        acct.flags = Object.assign({}, acct.flags || {}, guest.flags);
+        delete acct.flags.guestGames; // guest-only practice-ramp counter; irrelevant to an account
+      }
+      db.users[account.id] = acct;
+      saveDB(db);
+      return acct;
+    } catch (e) { return account; }
   }
   // Look up a local account by email OR username (offline fallback for login).
   function findLocalAccount(db, identifier) {
@@ -1223,6 +1254,9 @@
   $('#form-signup').addEventListener('submit', async (e) => {
     e.preventDefault();
     $('#signup-error').textContent = '';
+    // Was this a guest converting? (signup() carries their progress onto the new
+    // account; we push it to the server + acknowledge it below.)
+    const _wasGuest = !!(state.user && state.user.isGuest);
     try {
       const u = await signup(
         $('#signup-email').value,
@@ -1238,6 +1272,15 @@
       toast('Welcome, ' + u.username + ' 👑', true);
       if (window.__connectGameSocket) window.__connectGameSocket();
       enterApp();
+      // Guest → account: push the carried progress (daily streak, learning) up to
+      // the server so it follows the user across devices, and acknowledge it.
+      if (_wasGuest) {
+        try { if (window.CT_syncProgress) window.CT_syncProgress(); } catch (e) {}
+        const _st = (u.playStreak && u.playStreak.streak) || 0;
+        const _tr = ((u.streakTrophies && u.streakTrophies.length) || 0) + ((u.achievements && u.achievements.length) || 0);
+        if (_st > 1) setTimeout(() => toast('Your ' + _st + '-day streak came with you 🔥', true), 900);
+        else if (_tr > 0) setTimeout(() => toast('Your progress came with you 🏆', true), 900);
+      }
       const s = getSession();
       if (s && s.offline) toast('Account created offline — ranked online play is unavailable until you reconnect.');
     } catch (err) {
