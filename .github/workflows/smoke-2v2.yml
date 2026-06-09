@@ -64,6 +64,9 @@ jobs:
       - name: Arena client UI (lobby card + screen + leaderboard) test
         run: npm run test:arena-ui
 
+      - name: New-user funnel (guest persistence + winnable 1st game + CTA) test
+        run: npm run test:guest-funnel
+
       - name: Ranked seasonal switch test
         run: npm run test:ranked-flag
 

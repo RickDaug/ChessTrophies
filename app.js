@@ -1508,6 +1508,34 @@
     };
   }
 
+  // Persist a guest's local record (trophies, daily streak, ramp counter) so it
+  // survives a refresh / tab-close / next visit. No-op for signed-in users (they
+  // persist via the normal DB/server paths). The guest lives in the same local
+  // db.users the boot restore reads, so this is all it takes to bring them back.
+  function saveGuest() {
+    try {
+      if (state.user && state.user.isGuest) {
+        const db = loadDB();
+        db.users[state.user.id] = state.user;
+        saveDB(db);
+      }
+    } catch (e) {}
+  }
+
+  // Difficulty for a guest's practice game. Newcomers get an eased first couple of
+  // games (800 -> 1000 -> 1200) so a beginner can actually WIN — a good first
+  // impression that also fires the signup CTA. After the ramp (or for signed-in
+  // users) it falls back to the chosen slider value. Ramp index = games played.
+  function guestPracticeElo(sliderVal) {
+    const u = state.user;
+    if (u && u.isGuest) {
+      const gp = (u.flags && u.flags.guestGames) || 0;
+      const RAMP = [800, 1000, 1200];
+      if (gp < RAMP.length) return RAMP[gp];
+    }
+    return sliderVal;
+  }
+
   // Start a guest session and jump into the app. Shared by the prominent "Play now"
   // button at the top of the auth card and the "Continue as guest" button below.
   // opts.playNow=true honours the "start a game in one tap" promise: it drops the
@@ -1524,18 +1552,22 @@
       } catch (e) { username = null; }
       if (!username) username = 'Guest' + (Math.floor(Math.random() * 9999) + 1);
       const gu = makeGuestUser(username);
-      state.user = gu;
-      // Session-scoped only: do NOT call setSession() (localStorage) and do
-      // NOT write to the local account DB.
-      try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ userId: gu.id, guest: true })); } catch (e) {}
-      window.addEventListener('pagehide', () => {
-        try { navigator.sendBeacon && navigator.sendBeacon(SERVER_URL + '/api/guest/release', new Blob([JSON.stringify({ username: username })], { type: 'application/json' })); } catch (e) {}
-      });
+      // PERSIST the guest locally (localStorage), unlike before (sessionStorage,
+      // gone on tab-close). Stored in the same local db.users + session the boot
+      // restore reads, so a returning guest is brought straight back into the app
+      // with their trophies + daily streak intact. This is the #1 retention fix.
+      const gdb = loadDB();
+      if (!gdb.users[gu.id]) { gdb.users[gu.id] = gu; saveDB(gdb); }
+      state.user = gdb.users[gu.id];
+      setSession({ userId: gu.id, guest: true });
       // Show the nav and prep lobby state, then optionally drop straight into a game.
       enterApp();
       if (opts.playNow) {
-        toast('Playing offline vs computer — sign up to play real people.');
-        const lvl = ($('#practice-elo') && $('#practice-elo').value) || 1200;
+        const firstGame = !(state.user.flags && state.user.flags.guestGames);
+        const lvl = guestPracticeElo(($('#practice-elo') && $('#practice-elo').value) || 1200);
+        toast(firstGame
+          ? 'Practice vs the computer — free, no signup. Win it to earn your first trophy! 🏆'
+          : 'Playing offline vs computer — sign up to play real people.');
         startPracticeGame(lvl);
       } else {
         toast('Playing as ' + username + ' (guest)', true);
@@ -1975,7 +2007,7 @@ function renderFriendsSummary() {
   // drop them straight into a Practice vs Computer game NOW and nudge them with a
   // non-blocking toast to sign up for real opponents. No dialog, no dead-end.
   function guestPlayOfflineWithNudge(mode) {
-    const lvl = ($('#practice-elo') && $('#practice-elo').value) || 1200;
+    const lvl = guestPracticeElo(($('#practice-elo') && $('#practice-elo').value) || 1200);
     startPracticeGame(lvl);
     toast(mode === 'ranked'
       ? 'Playing offline vs computer — sign up to play ranked online.'
@@ -4441,12 +4473,22 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // The checkers result reuses this same modal and hides the review button; make
     // sure chess always restores it (block-button visibility is set just above).
     var _rvBtn2 = $('#btn-result-review'); if (_rvBtn2) _rvBtn2.style.display = '';
-    // Guest CTA: a guest who just won (or earned a trophy) has progress that lives
-    // only in this tab and is lost on close — nudge them to make a free account.
+    // Guest CTA: show after EVERY guest game (not just wins — the ~80% who lose
+    // their first game previously got no prompt + no reason to return). Copy is
+    // framed by context (loss-aversion): a win/trophy → "save your win", a live
+    // daily streak → "keep your N-day streak", else "track your progress".
     var _gBtn = $('#btn-result-guest-signup');
     if (_gBtn) {
       var _newTrophyCount = (typeof unlocked !== 'undefined' ? unlocked.length : 0) + (typeof moreUnlocks !== 'undefined' ? moreUnlocks.length : 0);
-      var _showGuestCta = !!(state.user && state.user.isGuest) && (myWon || _newTrophyCount > 0);
+      var _showGuestCta = !!(state.user && state.user.isGuest);
+      if (_showGuestCta) {
+        var _gStreak = (state.user.playStreak && state.user.playStreak.streak) || 0;
+        _gBtn.textContent = (myWon || _newTrophyCount > 0)
+          ? '🏆 Save your win — create a free account'
+          : (_gStreak > 1
+              ? 'Keep your ' + _gStreak + '-day streak — create a free account'
+              : 'Track your progress — create a free account');
+      }
       _gBtn.style.display = _showGuestCta ? '' : 'none';
     }
     // Checkmate moment: punctuate the mate on the board (flash + king topple)
@@ -4500,6 +4542,16 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         }
       } catch (e) {}
     };
+
+    // Guest persistence: bump the practice-difficulty ramp counter + save the
+    // guest's trophies / daily streak / stats so they SURVIVE a refresh (the
+    // practice/unranked branches above never call saveDB). No-op for signed-in
+    // users. This is what makes a returning guest come back to their progress.
+    if (state.user && state.user.isGuest) {
+      state.user.flags = state.user.flags || {};
+      state.user.flags.guestGames = (state.user.flags.guestGames || 0) + 1;
+      saveGuest();
+    }
 
     if (_mateDelay > 0) {
       // Hold the modal briefly so the board mate animation reads first.
@@ -5530,7 +5582,11 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => init());
   } else {
-    init();
+    // Defer one microtask so module-level declarations that live AFTER this IIFE
+    // (e.g. STOCK_AVATARS + getAvatarHTML, below) are initialized before init()
+    // runs. A synchronous restore that renders the lobby (now incl. returning
+    // GUESTS) would otherwise hit a TDZ on STOCK_AVATARS via getAvatarHTML.
+    Promise.resolve().then(init);
   }
 
 

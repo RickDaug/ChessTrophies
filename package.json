@@ -32,7 +32,8 @@
     "test:a11y": "node test/a11y.mjs",
     "test:arena": "node test/arena.mjs",
     "test:arena-realtime": "node test/arena-realtime.mjs",
-    "test:arena-ui": "node test/arena-ui.mjs"
+    "test:arena-ui": "node test/arena-ui.mjs",
+    "test:guest-funnel": "node test/guest-funnel.mjs"
   },
   "repository": {
     "type": "git",
