@@ -408,6 +408,60 @@ CREATE TABLE IF NOT EXISTS payments (
 CREATE INDEX IF NOT EXISTS idx_payments_created ON payments(created_at DESC);
 `);
 
+// --- Web Push subscriptions (re-engagement) --------------------------------
+// One row per browser/device push subscription. `endpoint` is UNIQUE (it is the
+// push service's stable id for the subscription) so re-subscribing the same
+// device is idempotent — addPushSub upserts on it. `p256dh`/`auth` are the
+// subscription's public encryption keys (base64url). Additive + inert until
+// VAPID keys are configured (nothing writes here otherwise). No FK on user_id so
+// a stale row can't block deletes (we prune dead subs by endpoint anyway).
+db.exec(`
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  endpoint TEXT UNIQUE NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
+`);
+
+// Idempotently store a push subscription for `userId`. Keyed on the UNIQUE
+// `endpoint`: re-subscribing the same device (or a device that moved to another
+// account) UPSERTs the row rather than duplicating it, so listPushSubs returns
+// exactly one row per endpoint. All SQL is parameterized.
+export function addPushSub({ userId, endpoint, p256dh, auth }) {
+  return db.prepare(`
+    INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(endpoint) DO UPDATE SET
+      user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth
+  `).run(
+    'push_' + Math.random().toString(36).slice(2) + Date.now().toString(36),
+    userId, endpoint, p256dh, auth, Date.now()
+  );
+}
+
+// Remove a subscription by endpoint, scoped to the owning user (so a user can
+// only unsubscribe their own device). No-op if not present.
+export function removePushSub(userId, endpoint) {
+  return db.prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?').run(userId, endpoint);
+}
+
+// All push subscriptions for a user (for fan-out). Returns [{endpoint,p256dh,auth}].
+export function listPushSubs(userId) {
+  if (!userId) return [];
+  return db.prepare('SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?').all(userId);
+}
+
+// Prune a dead subscription by endpoint (called when the push service returns
+// 404/410 Gone). Unscoped by user on purpose — the endpoint is globally unique
+// and a dead endpoint is dead for everyone. No-op if not present.
+export function removeDeadSub(endpoint) {
+  return db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint);
+}
+
 // --- Cosmetic store: entitlements ------------------------------------------
 // One row per (user, sku) ownership grant for a one-time cosmetic purchase
 // (themed piece-set). UNIQUE(user_id, sku) makes grants idempotent — a webhook

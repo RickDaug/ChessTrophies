@@ -311,7 +311,52 @@ CREATE TABLE IF NOT EXISTS rush_scores (
   ended_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_rush_scores_user ON rush_scores(user_id);
+
+-- Web Push subscriptions (re-engagement). One row per browser/device; endpoint
+-- is UNIQUE so re-subscribing the same device upserts. Mirrors db.js. No FK on
+-- user_id (dead-sub pruning is by endpoint).
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  endpoint TEXT UNIQUE NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
 `);
+}
+
+// --- Web Push subscriptions (async mirrors of db.js) -----------------------
+
+// Idempotently store a push subscription (UPSERT on the UNIQUE endpoint).
+export async function addPushSub({ userId, endpoint, p256dh, auth }) {
+  await pool.query(`
+    INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    ON CONFLICT (endpoint) DO UPDATE SET
+      user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth
+  `, [
+    'push_' + Math.random().toString(36).slice(2) + Date.now().toString(36),
+    userId, endpoint, p256dh, auth, Date.now()
+  ]);
+}
+
+// Remove a subscription by endpoint, scoped to the owning user.
+export async function removePushSub(userId, endpoint) {
+  await pool.query('DELETE FROM push_subscriptions WHERE user_id = $1 AND endpoint = $2', [userId, endpoint]);
+}
+
+// All push subscriptions for a user (for fan-out).
+export async function listPushSubs(userId) {
+  if (!userId) return [];
+  const { rows } = await pool.query('SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1', [userId]);
+  return rows;
+}
+
+// Prune a dead subscription by endpoint (push service returned 404/410 Gone).
+export async function removeDeadSub(endpoint) {
+  await pool.query('DELETE FROM push_subscriptions WHERE endpoint = $1', [endpoint]);
 }
 
 // Return the YYYY-MM-DD before `dayKey` (UTC), to detect a consecutive streak.

@@ -45,6 +45,48 @@ self.addEventListener('message', (e) => {
   if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
+// --- Web Push (re-engagement) ---------------------------------------------
+// Show a notification from the JSON payload the server sends
+// ({title, body, url, tag}). Fully additive — has no effect until the user
+// grants permission AND the backend is configured with VAPID keys. Defensive
+// JSON parse so a malformed/empty payload still surfaces a sane notification.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; }
+  catch (e) { try { data = { body: event.data && event.data.text ? event.data.text() : '' }; } catch (e2) { data = {}; } }
+  const title = data.title || 'ChessTrophies';
+  const options = {
+    body: data.body || '',
+    icon: data.icon || './icon.svg',
+    badge: data.badge || './icon.svg',
+    tag: data.tag || 'chesstrophies',
+    data: { url: data.url || './' },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+// Clicking a notification focuses an already-open client (navigating it to the
+// target url) or opens a new window. URL is resolved against the SW scope.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || './';
+  const targetUrl = new URL(target, self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        // Reuse any open app window: focus it, navigating to the target if we can.
+        if ('focus' in client) {
+          if ('navigate' in client && client.url !== targetUrl) {
+            return client.navigate(targetUrl).then((c) => (c || client).focus()).catch(() => client.focus());
+          }
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
+    })
+  );
+});
+
 // Only these third-party hosts/extensions are safe to cache. Everything dynamic
 // (the backend API, sockets) must always hit the network.
 function isStaticThirdParty(url) {

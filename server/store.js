@@ -207,6 +207,28 @@ export async function getRushBest(userId) {
   return sqlite.getRushBest(userId);
 }
 
+// --- Web Push subscriptions (backend-agnostic wrappers) --------------------
+
+export async function addPushSub(sub) {
+  if (usingPostgres) return (await loadPg()).addPushSub(sub);
+  return sqlite.addPushSub(sub);
+}
+
+export async function removePushSub(userId, endpoint) {
+  if (usingPostgres) return (await loadPg()).removePushSub(userId, endpoint);
+  return sqlite.removePushSub(userId, endpoint);
+}
+
+export async function listPushSubs(userId) {
+  if (usingPostgres) return (await loadPg()).listPushSubs(userId);
+  return sqlite.listPushSubs(userId);
+}
+
+export async function removeDeadSub(endpoint) {
+  if (usingPostgres) return (await loadPg()).removeDeadSub(endpoint);
+  return sqlite.removeDeadSub(endpoint);
+}
+
 // --- Generic single-statement helpers --------------------------------------
 //
 // For ad-hoc parameterized SQL in HTTP route handlers (friends/blocks/etc.)
