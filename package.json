@@ -28,7 +28,8 @@
     "test:checkers-ui": "node test/checkers-ui.mjs",
     "test:checkers-anim": "node test/checkers-anim.mjs",
     "test:trophies-repeat": "node test/trophies-repeat.mjs",
-    "test:puzzles": "node test/puzzles.mjs"
+    "test:puzzles": "node test/puzzles.mjs",
+    "test:a11y": "node test/a11y.mjs"
   },
   "repository": {
     "type": "git",

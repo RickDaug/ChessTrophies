@@ -3354,8 +3354,66 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
   function squareName(file, rank) { return FILES[file] + (rank + 1); }
 
+  // Accessible-name helpers for the board (screen readers announce these as the
+  // keyboard cursor moves square to square).
+  const _PIECE_WORD = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+  const _COLOR_WORD = { w: 'white', b: 'black' };
+  function squareAriaLabel(name, pieceObj) {
+    let label = name + ', ' + (pieceObj ? _COLOR_WORD[pieceObj.color] + ' ' + _PIECE_WORD[pieceObj.type] : 'empty');
+    if (state.selected === name) label += ', selected';
+    else if (state.legalTargets && state.legalTargets.includes(name)) label += ', move target';
+    return label;
+  }
+  // Move the keyboard cursor (roving tabindex) to a square and optionally focus it.
+  function setBoardFocus(name, doFocus) {
+    state.kbFocus = name;
+    const boardEl = $('#board');
+    if (!boardEl) return;
+    boardEl.querySelectorAll('.sq[data-sq]').forEach(c => { c.tabIndex = (c.dataset.sq === name) ? 0 : -1; });
+    if (doFocus) { const el = boardEl.querySelector('[data-sq="' + name + '"]'); if (el) el.focus(); }
+  }
+  // Keyboard play: arrows move the cursor (respecting orientation), Enter/Space
+  // selects/moves via the SAME handleSquareClick path as mouse/touch, Escape
+  // clears the selection. Bound once on #board (delegated; survives re-renders).
+  function onBoardKey(ev) {
+    const cur = ev.target && ev.target.closest ? ev.target.closest('.sq[data-sq]') : null;
+    if (!cur) return;
+    const name = cur.dataset.sq;
+    const k = ev.key;
+    if (k === 'Enter' || k === ' ' || k === 'Spacebar') {
+      ev.preventDefault();
+      state.kbFocus = name;
+      handleSquareClick(name);
+      // handleSquareClick re-renders (new nodes), so restore DOM focus after paint.
+      requestAnimationFrame(() => setBoardFocus(name, true));
+      return;
+    }
+    if (k === 'Escape') {
+      if (state.selected) { ev.preventDefault(); clearSelection(); renderBoard(); requestAnimationFrame(() => setBoardFocus(name, true)); }
+      return;
+    }
+    const deltas = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], Up: [0, 1], Down: [0, -1], Left: [-1, 0], Right: [1, 0] };
+    const d = deltas[k];
+    if (!d) return;
+    ev.preventDefault();
+    let f = FILES.indexOf(name[0]);
+    let r = parseInt(name.slice(1), 10) - 1;
+    let df = d[0], dr = d[1];
+    // Black at the bottom: visual arrows are inverted relative to board coords.
+    if (state.orientation === 'b') { df = -df; dr = -dr; }
+    f = Math.max(0, Math.min(7, f + df));
+    r = Math.max(0, Math.min(7, r + dr));
+    setBoardFocus(FILES[f] + (r + 1), true);
+  }
+
   function renderBoard() {
     const boardEl = $('#board');
+    if (!boardEl.dataset.kbBound) {
+      boardEl.setAttribute('role', 'grid');
+      boardEl.setAttribute('aria-label', 'Chess board — arrow keys to move the cursor, Enter to select or move');
+      boardEl.addEventListener('keydown', onBoardKey);
+      boardEl.dataset.kbBound = '1';
+    }
     boardEl.innerHTML = '';
     const orientation = state.orientation;
     const board = state.game.board(); // 8x8 array, rank 8 → rank 1
@@ -3370,8 +3428,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         const name = squareName(f, r);
         sq.className = 'sq ' + (isLight ? 'light' : 'dark');
         sq.dataset.sq = name;
+        sq.setAttribute('role', 'gridcell');
         // chess.js board() returns rows from rank 8 → 1; index = 7 - r
         const pieceObj = board[7 - r][f];
+        sq.setAttribute('aria-label', squareAriaLabel(name, pieceObj));
         if (pieceObj) {
           sq.innerHTML = pieceSVG(pieceObj.type, pieceObj.color);
         }
@@ -3409,6 +3469,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         boardEl.appendChild(sq);
       }
     }
+    // Roving tabindex: exactly one square is a tab stop (the keyboard cursor).
+    // Keep the prior cursor if it still exists; otherwise seed it sensibly.
+    let focusName = state.kbFocus;
+    if (!focusName || !boardEl.querySelector('[data-sq="' + focusName + '"]')) {
+      focusName = state.selected || (state.orientation === 'b' ? 'e7' : 'e2');
+    }
+    state.kbFocus = focusName;
+    boardEl.querySelectorAll('.sq[data-sq]').forEach(c => { c.tabIndex = (c.dataset.sq === focusName) ? 0 : -1; });
     renderCaptured();
   }
 
