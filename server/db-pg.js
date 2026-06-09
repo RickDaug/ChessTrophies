@@ -283,6 +283,34 @@ CREATE TABLE IF NOT EXISTS puzzle_streaks (
   last_day_key TEXT NOT NULL DEFAULT '',
   total_solved INTEGER NOT NULL DEFAULT 0
 );
+-- Per-user puzzle rating (Glicko-lite); mirrors db.js.
+CREATE TABLE IF NOT EXISTS puzzle_ratings (
+  user_id TEXT PRIMARY KEY,
+  rating INTEGER NOT NULL DEFAULT 1200,
+  rd INTEGER NOT NULL DEFAULT 350,
+  solved INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL DEFAULT 0
+);
+-- Idempotent per-user+puzzle+day scored attempt (anti-abuse); mirrors db.js.
+CREATE TABLE IF NOT EXISTS puzzle_attempts (
+  user_id TEXT NOT NULL,
+  puzzle_id TEXT NOT NULL,
+  day_key TEXT NOT NULL,
+  result TEXT NOT NULL,
+  rated_at BIGINT NOT NULL,
+  PRIMARY KEY (user_id, puzzle_id, day_key)
+);
+CREATE INDEX IF NOT EXISTS idx_puzzle_attempts_user ON puzzle_attempts(user_id);
+-- Puzzle Rush scores; mirrors db.js.
+CREATE TABLE IF NOT EXISTS rush_scores (
+  id BIGSERIAL PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  score INTEGER NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'timed',
+  ended_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rush_scores_user ON rush_scores(user_id);
 `);
 }
 
@@ -333,6 +361,74 @@ export async function getPuzzleProgress(userId) {
   if (!row) return { currentStreak: 0, bestStreak: 0, lastDayKey: '', totalSolved: 0, solvedIds: [] };
   const idRes = await pool.query('SELECT puzzle_id FROM puzzle_solves WHERE user_id = $1', [userId]);
   return { currentStreak: row.current_streak, bestStreak: row.best_streak, lastDayKey: row.last_day_key, totalSolved: row.total_solved, solvedIds: idRes.rows.map(r => r.puzzle_id) };
+}
+
+// --- Per-user puzzle rating (Glicko-lite) — async mirror of db.js ----------
+const PUZZLE_RATING_DEFAULT = 1200;
+const PUZZLE_RD_DEFAULT = 350;
+const PUZZLE_RD_FLOOR = 60;
+const PUZZLE_Q = Math.log(10) / 400;
+function glickoG(rd) { return 1 / Math.sqrt(1 + (3 * PUZZLE_Q * PUZZLE_Q * rd * rd) / (Math.PI * Math.PI)); }
+function glickoUpdate(rating, rd, oppRating, score) {
+  const g = glickoG(rd);
+  const E = 1 / (1 + Math.pow(10, (g * (oppRating - rating)) / 400));
+  const dSq = 1 / (PUZZLE_Q * PUZZLE_Q * g * g * E * (1 - E));
+  const denom = 1 / (rd * rd) + 1 / dSq;
+  let newRating = rating + (PUZZLE_Q / denom) * g * (score - E);
+  let newRd = Math.sqrt(1 / denom);
+  if (newRd < PUZZLE_RD_FLOOR) newRd = PUZZLE_RD_FLOOR;
+  if (newRd > PUZZLE_RD_DEFAULT) newRd = PUZZLE_RD_DEFAULT;
+  newRating = Math.max(400, Math.min(3000, newRating));
+  return { rating: Math.round(newRating), rd: Math.round(newRd) };
+}
+
+export async function getPuzzleRating(userId) {
+  const { rows } = await pool.query('SELECT rating, rd, solved, failed FROM puzzle_ratings WHERE user_id = $1', [userId]);
+  const row = rows[0];
+  if (!row) return { rating: PUZZLE_RATING_DEFAULT, rd: PUZZLE_RD_DEFAULT, solved: 0, failed: 0, provisional: true };
+  return { rating: row.rating, rd: row.rd, solved: row.solved, failed: row.failed, provisional: row.rd > 110 };
+}
+
+export async function applyPuzzleRating(userId, puzzleId, puzzleRating, solved, dayKey, now = Date.now()) {
+  return transaction(async (client) => {
+    const claim = await client.query(
+      'INSERT INTO puzzle_attempts (user_id, puzzle_id, day_key, result, rated_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING',
+      [userId, puzzleId, dayKey, solved ? 'solved' : 'failed', now]
+    );
+    let { rows } = await client.query('SELECT rating, rd, solved, failed FROM puzzle_ratings WHERE user_id = $1', [userId]);
+    let cur = rows[0];
+    if (!cur) {
+      await client.query('INSERT INTO puzzle_ratings (user_id, rating, rd, solved, failed, updated_at) VALUES ($1, $2, $3, 0, 0, $4) ON CONFLICT DO NOTHING',
+        [userId, PUZZLE_RATING_DEFAULT, PUZZLE_RD_DEFAULT, now]);
+      cur = { rating: PUZZLE_RATING_DEFAULT, rd: PUZZLE_RD_DEFAULT, solved: 0, failed: 0 };
+    }
+    const oldRating = cur.rating;
+    if (claim.rowCount === 0) {
+      return { rating: cur.rating, oldRating, delta: 0, rd: cur.rd, counted: false, provisional: cur.rd > 110 };
+    }
+    const opp = Math.max(400, Math.min(3000, Number(puzzleRating) || PUZZLE_RATING_DEFAULT));
+    const upd = glickoUpdate(cur.rating, cur.rd, opp, solved ? 1 : 0);
+    const newSolved = cur.solved + (solved ? 1 : 0);
+    const newFailed = cur.failed + (solved ? 0 : 1);
+    await client.query('UPDATE puzzle_ratings SET rating = $1, rd = $2, solved = $3, failed = $4, updated_at = $5 WHERE user_id = $6',
+      [upd.rating, upd.rd, newSolved, newFailed, now, userId]);
+    return { rating: upd.rating, oldRating, delta: upd.rating - oldRating, rd: upd.rd, counted: true, provisional: upd.rd > 110 };
+  });
+}
+
+// --- Puzzle Rush — async mirror of db.js -----------------------------------
+export async function recordRushScore(userId, score, mode = 'timed', now = Date.now()) {
+  return transaction(async (client) => {
+    await client.query('INSERT INTO rush_scores (user_id, score, mode, ended_at) VALUES ($1, $2, $3, $4)', [userId, score, mode, now]);
+    const r = await client.query('SELECT MAX(score) AS best, COUNT(*) AS runs FROM rush_scores WHERE user_id = $1', [userId]);
+    const best = Number(r.rows[0].best) || 0;
+    return { score, best, isBest: score >= best, runs: Number(r.rows[0].runs) || 0 };
+  });
+}
+
+export async function getRushBest(userId) {
+  const { rows } = await pool.query('SELECT MAX(score) AS best, COUNT(*) AS runs FROM rush_scores WHERE user_id = $1', [userId]);
+  return { best: Number(rows[0].best) || 0, runs: Number(rows[0].runs) || 0 };
 }
 
 // --- Cosmetic store: entitlements (async mirrors of db.js) -----------------

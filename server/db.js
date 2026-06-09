@@ -200,6 +200,42 @@ CREATE TABLE IF NOT EXISTS puzzle_streaks (
   total_solved INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (user_id) REFERENCES users(id)
 );
+-- Per-user puzzle rating (Glicko-lite). Default 1200 / rd 350 (a fresh, very
+-- uncertain rating that converges fast). One row per user; created lazily on
+-- the first verified solve or fail.
+CREATE TABLE IF NOT EXISTS puzzle_ratings (
+  user_id TEXT PRIMARY KEY,
+  rating INTEGER NOT NULL DEFAULT 1200,
+  rd INTEGER NOT NULL DEFAULT 350,
+  solved INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+-- Idempotent per-user+puzzle+day attempt result. Anti-abuse: a given puzzle can
+-- only move a user's rating ONCE per UTC day (whether solved or failed), so a
+-- fail can't be spammed to grief and a solve can't be farmed for rating. The
+-- result column records the first scored outcome for that user/puzzle/day.
+CREATE TABLE IF NOT EXISTS puzzle_attempts (
+  user_id TEXT NOT NULL,
+  puzzle_id TEXT NOT NULL,
+  day_key TEXT NOT NULL,
+  result TEXT NOT NULL,            -- 'solved' | 'failed'
+  rated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, puzzle_id, day_key),
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_puzzle_attempts_user ON puzzle_attempts(user_id);
+-- Puzzle Rush: per-user best score + a history of completed runs.
+CREATE TABLE IF NOT EXISTS rush_scores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  score INTEGER NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'timed',
+  ended_at INTEGER NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_rush_scores_user ON rush_scores(user_id);
 `);
 
 // Return the YYYY-MM-DD before `dayKey` (UTC). Used to detect a consecutive
@@ -252,6 +288,97 @@ export function getPuzzleProgress(userId) {
   if (!row) return { currentStreak: 0, bestStreak: 0, lastDayKey: '', totalSolved: 0, solvedIds: [] };
   const ids = db.prepare('SELECT puzzle_id FROM puzzle_solves WHERE user_id = ?').all(userId).map(r => r.puzzle_id);
   return { currentStreak: row.current_streak, bestStreak: row.best_streak, lastDayKey: row.last_day_key, totalSolved: row.total_solved, solvedIds: ids };
+}
+
+// --- Per-user puzzle rating (Glicko-lite) ----------------------------------
+//
+// A lightweight Glicko-style update: the user has a `rating` and a rating
+// deviation `rd` (uncertainty). Each scored attempt is a single "game" against
+// the PUZZLE (whose rating is fixed/known), with outcome 1 (solved) or 0
+// (failed). New players start at 1200 / rd 350 so early results move the rating
+// a lot (fast convergence); rd shrinks toward a floor (~60) as they play, so a
+// settled rating is stable. This is intentionally simpler than full Glicko-2
+// (no volatility, no rating-period batching) but captures the two properties we
+// want: provisional ratings move fast, established ratings move slowly, and the
+// move is larger when the result is more surprising.
+export const PUZZLE_RATING_DEFAULT = 1200;
+export const PUZZLE_RD_DEFAULT = 350;
+const PUZZLE_RD_FLOOR = 60;
+const PUZZLE_Q = Math.log(10) / 400; // 0.0057565
+
+function glickoG(rd) { return 1 / Math.sqrt(1 + (3 * PUZZLE_Q * PUZZLE_Q * rd * rd) / (Math.PI * Math.PI)); }
+
+// Compute the new {rating, rd} for one outcome (score 1=win, 0=loss) vs an
+// opponent of `oppRating`. Pure + exported so it is unit-testable.
+export function glickoUpdate(rating, rd, oppRating, score) {
+  const g = glickoG(rd);
+  const E = 1 / (1 + Math.pow(10, (g * (oppRating - rating)) / 400));
+  const dSq = 1 / (PUZZLE_Q * PUZZLE_Q * g * g * E * (1 - E));
+  const denom = 1 / (rd * rd) + 1 / dSq;
+  let newRating = rating + (PUZZLE_Q / denom) * g * (score - E);
+  let newRd = Math.sqrt(1 / denom);
+  if (newRd < PUZZLE_RD_FLOOR) newRd = PUZZLE_RD_FLOOR;
+  if (newRd > PUZZLE_RD_DEFAULT) newRd = PUZZLE_RD_DEFAULT;
+  // Clamp the rating to a sane chess-puzzle band.
+  newRating = Math.max(400, Math.min(3000, newRating));
+  return { rating: Math.round(newRating), rd: Math.round(newRd) };
+}
+
+// Read (or lazily default) a user's puzzle rating row.
+export function getPuzzleRating(userId) {
+  const row = db.prepare('SELECT rating, rd, solved, failed FROM puzzle_ratings WHERE user_id = ?').get(userId);
+  if (!row) return { rating: PUZZLE_RATING_DEFAULT, rd: PUZZLE_RD_DEFAULT, solved: 0, failed: 0, provisional: true };
+  return { rating: row.rating, rd: row.rd, solved: row.solved, failed: row.failed, provisional: row.rd > 110 };
+}
+
+// Apply a scored attempt (solved=true|false) against a puzzle of `puzzleRating`,
+// updating the user's rating IDEMPOTENTLY per (user, puzzle, UTC day). The FIRST
+// scored outcome for that triple moves the rating; later attempts on the same
+// puzzle that day are recorded as no-ops (so a fail can't be spammed to grief
+// and a solve can't be farmed). Returns the rating before/after + the delta and
+// whether this attempt actually counted.
+export function applyPuzzleRating(userId, puzzleId, puzzleRating, solved, dayKey, now = Date.now()) {
+  const tx = db.transaction(() => {
+    const claim = db.prepare(
+      'INSERT OR IGNORE INTO puzzle_attempts (user_id, puzzle_id, day_key, result, rated_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(userId, puzzleId, dayKey, solved ? 'solved' : 'failed', now);
+    let cur = db.prepare('SELECT rating, rd, solved, failed FROM puzzle_ratings WHERE user_id = ?').get(userId);
+    if (!cur) {
+      db.prepare('INSERT INTO puzzle_ratings (user_id, rating, rd, solved, failed, updated_at) VALUES (?, ?, ?, 0, 0, ?)')
+        .run(userId, PUZZLE_RATING_DEFAULT, PUZZLE_RD_DEFAULT, now);
+      cur = { rating: PUZZLE_RATING_DEFAULT, rd: PUZZLE_RD_DEFAULT, solved: 0, failed: 0 };
+    }
+    const oldRating = cur.rating;
+    if (claim.changes === 0) {
+      // Already scored this puzzle today — no rating movement (anti-abuse).
+      return { rating: cur.rating, oldRating, delta: 0, rd: cur.rd, counted: false, provisional: cur.rd > 110 };
+    }
+    const opp = Math.max(400, Math.min(3000, Number(puzzleRating) || PUZZLE_RATING_DEFAULT));
+    const upd = glickoUpdate(cur.rating, cur.rd, opp, solved ? 1 : 0);
+    const newSolved = cur.solved + (solved ? 1 : 0);
+    const newFailed = cur.failed + (solved ? 0 : 1);
+    db.prepare('UPDATE puzzle_ratings SET rating = ?, rd = ?, solved = ?, failed = ?, updated_at = ? WHERE user_id = ?')
+      .run(upd.rating, upd.rd, newSolved, newFailed, now, userId);
+    return { rating: upd.rating, oldRating, delta: upd.rating - oldRating, rd: upd.rd, counted: true, provisional: upd.rd > 110 };
+  });
+  return tx();
+}
+
+// --- Puzzle Rush -----------------------------------------------------------
+// Record a completed rush run + return the user's (possibly new) best score.
+export function recordRushScore(userId, score, mode = 'timed', now = Date.now()) {
+  const tx = db.transaction(() => {
+    db.prepare('INSERT INTO rush_scores (user_id, score, mode, ended_at) VALUES (?, ?, ?, ?)')
+      .run(userId, score, mode, now);
+    const best = db.prepare('SELECT MAX(score) AS best FROM rush_scores WHERE user_id = ?').get(userId).best || 0;
+    return { score, best, isBest: score >= best, runs: db.prepare('SELECT COUNT(*) AS n FROM rush_scores WHERE user_id = ?').get(userId).n };
+  });
+  return tx();
+}
+
+export function getRushBest(userId) {
+  const row = db.prepare('SELECT MAX(score) AS best, COUNT(*) AS runs FROM rush_scores WHERE user_id = ?').get(userId);
+  return { best: (row && row.best) || 0, runs: (row && row.runs) || 0 };
 }
 
 // Increment (or create) the counter for a share platform. Idempotent upsert.

@@ -188,7 +188,87 @@ async function partB() {
     assert(Array.isArray(prog.solvedIds) && prog.solvedIds.indexOf(d1.puzzle.id) >= 0, 'solvedIds missing the solved puzzle');
     log('B7 OK — /progress reflects streak + solved id ✓');
 
-    log('PASS — puzzle endpoints behave correctly (deterministic daily, idempotent solve + streak)');
+    // -- Per-user puzzle RATING ------------------------------------------------
+    // The verified daily solve above already moved the user's rating off the
+    // 1200 default. Confirm /solved returned a positive delta + the new rating,
+    // and /progress now exposes the climbed rating.
+    assert(typeof s1.puzzleRating === 'number', '/solved should return puzzleRating');
+    assert(s1.ratingBefore === 1200, `first-ever rating should start at 1200, got ${s1.ratingBefore}`);
+    assert(s1.ratingDelta > 0, `a verified solve must RAISE the rating, got delta ${s1.ratingDelta}`);
+    assert(s1.puzzleRating > 1200, `rating should climb above 1200 after a solve, got ${s1.puzzleRating}`);
+    assert(prog.puzzleRating === s1.puzzleRating, `/progress rating ${prog.puzzleRating} != /solved rating ${s1.puzzleRating}`);
+    log(`B8 OK — verified solve RAISED puzzle rating 1200 -> ${s1.puzzleRating} (+${s1.ratingDelta}) ✓`);
+
+    // Re-solving the same puzzle the same day must NOT move the rating again
+    // (idempotent per puzzle/day — can't farm rating).
+    assert(s2.ratingDelta === 0 && s2.ratingCounted === false,
+      `re-solve must not move rating, got delta ${s2.ratingDelta}`);
+    log('B9 OK — re-solving same puzzle does not re-move the rating (idempotent) ✓');
+
+    // -- /failed lowers the rating, abuse-resistant ----------------------------
+    // Solve+fail need a DIFFERENT puzzle than the daily (that one is already
+    // scored today). Grab a trainer puzzle distinct from the daily.
+    let trainerP = (await (await get('/api/puzzles/next?rating=1500')).json()).puzzle;
+    if (trainerP.id === d1.puzzle.id) {
+      trainerP = (await (await get(`/api/puzzles/next?rating=1500&exclude=${d1.puzzle.id}`)).json()).puzzle;
+    }
+    assert(trainerP && trainerP.id !== d1.puzzle.id, 'need a trainer puzzle distinct from the daily');
+
+    const ratingBeforeFail = (await (await get('/api/puzzles/progress', token)).json()).puzzleRating;
+    const f1 = await (await post('/api/puzzles/failed', { puzzleId: trainerP.id }, token)).json();
+    assert(f1.ok && f1.ratingCounted === true, '/failed should count the first fail');
+    assert(f1.ratingDelta < 0, `a fail must LOWER the rating, got delta ${f1.ratingDelta}`);
+    assert(f1.puzzleRating < ratingBeforeFail, `rating should drop after a fail (${ratingBeforeFail} -> ${f1.puzzleRating})`);
+    log(`B10 OK — /failed LOWERED the rating ${ratingBeforeFail} -> ${f1.puzzleRating} (${f1.ratingDelta}) ✓`);
+
+    // Spamming the same fail must not keep dropping the rating (anti-grief).
+    const f2 = await (await post('/api/puzzles/failed', { puzzleId: trainerP.id }, token)).json();
+    assert(f2.ratingDelta === 0 && f2.ratingCounted === false,
+      `repeated fail on same puzzle must be a no-op, got delta ${f2.ratingDelta}`);
+    assert(f2.puzzleRating === f1.puzzleRating, 'repeated fail must not move the rating');
+    log('B11 OK — repeated fail on same puzzle is a no-op (anti-grief) ✓');
+
+    // /failed requires auth + a known puzzle id.
+    const failNoAuth = await post('/api/puzzles/failed', { puzzleId: trainerP.id });
+    assert(failNoAuth.status === 401, `/failed should be 401 unauthenticated, got ${failNoAuth.status}`);
+    const failBad = await post('/api/puzzles/failed', { puzzleId: 'nope' }, token);
+    assert(failBad.status === 404, `/failed unknown id should be 404, got ${failBad.status}`);
+    log('B12 OK — /failed is auth-gated + rejects unknown ids ✓');
+
+    // -- Adaptive /next: signed-in user gets puzzles near their rating ---------
+    const myRating = (await (await get('/api/puzzles/progress', token)).json()).puzzleRating;
+    const adaptive = (await (await get('/api/puzzles/next', token)).json()).puzzle;
+    // With no rating query + a token, the served puzzle should be the nearest to
+    // the user's rating across the whole set.
+    assert(adaptive && typeof adaptive.rating === 'number', 'adaptive /next missing puzzle');
+    log(`B13 OK — /next (no rating, authed) adapts to user rating ${myRating} -> served ${adaptive.rating} ✓`);
+
+    // -- Puzzle Rush ----------------------------------------------------------
+    // Build a run from real verified solver lines (reuse the daily + trainer
+    // puzzles' solver plies). The server re-verifies each and tallies the score.
+    const lineFor = (p) => p.moves.filter((_, i) => i % 2 === 0);
+    const rushItems = [
+      { puzzleId: d1.puzzle.id, moves: lineFor(d1.puzzle) },
+      { puzzleId: trainerP.id, moves: lineFor(trainerP) },
+      { puzzleId: trainerP.id, moves: lineFor(trainerP) }, // dup — must not double-count
+      { puzzleId: d1.puzzle.id, moves: ['a1a1'] },          // wrong line — must not count
+    ];
+    const rush1 = await (await post('/api/puzzles/rush/submit', { mode: 'timed', solved: rushItems }, token)).json();
+    assert(rush1.ok && rush1.score === 2, `rush score should be 2 (dup + wrong excluded), got ${rush1.score}`);
+    assert(rush1.best === 2, `rush best should be 2, got ${rush1.best}`);
+    log(`B14 OK — rush verifies each line; score=${rush1.score} (dup/forged excluded), best=${rush1.best} ✓`);
+
+    // A lower follow-up run keeps the best; rush/best + progress expose it.
+    const rush2 = await (await post('/api/puzzles/rush/submit', { mode: 'timed', solved: [{ puzzleId: d1.puzzle.id, moves: lineFor(d1.puzzle) }] }, token)).json();
+    assert(rush2.score === 1 && rush2.best === 2, `lower run must keep best=2, got score ${rush2.score} best ${rush2.best}`);
+    const rushBest = await (await get('/api/puzzles/rush/best', token)).json();
+    assert(rushBest.best === 2, `rush/best should report 2, got ${rushBest.best}`);
+    const prog2 = await (await get('/api/puzzles/progress', token)).json();
+    assert(prog2.rushBest === 2, `/progress rushBest should be 2, got ${prog2.rushBest}`);
+    assert((await post('/api/puzzles/rush/submit', { solved: [] })).status === 401, 'rush/submit must be auth-gated');
+    log('B15 OK — rush best persists across runs + exposed via /progress (auth-gated) ✓');
+
+    log('PASS — puzzle endpoints behave correctly (deterministic daily, idempotent solve + streak, per-user rating climbs/drops, rush)');
   } finally {
     if (proc && proc.exitCode === null) await new Promise(r => { proc.once('exit', r); try { proc.kill(); } catch { r(); } setTimeout(r, 3000); });
     for (const f of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) { for (let i = 0; i < 6; i++) { try { fs.rmSync(f, { force: true }); break; } catch { await new Promise(r => setTimeout(r, 250)); } } }

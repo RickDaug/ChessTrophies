@@ -72,9 +72,11 @@
   var initialized = false;
 
   var state = null;          // current puzzle session (see startPuzzle)
-  var mode = 'daily';        // 'daily' | 'trainer'
+  var mode = 'daily';        // 'daily' | 'trainer' | 'rush'
   var lastTrainerRating = 1200;
   var playedIds = [];        // trainer: ids served this session (for "Next")
+  var myPuzzleRating = null; // the signed-in user's current puzzle rating
+  var rush = null;           // active rush run (see startRush)
 
   // ---------------------------------------------------------------------------
   // RENDERING
@@ -90,6 +92,30 @@
     mountEl.innerHTML = '';
     var wrap = el('div', 'ctp-wrap');
 
+    // Mode segmented control: Daily | Trainer | Rush.
+    var seg = el('div', 'ctp-seg');
+    refs.segDaily = el('button', 'ctp-seg-btn', 'Daily');
+    refs.segTrainer = el('button', 'ctp-seg-btn', 'Trainer');
+    refs.segRush = el('button', 'ctp-seg-btn', 'Rush');
+    refs.segDaily.type = 'button'; refs.segTrainer.type = 'button'; refs.segRush.type = 'button';
+    refs.segDaily.setAttribute('data-mode', 'daily');
+    refs.segTrainer.setAttribute('data-mode', 'trainer');
+    refs.segRush.setAttribute('data-mode', 'rush');
+    seg.appendChild(refs.segDaily); seg.appendChild(refs.segTrainer); seg.appendChild(refs.segRush);
+    wrap.appendChild(seg);
+
+    // Your puzzle rating — shown prominently above the board, with a +/- chip
+    // that flashes after each scored result.
+    var ratingRow = el('div', 'ctp-ratingrow');
+    var rlabel = el('span', 'ctp-rating-label', 'Your puzzle rating');
+    refs.myRating = el('span', 'ctp-rating-val', '—');
+    refs.ratingDelta = el('span', 'ctp-rating-delta', '');
+    ratingRow.appendChild(rlabel); ratingRow.appendChild(refs.myRating); ratingRow.appendChild(refs.ratingDelta);
+    wrap.appendChild(ratingRow);
+
+    // ----- PLAY view (daily / trainer / rush-in-progress board) -------------
+    refs.playView = el('div', 'ctp-playview');
+
     // Header: title + rating/theme badges
     var header = el('div', 'ctp-header');
     refs.title = el('div', 'ctp-title', 'Puzzle');
@@ -99,15 +125,26 @@
     refs.streak = el('span', 'ctp-badge ctp-badge-streak', '');
     badges.appendChild(refs.rating); badges.appendChild(refs.theme); badges.appendChild(refs.streak);
     header.appendChild(refs.title); header.appendChild(badges);
-    wrap.appendChild(header);
+    refs.playView.appendChild(header);
+
+    // Rush HUD (timer + score + best) — only visible during a rush run.
+    refs.rushHud = el('div', 'ctp-rushhud');
+    refs.rushHud.style.display = 'none';
+    refs.rushTimer = el('div', 'ctp-rush-stat');
+    refs.rushScore = el('div', 'ctp-rush-stat');
+    refs.rushStrikes = el('div', 'ctp-rush-stat');
+    refs.rushHud.appendChild(refs.rushTimer);
+    refs.rushHud.appendChild(refs.rushScore);
+    refs.rushHud.appendChild(refs.rushStrikes);
+    refs.playView.appendChild(refs.rushHud);
 
     // Status line (turn / feedback)
     refs.status = el('div', 'ctp-status', 'Loading…');
-    wrap.appendChild(refs.status);
+    refs.playView.appendChild(refs.status);
 
     // Board
     refs.board = el('div', 'ctp-board');
-    wrap.appendChild(refs.board);
+    refs.playView.appendChild(refs.board);
 
     // Controls
     var controls = el('div', 'ctp-controls');
@@ -118,7 +155,24 @@
     controls.appendChild(refs.btnHint);
     controls.appendChild(refs.btnUndo);
     controls.appendChild(refs.btnNext);
-    wrap.appendChild(controls);
+    refs.playView.appendChild(controls);
+    wrap.appendChild(refs.playView);
+
+    // ----- RUSH start / result view -----------------------------------------
+    refs.rushView = el('div', 'ctp-rushview');
+    refs.rushView.style.display = 'none';
+    var rushTitle = el('div', 'ctp-title', '⚡ Puzzle Rush');
+    var rushBlurb = el('div', 'ctp-rush-blurb', 'Solve as many puzzles as you can in 3 minutes. Three wrong moves ends the run. Difficulty ramps as you go.');
+    refs.rushBestLine = el('div', 'ctp-rush-best', 'Personal best: —');
+    refs.rushResult = el('div', 'ctp-rush-result', '');
+    refs.btnRushStart = el('button', 'ctp-btn ctp-rush-start', 'Start Rush');
+    refs.btnRushStart.type = 'button';
+    refs.rushView.appendChild(rushTitle);
+    refs.rushView.appendChild(rushBlurb);
+    refs.rushView.appendChild(refs.rushBestLine);
+    refs.rushView.appendChild(refs.rushResult);
+    refs.rushView.appendChild(refs.btnRushStart);
+    wrap.appendChild(refs.rushView);
 
     mountEl.appendChild(wrap);
 
@@ -128,6 +182,32 @@
     refs.btnHint.addEventListener('click', onHint);
     refs.btnUndo.addEventListener('click', onUndo);
     refs.btnNext.addEventListener('click', onNext);
+    refs.btnRushStart.addEventListener('click', startRush);
+    seg.addEventListener('click', onSegClick);
+  }
+
+  // Segmented control: switch between daily / trainer / rush.
+  function onSegClick(e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.ctp-seg-btn') : null;
+    if (!btn) return;
+    var m = btn.getAttribute('data-mode');
+    if (m === 'daily') openDaily();
+    else if (m === 'trainer') openTrainer();
+    else if (m === 'rush') openRush();
+  }
+
+  function setActiveSeg(m) {
+    [refs.segDaily, refs.segTrainer, refs.segRush].forEach(function (b) {
+      if (!b) return;
+      if (b.getAttribute('data-mode') === m) b.classList.add('active');
+      else b.classList.remove('active');
+    });
+  }
+
+  // Toggle between the play board view and the rush start/result view.
+  function showRushView(show) {
+    if (refs.playView) refs.playView.style.display = show ? 'none' : '';
+    if (refs.rushView) refs.rushView.style.display = show ? '' : 'none';
   }
 
   function injectStyles() {
@@ -160,6 +240,29 @@
       '.ctp-btn.ctp-next{background:#2e9e5b}',
       '.ctp-board.solved{animation:ctp-pop .5s ease}',
       '@keyframes ctp-pop{0%{transform:scale(1)}40%{transform:scale(1.03)}100%{transform:scale(1)}}',
+      // segmented control
+      '.ctp-seg{display:flex;gap:4px;background:rgba(127,127,127,.14);padding:4px;border-radius:10px;margin-bottom:10px}',
+      '.ctp-seg-btn{flex:1;padding:8px;border:none;border-radius:7px;background:transparent;color:inherit;font-weight:600;cursor:pointer;font-size:14px}',
+      '.ctp-seg-btn.active{background:#3b6ea5;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.2)}',
+      // rating row
+      '.ctp-ratingrow{display:flex;align-items:baseline;gap:8px;margin-bottom:10px;flex-wrap:wrap}',
+      '.ctp-rating-label{font-size:12px;opacity:.7}',
+      '.ctp-rating-val{font-size:26px;font-weight:800;line-height:1;color:#3b6ea5}',
+      '.ctp-rating-delta{font-size:15px;font-weight:700;min-width:36px}',
+      '.ctp-rating-delta.up{color:#2e9e5b}',
+      '.ctp-rating-delta.down{color:#d4504a}',
+      '.ctp-rating-delta.flash{animation:ctp-flash .9s ease}',
+      '@keyframes ctp-flash{0%{transform:translateY(6px) scale(.8);opacity:0}30%{transform:translateY(0) scale(1.15);opacity:1}100%{transform:none;opacity:1}}',
+      // rush HUD
+      '.ctp-rushhud{display:flex;gap:8px;margin:2px 0 8px}',
+      '.ctp-rush-stat{flex:1;text-align:center;padding:6px 4px;border-radius:8px;background:rgba(127,127,127,.14);font-weight:700;font-size:14px}',
+      '.ctp-rush-stat.warn{background:rgba(212,80,74,.18);color:#d4504a}',
+      // rush start/result view
+      '.ctp-rush-blurb{font-size:14px;opacity:.85;margin:8px 0;line-height:1.4}',
+      '.ctp-rush-best{font-size:15px;font-weight:700;margin:6px 0}',
+      '.ctp-rush-result{font-size:16px;font-weight:700;margin:8px 0;min-height:22px}',
+      '.ctp-rush-result.win{color:#2e9e5b}',
+      '.ctp-btn.ctp-rush-start{background:#b8484a;max-width:240px}',
     ].join('\n');
     var style = el('style');
     style.id = 'ctp-styles';
@@ -220,6 +323,24 @@
     }
   }
 
+  // Render the big "Your puzzle rating" value.
+  function renderMyRating() {
+    if (!refs.myRating) return;
+    refs.myRating.textContent = (myPuzzleRating == null) ? '—' : String(myPuzzleRating);
+  }
+
+  // Flash the +/- delta chip after a scored result. delta may be 0 (no change).
+  function flashRatingDelta(delta) {
+    if (!refs.ratingDelta) return;
+    if (!delta) { refs.ratingDelta.textContent = ''; refs.ratingDelta.className = 'ctp-rating-delta'; return; }
+    var up = delta > 0;
+    refs.ratingDelta.textContent = (up ? '+' : '') + delta;
+    refs.ratingDelta.className = 'ctp-rating-delta ' + (up ? 'up' : 'down');
+    // restart the flash animation
+    void refs.ratingDelta.offsetWidth;
+    refs.ratingDelta.classList.add('flash');
+  }
+
   function themeLabel(t) {
     var map = {
       mate: 'Checkmate', fork: 'Fork', pin: 'Pin', skewer: 'Skewer',
@@ -254,6 +375,7 @@
       solved: false,
       busy: false,
       punished: false,       // true after a wrong move's refutation is on the board
+      failReported: false,    // true once we've reported a fail to the server
       solverMoves: [],        // the solver's correct UCI plies, in order — this is
                               // the proof-of-solve we POST to /solved for the
                               // server to re-verify against the stored solution.
@@ -261,6 +383,7 @@
     refs.title.textContent = p.title || 'Find the best move';
     refs.streak.style.display = 'none';
     updateBadges(p);
+    // "Next puzzle" is only for the trainer; daily has none, rush auto-advances.
     refs.btnNext.style.display = (mode === 'trainer') ? '' : 'none';
     refs.btnUndo.disabled = true;
     refs.btnHint.disabled = false;
@@ -345,9 +468,26 @@
       setStatus('Correct! …', 'ok');
       autoPlayOpponentReply();
     } else {
+      // RUSH: a wrong move is a STRIKE — no retry, the run marches on.
+      if (mode === 'rush' && rush && !rush.over) { rushStrike(); return; }
       // WRONG move: PUNISH THEN RETRY.
       punishWrongMove(from, to, promo);
     }
+  }
+
+  // A wrong move during a rush run: count a strike, end the run at the limit,
+  // else advance to the next puzzle.
+  function rushStrike() {
+    state.solved = true; // freeze this board
+    rush.strikes++;
+    updateRushHud();
+    if (rush.strikes >= RUSH_MAX_STRIKES) {
+      setStatus('Strike ' + rush.strikes + ' — out!', 'bad');
+      setTimeout(function () { endRush('3 strikes.'); }, 400);
+      return;
+    }
+    setStatus('Wrong — strike ' + rush.strikes + '/' + RUSH_MAX_STRIKES + '. Next…', 'bad');
+    setTimeout(function () { if (rush && !rush.over) nextRushPuzzle(); }, 500);
   }
 
   // Auto-play the puzzle's scripted opponent reply (odd index in moves).
@@ -374,6 +514,15 @@
     var beforeFen = state.chess.fen();
     var mv = state.chess.move({ from: from, to: to, promotion: promo });
     if (!mv) { return; } // shouldn't happen (we validated legality)
+    // Report the FAIL to the server (once per puzzle session). It lowers the
+    // rating and is idempotent per puzzle/UTC-day, so the Undo/Retry loop can't
+    // double-penalize, and if the player later solves THIS puzzle today that
+    // solve is a no-op for the rating (already scored as a fail). Daily/trainer
+    // only — rush handles its own scoring.
+    if (!state.failReported && mode !== 'rush') {
+      state.failReported = true;
+      recordFailed(state.puzzle.id);
+    }
     state.lastMove = { from: from, to: to };
     state.preMistakeFen = beforeFen;
     state.busy = true;
@@ -460,7 +609,8 @@
   }
 
   function onNext() {
-    if (mode === 'trainer') { loadTrainer(lastTrainerRating); }
+    if (mode === 'trainer') { loadTrainer(); }   // adaptive (server reads rating)
+    else if (mode === 'rush') { /* rush auto-advances */ }
     else { loadDaily(); }
   }
 
@@ -472,9 +622,22 @@
     renderBoard();
     refs.board.classList.add('solved');
     setTimeout(function () { if (refs.board) refs.board.classList.remove('solved'); }, 600);
-    setStatus('Solved! Well done. ✓', 'win');
 
     var p = state.puzzle;
+    var line = state.solverMoves.slice();
+
+    // RUSH: tally the solve, collect its verified line for the end-of-run
+    // submission, and immediately serve the next (harder) puzzle.
+    if (mode === 'rush' && rush && !rush.over) {
+      rush.score++;
+      rush.solved.push({ puzzleId: p.id, moves: line });
+      updateRushHud();
+      setStatus('Solved! ✓ Next…', 'win');
+      setTimeout(function () { if (rush && !rush.over) nextRushPuzzle(); }, 350);
+      return;
+    }
+
+    setStatus('Solved! Well done. ✓', 'win');
     // Fire the app callback if present.
     try {
       if (typeof window.CT_onPuzzleSolved === 'function') {
@@ -484,22 +647,49 @@
     // Best-effort server record (auth-gated; ignore failures / unauthenticated).
     // Submit the solver's move line so the server can VERIFY the solve before it
     // advances the streak — a bare id is no longer accepted.
-    recordSolved(p.id, state.solverMoves.slice());
+    recordSolved(p.id, line);
   }
 
   function recordSolved(puzzleId, moves) {
     var token = authToken();
-    var headers = { 'Content-Type': 'application/json' };
-    if (token) headers.Authorization = 'Bearer ' + token;
+    if (!token) return;
+    var headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
     try {
       fetch(apiUrl('/api/puzzles/solved'), {
         method: 'POST', headers: headers,
         body: JSON.stringify({ puzzleId: puzzleId, moves: moves || [] }),
       }).then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) {
-          if (data && typeof data.currentStreak === 'number' && data.currentStreak > 0) {
+          if (!data) return;
+          if (state && typeof data.currentStreak === 'number' && data.currentStreak > 0) {
             updateBadges(state.puzzle, data.currentStreak);
           }
+          // Show the new per-user puzzle rating + the climb.
+          if (typeof data.puzzleRating === 'number') {
+            myPuzzleRating = data.puzzleRating;
+            renderMyRating();
+            flashRatingDelta(data.ratingDelta || 0);
+          }
+        }).catch(function () {});
+    } catch (e) {}
+  }
+
+  // Report a FAILED puzzle to the server (lowers the rating; idempotent/day).
+  // Called when the player gives up (skips after a mistake) — never spammed.
+  function recordFailed(puzzleId) {
+    var token = authToken();
+    if (!token) return;
+    var headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+    try {
+      fetch(apiUrl('/api/puzzles/failed'), {
+        method: 'POST', headers: headers,
+        body: JSON.stringify({ puzzleId: puzzleId }),
+      }).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data || typeof data.puzzleRating !== 'number') return;
+          myPuzzleRating = data.puzzleRating;
+          renderMyRating();
+          flashRatingDelta(data.ratingDelta || 0);
         }).catch(function () {});
     } catch (e) {}
   }
@@ -507,8 +697,17 @@
   // ---------------------------------------------------------------------------
   // LOADING (fetch from backend)
   // ---------------------------------------------------------------------------
+  function abortRush() {
+    if (rush && rush.timer) { clearInterval(rush.timer); rush.timer = null; }
+    rush = null;
+  }
+
   function loadDaily() {
     mode = 'daily';
+    abortRush();
+    setActiveSeg('daily');
+    showRushView(false);
+    if (refs.rushHud) refs.rushHud.style.display = 'none';
     setStatus('Loading today’s puzzle…');
     fetch(apiUrl('/api/puzzles/daily')).then(function (r) {
       if (!r.ok) throw new Error('daily ' + r.status);
@@ -524,12 +723,20 @@
 
   function loadTrainer(rating) {
     mode = 'trainer';
-    lastTrainerRating = rating || lastTrainerRating || 1200;
+    abortRush();
+    setActiveSeg('trainer');
+    showRushView(false);
+    if (refs.rushHud) refs.rushHud.style.display = 'none';
     setStatus('Loading a puzzle…');
     var exclude = playedIds.slice(-20).join(',');
-    var url = apiUrl('/api/puzzles/next?rating=' + encodeURIComponent(lastTrainerRating) +
-      (exclude ? '&exclude=' + encodeURIComponent(exclude) : ''));
-    fetch(url).then(function (r) {
+    // No explicit rating -> let the SERVER adapt to the signed-in user's rating
+    // (it reads the auth token). Pass an explicit rating only if one was given.
+    var ratingParam = (typeof rating === 'number') ? ('rating=' + encodeURIComponent(rating) + '&') : '';
+    if (typeof rating === 'number') lastTrainerRating = rating;
+    var token = authToken();
+    var url = apiUrl('/api/puzzles/next?' + ratingParam +
+      (exclude ? 'exclude=' + encodeURIComponent(exclude) : ''));
+    fetch(url, token ? { headers: { Authorization: 'Bearer ' + token } } : undefined).then(function (r) {
       if (!r.ok) throw new Error('next ' + r.status);
       return r.json();
     }).then(function (data) {
@@ -542,16 +749,22 @@
     });
   }
 
-  // Pull the user's current streak (auth) to show on the badge, best-effort.
+  // Pull the user's progress (auth): streak badge + the puzzle rating + the rush
+  // best. Best-effort; guests just see "—" for the rating.
   function refreshStreakBadge() {
     var token = authToken();
-    if (!token) return;
+    if (!token) { renderMyRating(); return; }
     try {
       fetch(apiUrl('/api/puzzles/progress'), { headers: { Authorization: 'Bearer ' + token } })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) {
-          if (data && typeof data.currentStreak === 'number' && data.currentStreak > 0 && state) {
+          if (!data) return;
+          if (typeof data.currentStreak === 'number' && data.currentStreak > 0 && state) {
             updateBadges(state.puzzle, data.currentStreak);
+          }
+          if (typeof data.puzzleRating === 'number') { myPuzzleRating = data.puzzleRating; renderMyRating(); }
+          if (typeof data.rushBest === 'number' && refs.rushBestLine) {
+            refs.rushBestLine.textContent = 'Personal best: ' + data.rushBest + (data.rushBest === 1 ? ' puzzle' : ' puzzles');
           }
         }).catch(function () {});
     } catch (e) {}
@@ -578,12 +791,136 @@
   function openTrainer(rating) {
     if (!initialized && !init()) { return; }
     playedIds = [];
-    loadTrainer(typeof rating === 'number' ? rating : lastTrainerRating);
+    // Pass `rating` through only if explicitly provided; otherwise undefined so
+    // the server adapts difficulty to the signed-in user's current rating.
+    loadTrainer(typeof rating === 'number' ? rating : undefined);
+  }
+
+  // ---------------------------------------------------------------------------
+  // PUZZLE RUSH — a timed (3 min) / 3-strikes survival run. Score = puzzles
+  // solved. Each solved puzzle's verified solver line is collected and submitted
+  // to the server at the end, which RE-VERIFIES every line and tallies the score
+  // (so a best can't be forged by claiming solves you didn't make). Difficulty
+  // ramps: each next puzzle targets a rating that climbs with the run length.
+  // ---------------------------------------------------------------------------
+  var RUSH_SECONDS = 180;
+  var RUSH_MAX_STRIKES = 3;
+
+  function openRush() {
+    if (!initialized && !init()) { return; }
+    mode = 'rush';
+    abortRush();
+    setActiveSeg('rush');
+    showRushView(true);
+    if (refs.rushHud) refs.rushHud.style.display = 'none';
+    if (refs.rushResult) { refs.rushResult.textContent = ''; refs.rushResult.className = 'ctp-rush-result'; }
+    refs.btnRushStart.textContent = 'Start Rush';
+    refs.btnRushStart.disabled = false;
+    refreshStreakBadge(); // refresh best line + rating
+  }
+
+  function rushBaseRating() {
+    // Start a touch below the player's rating so the run opens gettable, then
+    // ramp up. Guests / unknown rating start at 1000.
+    return (typeof myPuzzleRating === 'number' ? myPuzzleRating : 1000) - 150;
+  }
+
+  function startRush() {
+    rush = {
+      score: 0,
+      strikes: 0,
+      solved: [],            // [{puzzleId, moves}] proof lines for the server
+      playedIds: [],
+      deadline: Date.now() + RUSH_SECONDS * 1000,
+      over: false,
+      timer: null,
+    };
+    showRushView(false);
+    if (refs.rushHud) refs.rushHud.style.display = '';
+    refs.btnNext.style.display = 'none';
+    updateRushHud();
+    rush.timer = setInterval(tickRush, 250);
+    nextRushPuzzle();
+  }
+
+  function tickRush() {
+    if (!rush || rush.over) return;
+    if (Date.now() >= rush.deadline) { endRush('Time!'); return; }
+    updateRushHud();
+  }
+
+  function updateRushHud() {
+    if (!rush || !refs.rushTimer) return;
+    var left = Math.max(0, Math.ceil((rush.deadline - Date.now()) / 1000));
+    var mm = Math.floor(left / 60), ss = left % 60;
+    refs.rushTimer.textContent = '⏱ ' + mm + ':' + (ss < 10 ? '0' : '') + ss;
+    refs.rushTimer.className = 'ctp-rush-stat' + (left <= 15 ? ' warn' : '');
+    refs.rushScore.textContent = '✓ ' + rush.score;
+    var x = rush.strikes;
+    refs.rushStrikes.textContent = '✗ ' + x + '/' + RUSH_MAX_STRIKES;
+    refs.rushStrikes.className = 'ctp-rush-stat' + (x >= RUSH_MAX_STRIKES - 1 ? ' warn' : '');
+  }
+
+  function nextRushPuzzle() {
+    if (!rush || rush.over) return;
+    // Difficulty ramps with score: +40 rating per solved puzzle.
+    var target = Math.round(rushBaseRating() + rush.score * 40);
+    target = Math.max(600, Math.min(2600, target));
+    var exclude = rush.playedIds.slice(-30).join(',');
+    var url = apiUrl('/api/puzzles/next?rating=' + encodeURIComponent(target) +
+      (exclude ? '&exclude=' + encodeURIComponent(exclude) : ''));
+    setStatus('Loading…');
+    fetch(url).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!rush || rush.over) return;
+        if (!data || !data.puzzle) { setStatus('Could not load puzzle.', 'bad'); return; }
+        rush.playedIds.push(data.puzzle.id);
+        startPuzzle(data.puzzle);
+        updateRushHud();
+      }).catch(function () { if (rush && !rush.over) setStatus('Connection error.', 'bad'); });
+  }
+
+  function endRush(reason) {
+    if (!rush || rush.over) return;
+    rush.over = true;
+    if (rush.timer) { clearInterval(rush.timer); rush.timer = null; }
+    var finalScore = rush.score;
+    var lines = rush.solved.slice();
+    showRushView(true);
+    if (refs.rushHud) refs.rushHud.style.display = 'none';
+    refs.btnRushStart.textContent = 'Play again';
+    refs.rushResult.textContent = (reason ? reason + ' ' : '') + 'You solved ' + finalScore + (finalScore === 1 ? ' puzzle.' : ' puzzles.');
+    refs.rushResult.className = 'ctp-rush-result win';
+    submitRush(lines, finalScore);
+  }
+
+  function submitRush(lines, localScore) {
+    var token = authToken();
+    if (!token) {
+      // Guests can play but the best isn't persisted server-side.
+      if (refs.rushBestLine) refs.rushBestLine.textContent = 'Sign in to save your best score.';
+      return;
+    }
+    var headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
+    fetch(apiUrl('/api/puzzles/rush/submit'), {
+      method: 'POST', headers: headers,
+      body: JSON.stringify({ mode: 'timed', solved: lines }),
+    }).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data) return;
+        if (refs.rushBestLine && typeof data.best === 'number') {
+          refs.rushBestLine.textContent = 'Personal best: ' + data.best + (data.best === 1 ? ' puzzle' : ' puzzles');
+        }
+        if (data.isBest && data.score > 0 && data.score >= (localScore || 0)) {
+          refs.rushResult.textContent += ' 🏆 New personal best!';
+        }
+      }).catch(function () {});
   }
 
   window.CT_Puzzles = {
     init: init,
     openDaily: openDaily,
     openTrainer: openTrainer,
+    openRush: openRush,
   };
 })();

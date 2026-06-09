@@ -185,6 +185,28 @@ export async function getPuzzleProgress(userId) {
   return sqlite.getPuzzleProgress(userId);
 }
 
+// --- Per-user puzzle rating + rush -----------------------------------------
+
+export async function getPuzzleRating(userId) {
+  if (usingPostgres) return (await loadPg()).getPuzzleRating(userId);
+  return sqlite.getPuzzleRating(userId);
+}
+
+export async function applyPuzzleRating(userId, puzzleId, puzzleRating, solved, dayKey, now) {
+  if (usingPostgres) return (await loadPg()).applyPuzzleRating(userId, puzzleId, puzzleRating, solved, dayKey, now);
+  return sqlite.applyPuzzleRating(userId, puzzleId, puzzleRating, solved, dayKey, now);
+}
+
+export async function recordRushScore(userId, score, mode, now) {
+  if (usingPostgres) return (await loadPg()).recordRushScore(userId, score, mode, now);
+  return sqlite.recordRushScore(userId, score, mode, now);
+}
+
+export async function getRushBest(userId) {
+  if (usingPostgres) return (await loadPg()).getRushBest(userId);
+  return sqlite.getRushBest(userId);
+}
+
 // --- Generic single-statement helpers --------------------------------------
 //
 // For ad-hoc parameterized SQL in HTTP route handlers (friends/blocks/etc.)

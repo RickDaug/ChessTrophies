@@ -16,9 +16,22 @@
 // or absent. So the feature works today with zero setup, and scales up the
 // moment the table is filled — no code change required.
 
-import { requireAuth } from './auth.js';
+import { requireAuth, verifyToken } from './auth.js';
 import * as store from './store.js';
 import { PUZZLE_SEED } from './puzzle-seed.mjs';
+
+// Best-effort: extract a valid user id from the Authorization header WITHOUT
+// rejecting unauthenticated callers. Used by /next so the trainer can serve
+// puzzles near the SIGNED-IN user's current rating (adaptive difficulty) while
+// staying public for guests.
+function optionalUserId(req) {
+  try {
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+    const payload = token ? verifyToken(token) : null;
+    return payload ? payload.uid : null;
+  } catch { return null; }
+}
 
 // The canonical UTC "today" key (YYYY-MM-DD). Exported + accepts an injected
 // Date so the deterministic-daily selection is unit-testable for a fixed date.
@@ -163,7 +176,15 @@ export function mountPuzzles(app) {
     try {
       const set = await getPuzzleSet();
       if (!set.length) return res.status(503).json({ error: 'No puzzles available.' });
+      // Difficulty adapts to the user. Priority: an explicit `rating` query
+      // (e.g. a rush ramp) > the SIGNED-IN user's current puzzle rating > 1200.
       let target = parseInt(req.query.rating, 10);
+      if (!Number.isFinite(target)) {
+        const uid = optionalUserId(req);
+        if (uid) {
+          try { const r = await store.getPuzzleRating(uid); if (r && Number.isFinite(r.rating)) target = r.rating; } catch {}
+        }
+      }
       if (!Number.isFinite(target)) target = 1200;
       target = Math.min(Math.max(target, 400), 3000);
       const exclude = typeof req.query.exclude === 'string'
@@ -206,15 +227,104 @@ export function mountPuzzles(app) {
         return res.status(400).json({ error: 'Incorrect solution.' });
       }
       const dayKey = utcDayKey();
-      const result = await store.recordPuzzleSolved(req.userId, puzzleId, dayKey, Date.now());
-      res.json({ ok: true, dayKey, ...result });
+      const now = Date.now();
+      const result = await store.recordPuzzleSolved(req.userId, puzzleId, dayKey, now);
+      // SERVER-SIDE RATING: a verified solve RAISES the user's puzzle rating vs
+      // the puzzle's own rating (Glicko-lite). Idempotent per puzzle/day, so
+      // re-solving the same puzzle the same day can't farm rating. The client
+      // NEVER sends a rating — it is computed here off the verified solve.
+      const rating = await store.applyPuzzleRating(req.userId, puzzleId, puzzle.rating, true, dayKey, now);
+      res.json({
+        ok: true, dayKey, ...result,
+        puzzleRating: rating.rating, ratingDelta: rating.delta,
+        ratingBefore: rating.oldRating, rd: rating.rd,
+        ratingCounted: rating.counted, provisional: rating.provisional,
+      });
     } catch (e) { if (!e.status) e.status = 400; next(e); }
   });
 
-  // AUTH: the signed-in user's puzzle progress (streak + total + solved ids).
+  // AUTH: report that the user FAILED a puzzle (got it wrong / gave up). Lowers
+  // the user's rating vs the puzzle's rating. Abuse-resistant: idempotent per
+  // (user, puzzle, UTC day) — a fail can't be spammed to grief a rating, and a
+  // puzzle that's already been SCORED today (solved or failed) is a no-op. The
+  // puzzle id is verified to exist; no proof is needed for a fail (there's
+  // nothing to forge in your own favor — a fail only ever lowers your rating).
+  app.post('/api/puzzles/failed', requireAuth, async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      const puzzleId = typeof body.puzzleId === 'string' ? body.puzzleId.trim().slice(0, 128) : '';
+      if (!puzzleId) return res.status(400).json({ error: 'puzzleId is required.' });
+      const set = await getPuzzleSet();
+      const puzzle = set.find((p) => p.id === puzzleId);
+      if (!puzzle) return res.status(404).json({ error: 'Unknown puzzle.' });
+      const dayKey = utcDayKey();
+      const rating = await store.applyPuzzleRating(req.userId, puzzleId, puzzle.rating, false, dayKey, Date.now());
+      res.json({
+        ok: true, dayKey,
+        puzzleRating: rating.rating, ratingDelta: rating.delta,
+        ratingBefore: rating.oldRating, rd: rating.rd,
+        ratingCounted: rating.counted, provisional: rating.provisional,
+      });
+    } catch (e) { if (!e.status) e.status = 400; next(e); }
+  });
+
+  // AUTH: the signed-in user's puzzle progress (streak + total + solved ids +
+  // the per-user puzzle RATING and the rush personal best).
   app.get('/api/puzzles/progress', requireAuth, async (req, res, next) => {
     try {
-      res.json(await store.getPuzzleProgress(req.userId));
+      const [progress, rating, rush] = await Promise.all([
+        store.getPuzzleProgress(req.userId),
+        store.getPuzzleRating(req.userId),
+        store.getRushBest(req.userId),
+      ]);
+      res.json({
+        ...progress,
+        puzzleRating: rating.rating, rd: rating.rd,
+        ratingSolved: rating.solved, ratingFailed: rating.failed,
+        provisional: rating.provisional,
+        rushBest: rush.best, rushRuns: rush.runs,
+      });
+    } catch (e) { if (!e.status) e.status = 500; next(e); }
+  });
+
+  // AUTH: submit a completed Puzzle Rush run. The client sends the list of
+  // puzzles it solved during the run, EACH with its verified solver line; the
+  // server re-verifies every one (reusing the same proof check as /solved) and
+  // the SCORE = the number that verify. This makes the score/best forgery-
+  // resistant: you can't claim a 50 without actually submitting 50 correct
+  // lines. The server records the run + returns the personal best. (Rush solves
+  // do NOT move the daily rating — they're a separate survival mode — but they
+  // DO require the same proof, so the leaderboard stat is honest.)
+  app.post('/api/puzzles/rush/submit', requireAuth, async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      const runMode = body.mode === 'strikes' ? 'strikes' : 'timed';
+      const items = Array.isArray(body.solved) ? body.solved.slice(0, 500) : [];
+      const set = await getPuzzleSet();
+      const byId = new Map(set.map((p) => [p.id, p]));
+      const seen = new Set();
+      let score = 0;
+      for (const it of items) {
+        if (!it || typeof it !== 'object') continue;
+        const id = typeof it.puzzleId === 'string' ? it.puzzleId.trim().slice(0, 128) : '';
+        // Count each distinct puzzle at most once per run (no dup-padding).
+        if (!id || seen.has(id)) continue;
+        const puzzle = byId.get(id);
+        if (!puzzle) continue;
+        const moves = Array.isArray(it.moves) ? it.moves.slice(0, 64).map((m) => (typeof m === 'string' ? m : '')) : null;
+        if (!moves || !verifySolution(puzzle, moves)) continue;
+        seen.add(id);
+        score++;
+      }
+      const result = await store.recordRushScore(req.userId, score, runMode, Date.now());
+      res.json({ ok: true, score, ...result });
+    } catch (e) { if (!e.status) e.status = 400; next(e); }
+  });
+
+  // AUTH: the user's Puzzle Rush personal best.
+  app.get('/api/puzzles/rush/best', requireAuth, async (req, res, next) => {
+    try {
+      res.json(await store.getRushBest(req.userId));
     } catch (e) { if (!e.status) e.status = 500; next(e); }
   });
 }
