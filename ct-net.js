@@ -96,6 +96,11 @@
       });
     }
 
+    // match_found carries white/black public-user objects. For a RANKED bot-
+    // backfill game the opponent's object is the labeled bot: username 'Computer
+    // 🤖', isBot:true and its elo (== the human's rating at match time); a
+    // top-level isBot/botColor also rides along. We forward the payload verbatim
+    // so the existing opponent display renders "Computer 🤖 (ELO N)" unchanged.
     socket.on('match_found', function (data) { emit('matchFound', data); });
     socket.on('move_made', function (data) { emit('moveMade', data); });
     socket.on('illegal_move', function (data) { emit('illegalMove', data); });

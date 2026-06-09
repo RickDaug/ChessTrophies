@@ -9,6 +9,28 @@ import { db, getUserById, areBlocked } from './db.js';
 import * as store from './store.js';
 import * as scale from './scale-store.js';
 import * as scaleTeam from './scale-team.js';
+import { botMove, botEngineReady } from './bot.js';
+
+// --- RANKED bot-backfill (cold-start: no humans online) --------------------
+// When a player waits in the ranked 1v1 queue past this window with no human
+// match, the server starts a game against a SERVER-AUTHORITATIVE engine bot so
+// they never sit stuck. The bot:
+//   - plays at the HUMAN's CURRENT rating (a fair fight => ELO-neutral in
+//     expectation; also kills rating-farming),
+//   - is honestly LABELED (opponent username 'Computer 🤖', isBot:true, its elo),
+//   - runs in the SAME flow: every HUMAN move is validated exactly as a normal
+//     ranked game, and after each human move the server computes + applies +
+//     broadcasts the bot's reply (respecting turn + clocks),
+//   - updates ELO + persists via the existing finishGame path (human's rating
+//     moves vs the bot's rating = the human's rating at match time).
+// 2v2 stays human-only. Bot games are NEVER created in multi-instance (scaleR)
+// mode here — the single-instance in-memory path owns matchmaking there.
+const BOT_BACKFILL_MS = Number(process.env.BOT_BACKFILL_MS) || 16_000;
+const BOT_DISPLAY_NAME = 'Computer 🤖';
+function newBotUid() { return 'bot_' + crypto.randomBytes(6).toString('hex'); }
+function isBotUid(uid) { return typeof uid === 'string' && uid.startsWith('bot_'); }
+// Per-queued-user backfill timers so we can cancel on match/leave/disconnect.
+const botBackfillTimers = new Map(); // uid -> timeout
 
 // ---------------------------------------------------------------------------
 // Checkers engine (additive). The engine ships as a UMD/CommonJS script at the
@@ -25,14 +47,15 @@ for (const p of ['../checkers.js', './checkers.js']) {
 if (!CT_Checkers) console.error('[checkers] engine not found at ../checkers.js or ./checkers.js — checkers disabled');
 
 // Ranked play on/off — a seasonal switch via env (mirrors server.js). Ranked is
-// OFF by default and only enabled when RANKED_ENABLED is '1' or 'true'
-// (case-insensitive). Enforced server-side here so a tampered client can't queue
-// ranked matchmaking while ranked is disabled. Casual paths (friendly challenge,
-// checkers friend challenge, rematches) are NOT gated.
+// now ON by default; set RANKED_ENABLED=0 (or 'false') to turn it OFF. Enforced
+// server-side here so a tampered client can't queue ranked matchmaking while
+// ranked is disabled. Casual paths (friendly challenge, checkers friend challenge,
+// rematches) are NOT gated.
 const RANKED_DISABLED_MSG = 'Ranked play is coming soon.';
 function rankedEnabled() {
-  const v = String(process.env.RANKED_ENABLED || '').trim().toLowerCase();
-  return v === '1' || v === 'true';
+  const v = String(process.env.RANKED_ENABLED ?? '').trim().toLowerCase();
+  if (v === '0' || v === 'false' || v === 'off' || v === 'no') return false;
+  return true; // default ON
 }
 
 const activeGames = new Map();     // gameId -> { white, black, chess, mode, started }
@@ -404,15 +427,24 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
           if (game.clock) {
             clockSnap = { w: game.clock.w, b: game.clock.b, running: game.clock.running, serverNow: Date.now() };
           }
+          // Bot games have a synthetic opponent with no users row — resolve each
+          // seat to either the real user or the labeled bot public object.
+          const seatPublic = async (uid) =>
+            (game.isBot && uid === game.botUid)
+              ? botPublicUser(game.botUid, game.botElo)
+              : publicUser(await readUser(uid));
           socket.emit('game_state', {
             gameId: resumeId,
             fen: game.chess.fen(),
             mode: game.mode,
             yourColor,
-            white: publicUser(await readUser(game.white)),
-            black: publicUser(await readUser(game.black)),
+            white: await seatPublic(game.white),
+            black: await seatPublic(game.black),
             clock: clockSnap,
+            isBot: !!game.isBot,
           });
+          // If it became the bot's turn while the human was gone, nudge its reply.
+          if (game.isBot) maybeBotReply(io, game);
         }
       }
     });
@@ -432,13 +464,18 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       }
       if (scaleR) { try { await scale.joinQueue(io, scaleR, uid, { mode, tc }); } catch (e) { console.error('[scale] joinQueue', e && e.message); } return; }
       const user = await readUser(uid);
-      matchmakingQueue.set(uid, { socketId: socket.id, elo: user.elo, joinedAt: Date.now(), mode: normalizeMode(mode), tc: normalizeTc(tc) });
+      const nMode = normalizeMode(mode);
+      matchmakingQueue.set(uid, { socketId: socket.id, elo: user.elo, joinedAt: Date.now(), mode: nMode, tc: normalizeTc(tc) });
       tryMatchmake(io);
+      // RANKED bot-backfill: if still unmatched after the window, start a bot game
+      // (single-instance only; engine must have loaded). Casual is never backfilled.
+      if (nMode === 'ranked' && botEngineReady()) scheduleBotBackfill(io, uid);
     });
     socket.on('mm_leave', async () => {
       const uid = socket.data.userId; if (!uid) return;
       if (scaleR) { try { await scale.leaveQueue(scaleR, uid); } catch (e) {} return; }
       matchmakingQueue.delete(uid);
+      cancelBotBackfill(uid);
     });
 
     // --- 2v2 team matchmaking ---
@@ -750,7 +787,10 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
         clockPayload = clockSnapshotForMove(clock);
       }
       io.to(gameId).emit('move_made', { gameId, move, fen: game.chess.fen(), clock: clockPayload });
-      if (game.chess.isGameOver()) finishGame(io, game);
+      if (game.chess.isGameOver()) { finishGame(io, game); return; }
+      // RANKED bot-backfill: after the human's move, let the engine bot reply
+      // server-side (same flow, turn + clock respected).
+      if (game.isBot) maybeBotReply(io, game);
     });
 
     socket.on('resign', async ({ gameId }) => {
@@ -1044,6 +1084,7 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       const uid = socketUser.get(socket.id);
       if (uid) {
         matchmakingQueue.delete(uid);
+        cancelBotBackfill(uid); // stop any pending ranked bot-backfill for this user
         checkersQueue.delete(uid); // additive: drop from checkers MM queue too
         userSocket.delete(uid);
         socketUser.delete(socket.id);
@@ -1183,6 +1224,8 @@ function tryMatchmake(io) {
     if (match) {
       matchmakingQueue.delete(a.uid);
       matchmakingQueue.delete(match.uid);
+      cancelBotBackfill(a.uid);
+      cancelBotBackfill(match.uid);
       startGame(io, a, match);
     }
   }
@@ -1207,6 +1250,8 @@ async function tryMatchmakePg(io) {
     if (match) {
       matchmakingQueue.delete(a.uid);
       matchmakingQueue.delete(match.uid);
+      cancelBotBackfill(a.uid);
+      cancelBotBackfill(match.uid);
       startGame(io, a, match);
     }
   }
@@ -1279,6 +1324,173 @@ async function startChallengeGame(io, fromId, fromSocketId, toId, toSocketId, tc
   const b = { uid: toId, socketId: toSocketId, elo: 0, mode: 'casual', tc };
   const [white, black] = Math.random() < 0.5 ? [a, b] : [b, a];
   await startGameWithColors(io, white, black);
+}
+
+// ===========================================================================
+// RANKED BOT-BACKFILL (server-authoritative engine opponent)
+// ===========================================================================
+// A bot game reuses the normal `activeGames` move loop. One seat is a synthetic
+// bot (uid starts with 'bot_'), marked on the game object as `isBot` with `botUid`
+// and `botColor`. After each HUMAN move, the server asks bot.js for the bot's
+// reply and applies it through the SAME chess engine (turn + clock respected),
+// then broadcasts move_made. ELO + persistence go through finishGame, which is
+// bot-aware: only the human's rating/stats move (vs the bot's elo, which equals
+// the human's rating at match time), and the games row records the bot side.
+
+// Build a publicUser-shaped object for the labeled bot so the existing client
+// opponent display renders "Computer 🤖 (ELO N)" with NO app.js change. isBot lets
+// any bot-aware UI show a clearer badge.
+function botPublicUser(botUid, elo) {
+  return {
+    id: botUid,
+    username: BOT_DISPLAY_NAME,
+    elo,
+    wins: 0,
+    losses: 0,
+    isBot: true,
+    isPremium: false,
+    avatarStock: 'av_bot',
+    avatarDataUrl: '',
+    eloCheckers8: 1200,
+    eloCheckers10: 1200,
+  };
+}
+
+function cancelBotBackfill(uid) {
+  const t = botBackfillTimers.get(uid);
+  if (t) { clearTimeout(t); botBackfillTimers.delete(uid); }
+}
+
+// Arm a one-shot timer; on fire, if the user is STILL queued ranked (no human
+// match), start a bot game at the user's current rating.
+function scheduleBotBackfill(io, uid) {
+  cancelBotBackfill(uid);
+  const timer = setTimeout(() => {
+    botBackfillTimers.delete(uid);
+    Promise.resolve(maybeStartBotGame(io, uid)).catch((e) =>
+      console.error('[bot-backfill] start failed', e && e.message));
+  }, BOT_BACKFILL_MS);
+  if (typeof timer.unref === 'function') timer.unref();
+  botBackfillTimers.set(uid, timer);
+}
+
+// Start a ranked bot game for `uid` IF they are still queued ranked and idle.
+async function maybeStartBotGame(io, uid) {
+  if (scaleR) return;                    // single-instance only
+  if (!botEngineReady()) return;
+  const q = matchmakingQueue.get(uid);
+  if (!q || q.mode !== 'ranked') return; // matched/left already, or not ranked
+  if (isUserInAnyGame(uid)) return;
+  const sock = io.sockets.sockets.get(q.socketId);
+  if (!sock) { matchmakingQueue.delete(uid); return; }
+  // Consume the queue entry now so a racing tryMatchmake can't also pair them.
+  matchmakingQueue.delete(uid);
+  await startBotGame(io, { uid, socketId: q.socketId, tc: q.tc });
+}
+
+// Create a ranked 1v1 game where one seat is the engine bot. Colors random; the
+// bot plays at the human's CURRENT rating (fair => ELO-neutral in expectation).
+async function startBotGame(io, human) {
+  const user = await readUser(human.uid);
+  if (!user) return;
+  const humanElo = Number.isFinite(user.elo) ? user.elo : 1200;
+  const botUid = newBotUid();
+  const gameId = newGameId();
+  const chess = new Chess();
+  const tc = normalizeTc(human.tc);
+  const parsed = parseTc(tc);
+  const clock = makeClock(parsed);
+  const humanIsWhite = Math.random() < 0.5;
+  const whiteUid = humanIsWhite ? human.uid : botUid;
+  const blackUid = humanIsWhite ? botUid : human.uid;
+  const botColor = humanIsWhite ? 'b' : 'w';
+  const humanPublic = publicUser(user);
+  const botPublic = botPublicUser(botUid, humanElo);
+  const game = {
+    id: gameId,
+    white: whiteUid,
+    black: blackUid,
+    chess,
+    mode: 'ranked',
+    started: Date.now(),
+    tc,
+    clock,
+    // Bot bookkeeping: which seat is the bot, its rating, and the human uid.
+    isBot: true,
+    botUid,
+    botColor,
+    botElo: humanElo,
+    humanUid: human.uid,
+    // eloBefore snapshot — only the human side is persisted/applied, but record
+    // both so the games row is well-formed.
+    whiteEloBefore: humanIsWhite ? humanElo : humanElo,
+    blackEloBefore: humanIsWhite ? humanElo : humanElo,
+  };
+  activeGames.set(gameId, game);
+  userActiveGame.set(human.uid, gameId);
+  const sock = io.sockets.sockets.get(human.socketId);
+  if (sock) sock.join(gameId);
+  // Only the human is in the room; emit the labeled bot as the opponent.
+  io.to(gameId).emit('match_found', {
+    gameId,
+    white: humanIsWhite ? humanPublic : botPublic,
+    black: humanIsWhite ? botPublic : humanPublic,
+    mode: 'ranked',
+    tc,
+    clock: clockSnapshotForStart(clock, parsed),
+    // Top-level bot hint (additive; ignored by the existing display which reads
+    // white/black). isBot also rides on the bot's white/black object above.
+    isBot: true,
+    botColor,
+  });
+  // If the bot is White, it moves first — kick off its opening reply.
+  if (botColor === 'w') maybeBotReply(io, game);
+}
+
+// If it's the bot's turn in a bot game, compute + apply + broadcast its move.
+// Server-authoritative: the move goes through the SAME chess engine, charges the
+// bot's clock, and ends the game via finishGame on game-over. Never throws.
+async function maybeBotReply(io, game) {
+  try {
+    if (!game || !game.isBot || game._ended) return;
+    if (game.chess.turn() !== game.botColor) return;
+    if (game.chess.isGameOver()) { finishGame(io, game); return; }
+    const fen = game.chess.fen();
+    const reply = await botMove(fen, game.botElo);
+    // Re-check the game is still live + still the bot's turn (a human resign /
+    // timeout / disconnect could have ended it while we computed).
+    if (!game || game._ended || !activeGames.has(game.id)) return;
+    if (game.chess.turn() !== game.botColor) return;
+    let move = null;
+    if (reply) move = game.chess.move({ from: reply.from, to: reply.to, promotion: reply.promotion || 'q' });
+    // Engine returned null or an illegal move — fall back to any legal move so the
+    // game never stalls on the bot's turn.
+    if (!move) {
+      const legal = game.chess.moves({ verbose: true });
+      if (legal.length) move = game.chess.move(legal[0]);
+    }
+    if (!move) { finishGame(io, game); return; } // no legal move => game over
+    // Charge the bot's clock exactly like a human mover.
+    let clockPayload = null;
+    if (game.clock) {
+      const clock = game.clock;
+      const elapsed = Date.now() - clock.turnStartedAt;
+      clock[game.botColor] -= elapsed;
+      if (clock[game.botColor] <= 0) {
+        clock[game.botColor] = 0;
+        timeoutFinishGame(io, game, game.botColor);
+        return;
+      }
+      clock[game.botColor] += clock.incrementMs;
+      clock.running = game.botColor === 'w' ? 'b' : 'w';
+      clock.turnStartedAt = Date.now();
+      clockPayload = clockSnapshotForMove(clock);
+    }
+    io.to(game.id).emit('move_made', { gameId: game.id, move, fen: game.chess.fen(), clock: clockPayload });
+    if (game.chess.isGameOver()) finishGame(io, game);
+  } catch (e) {
+    console.error('[bot-reply] failed', e && e.message);
+  }
 }
 
 // ===========================================================================
@@ -1493,8 +1705,74 @@ async function finishCheckersGame(io, cg, override = {}) {
   activeCheckersGames.delete(cg.id);
 }
 
+// Finish a RANKED bot-backfill game. ELO + trophies move for the HUMAN exactly
+// like a human ranked game — vs the bot's rating, which equals the human's rating
+// at match time (so it's ELO-neutral in expectation and non-farmable). Only the
+// human's users row is touched; no `games` row is written for the synthetic bot
+// (its uid has no users row, and the games table FK-references users(id)). The
+// `game_over` payload still carries the full result + the human's delta so the
+// client shows it normally. Bot games are NOT rematch-eligible.
+async function finishBotGame(io, game, override = {}) {
+  if (game._ended) return;
+  game._ended = true;
+  if (game.disconnectTimer) { clearTimeout(game.disconnectTimer); game.disconnectTimer = null; }
+  const chess = game.chess;
+  let winnerId = override.winnerId || null;
+  let reason = override.reason || (chess.isCheckmate() ? 'checkmate' : (chess.isDraw() ? 'draw' : 'unknown'));
+  if (!winnerId && chess.isCheckmate()) {
+    winnerId = chess.turn() === 'w' ? game.black : game.white;
+  }
+  const isDraw = !winnerId;
+  const humanUid = game.humanUid;
+  const humanColor = game.botColor === 'w' ? 'b' : 'w';
+  const humanWon = !isDraw && winnerId === humanUid;
+  const botWon = !isDraw && !humanWon; // winnerId is the bot seat
+  // Human's ELO change vs the bot's rating (= human's rating at match time).
+  const humanScore = isDraw ? 0.5 : (humanWon ? 1 : 0);
+  const humanDelta = eloDelta(game.botElo, game.botElo, humanScore);
+  // Stat counters for the human only.
+  const winInc = humanWon ? 1 : 0;
+  const lossInc = botWon ? 1 : 0;
+  const drawInc = isDraw ? 1 : 0;
+  try {
+    if (store.usingPostgres) {
+      const up = `UPDATE users SET elo = elo + ?,
+          wins = wins + ?, losses = losses + ?, draws = draws + ?,
+          current_streak = CASE WHEN ? = 1 THEN current_streak + 1 ELSE 0 END,
+          best_streak = GREATEST(best_streak, CASE WHEN ? = 1 THEN current_streak + 1 ELSE 0 END)
+        WHERE id = ?`;
+      await store.run(up, [humanDelta, winInc, lossInc, drawInc, winInc, winInc, humanUid]);
+    } else {
+      const up = db.prepare(`UPDATE users SET elo = elo + ?,
+          wins = wins + ?, losses = losses + ?, draws = draws + ?,
+          current_streak = CASE WHEN ? THEN current_streak + 1 ELSE 0 END,
+          best_streak = MAX(best_streak, CASE WHEN ? THEN current_streak + 1 ELSE 0 END)
+        WHERE id = ?`);
+      up.run(humanDelta, winInc, lossInc, drawInc, winInc, winInc, humanUid);
+    }
+  } catch (e) { console.error('[finishBotGame] persist failed', e && e.message); }
+  // Emit the standard game_over. whiteDelta/blackDelta map to the seats; the bot
+  // seat's delta is reported as the inverse so a generic display stays sensible.
+  const whiteDelta = humanColor === 'w' ? humanDelta : -humanDelta;
+  const blackDelta = humanColor === 'b' ? humanDelta : -humanDelta;
+  io.to(game.id).emit('game_over', {
+    gameId: game.id,
+    winnerId,
+    reason,
+    whiteDelta,
+    blackDelta,
+    pgn: chess.pgn(),
+    isBot: true,
+  });
+  userActiveGame.delete(humanUid);
+  activeGames.delete(game.id);
+}
+
 async function finishGame(io, game, override = {}) {
   if (game._ended) return;
+  // RANKED bot games take a dedicated finish path (one DB user, no FK-violating
+  // games row for the synthetic bot). Diverted before the human-vs-human logic.
+  if (game.isBot) { await finishBotGame(io, game, override); return; }
   game._ended = true;
   // Don't leak a pending disconnect grace timer if the game ends another way.
   if (game.disconnectTimer) { clearTimeout(game.disconnectTimer); game.disconnectTimer = null; }

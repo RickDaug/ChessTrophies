@@ -81,14 +81,17 @@ if (process.env.REDIS_URL) {
   console.log('[scale] single-instance mode (REDIS_URL not set)');
 }
 
-// Ranked play on/off — a seasonal switch via env. Ranked is OFF by default
-// ("coming soon") and only enabled when RANKED_ENABLED is '1' or 'true'
-// (case-insensitive). Read once at boot. This single flag gates the public
-// /api/config response AND the server-side enforcement in the socket handlers
-// (game.js reads it via the same parse), so the UI can't be trusted to bypass it.
+// Ranked play on/off — a seasonal switch via env. Ranked is now ON by default
+// (RANKED play is live, with server-authoritative engine bot-backfill so a queuing
+// player always gets a fair, clearly-labeled opponent even with no humans online).
+// The env override still disables it: set RANKED_ENABLED=0 (or 'false') to turn
+// ranked OFF. Read on each call so a test/deploy can flip it. This single flag
+// gates the public /api/config response AND the server-side enforcement in the
+// socket handlers (game.js reads it via the same parse), so the UI can't bypass it.
 function rankedEnabled() {
-  const v = String(process.env.RANKED_ENABLED || '').trim().toLowerCase();
-  return v === '1' || v === 'true';
+  const v = String(process.env.RANKED_ENABLED ?? '').trim().toLowerCase();
+  if (v === '0' || v === 'false' || v === 'off' || v === 'no') return false;
+  return true; // default ON
 }
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many auth attempts. Please try again later.' } });

@@ -2,9 +2,11 @@
 /*
  * ranked-flag.mjs — tests the ranked on/off seasonal switch (RANKED_ENABLED).
  *
- * Boots the REAL backend on throwaway SQLite DBs in two configurations:
+ * Ranked is now ON BY DEFAULT (live, with engine bot-backfill). The env override
+ * still disables it. Boots the REAL backend on throwaway SQLite DBs in two
+ * configurations:
  *
- *   1) DEFAULT (RANKED_ENABLED unset):
+ *   1) RANKED_ENABLED=0 (explicitly OFF):
  *        - GET /api/config -> { rankedEnabled: false }
  *        - ranked socket matchmaking is REJECTED, never queues:
  *            mm_join {mode:'ranked'}          -> mm_err "Ranked play is coming soon."
@@ -12,8 +14,8 @@
  *            checkers_mm_join {mode:'ranked'} -> checkers_err
  *          and NO match is found within a window.
  *
- *   2) RANKED_ENABLED=1:
- *        - GET /api/config -> { rankedEnabled: true }
+ *   2) DEFAULT (RANKED_ENABLED unset) AND RANKED_ENABLED=1:
+ *        - GET /api/config -> { rankedEnabled: true } in BOTH cases.
  *
  * Run:   node test/ranked-flag.mjs   (exit 0 = PASS, 1 = FAIL)
  * Needs: server deps installed (cd server && npm i) incl. socket.io-client.
@@ -87,7 +89,7 @@ async function main() {
   const { io } = await import(CLIENT_PKG);
 
   // ===================================================================
-  // PART 1 — DEFAULT (ranked OFF): /api/config false + ranked rejected.
+  // PART 1 — RANKED_ENABLED=0 (explicitly OFF): /api/config false + rejected.
   // ===================================================================
   {
     const port = await freePort();
@@ -98,15 +100,15 @@ async function main() {
     const sockets = [];
     let proc;
     try {
-      proc = await bootServer(port, dbPath, {}); // RANKED_ENABLED unset -> default false
-      log('PART 1: backend healthy (ranked default-off)');
+      proc = await bootServer(port, dbPath, { RANKED_ENABLED: '0' }); // explicit OFF
+      log('PART 1: backend healthy (RANKED_ENABLED=0)');
 
       // /api/config is PUBLIC (no auth) and reports rankedEnabled:false.
       const cfgRes = await get('/api/config');
       assert(cfgRes.ok, `/api/config failed: ${cfgRes.status}`);
       const cfg = await cfgRes.json();
-      assert(cfg.rankedEnabled === false, `/api/config should be {rankedEnabled:false} by default, got ${JSON.stringify(cfg)}`);
-      log('GET /api/config -> { rankedEnabled:false } (default) ✓');
+      assert(cfg.rankedEnabled === false, `/api/config should be {rankedEnabled:false} with RANKED_ENABLED=0, got ${JSON.stringify(cfg)}`);
+      log('GET /api/config -> { rankedEnabled:false } (RANKED_ENABLED=0) ✓');
 
       const RUN = Date.now().toString(36).slice(-5);
       async function signup(n) {
@@ -165,26 +167,27 @@ async function main() {
   }
 
   // ===================================================================
-  // PART 2 — RANKED_ENABLED=1: /api/config reports true.
+  // PART 2 — DEFAULT (unset) and RANKED_ENABLED=1: /api/config reports true.
   // ===================================================================
-  {
+  for (const env of [{}, { RANKED_ENABLED: '1' }]) {
+    const label = env.RANKED_ENABLED ? 'RANKED_ENABLED=1' : 'DEFAULT (unset)';
     const port = await freePort();
     const BASE = `http://localhost:${port}`;
     const dbPath = path.join(os.tmpdir(), `ct-ranked-on-${process.pid}-${port}.db`);
     let proc;
     try {
-      proc = await bootServer(port, dbPath, { RANKED_ENABLED: '1' });
-      log('PART 2: backend healthy (RANKED_ENABLED=1)');
+      proc = await bootServer(port, dbPath, env);
+      log(`PART 2: backend healthy (${label})`);
       const cfg = await (await fetch(`${BASE}/api/config`)).json();
-      assert(cfg.rankedEnabled === true, `/api/config should be {rankedEnabled:true} with RANKED_ENABLED=1, got ${JSON.stringify(cfg)}`);
-      log('GET /api/config -> { rankedEnabled:true } with RANKED_ENABLED=1 ✓');
+      assert(cfg.rankedEnabled === true, `/api/config should be {rankedEnabled:true} with ${label}, got ${JSON.stringify(cfg)}`);
+      log(`GET /api/config -> { rankedEnabled:true } with ${label} ✓`);
     } finally {
       await killServer(proc);
       rmDb(dbPath);
     }
   }
 
-  log('PASS — ranked seasonal switch: /api/config + server-side ranked rejection verified');
+  log('PASS — ranked seasonal switch: ON by default, RANKED_ENABLED=0 disables; /api/config + server-side rejection verified');
   return 0;
 }
 main().then(c => process.exit(c ?? 0)).catch(e => { console.error('[ranked-flag] FAIL:', e.message); process.exit(1); });
