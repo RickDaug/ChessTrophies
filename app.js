@@ -1085,8 +1085,55 @@
     setTimeout(() => div.remove(), 2800);
   }
 
-  function openModal(id) { $('#modal-' + id).classList.add('show'); }
-  function closeModal(id) { $('#modal-' + id).classList.remove('show'); }
+  // Accessible modal: role=dialog + aria-modal, focus trap (Tab cycles inside),
+  // Escape to close, and focus returned to the trigger on close. Same signatures
+  // as before so every caller is unchanged. CSP-safe (addEventListener only).
+  let _modalState = null;
+  function _modalFocusables(el) {
+    return Array.from(el.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter(n => n.offsetParent !== null); // visible only (skips display:none controls)
+  }
+  function openModal(id) {
+    const overlay = $('#modal-' + id);
+    if (!overlay) return;
+    overlay.classList.add('show');
+    const dialog = overlay.querySelector('.modal') || overlay;
+    try {
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+      if (!dialog.getAttribute('aria-label') && !dialog.getAttribute('aria-labelledby')) {
+        const h = dialog.querySelector('h1,h2,h3');
+        if (h && h.textContent.trim()) dialog.setAttribute('aria-label', h.textContent.trim());
+      }
+      if (!dialog.hasAttribute('tabindex')) dialog.setAttribute('tabindex', '-1');
+    } catch (e) {}
+    const prevFocus = document.activeElement;
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); closeModal(id); return; }
+      if (e.key !== 'Tab') return;
+      const f = _modalFocusables(dialog);
+      if (!f.length) { e.preventDefault(); try { dialog.focus(); } catch (er) {} return; }
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    overlay.addEventListener('keydown', onKey);
+    _modalState = { id, overlay, onKey, prevFocus };
+    // Move focus into the dialog once it's shown (first field/button, else the dialog).
+    setTimeout(() => { try { const f = _modalFocusables(dialog); (f[0] || dialog).focus(); } catch (e) {} }, 30);
+  }
+  function closeModal(id) {
+    const overlay = $('#modal-' + id);
+    if (!overlay) return;
+    overlay.classList.remove('show');
+    if (_modalState && _modalState.id === id) {
+      try { overlay.removeEventListener('keydown', _modalState.onKey); } catch (e) {}
+      const pf = _modalState.prevFocus;
+      _modalState = null;
+      try { if (pf && typeof pf.focus === 'function') pf.focus(); } catch (e) {}
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Auth UI
