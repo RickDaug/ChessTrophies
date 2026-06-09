@@ -108,6 +108,16 @@
 
   function setStatus(msg) { var s = $('arena-status'); if (s) s.textContent = msg; }
 
+  function renderChampions(champs) {
+    var el = $('arena-champions');
+    if (!el) return;
+    if (!champs || !champs.length) { el.innerHTML = ''; return; }
+    el.innerHTML = '<div class="muted small" style="margin-bottom:6px">🏆 Recent champions</div>' +
+      champs.map(function (c) {
+        return '<div class="row between" style="padding:4px 2px"><span>' + esc(c.name) + '</span><span class="muted small">' + esc(c.champion) + '</span></div>';
+      }).join('');
+  }
+
   // Fetch the current arena snapshot + (if signed in) the caller's standing, and
   // paint the arena screen.
   function render() {
@@ -120,6 +130,7 @@
       if (cdEl) cdEl.textContent = countdownText();
       var myId = (window.CT && window.CT.user && window.CT.user.id) || null;
       renderLeaderboard(d && d.live ? d.live.top : [], myId);
+      renderChampions(d && d.champions);
       renderControl();
       // Caller's standing (signed-in only, and only for the live arena).
       var meCard = $('arena-me'), meLine = $('arena-me-line');
@@ -179,6 +190,17 @@
   function onErr(d) { active = false; renderControl(); var m = (d && d.error) || 'Arena error.'; setStatus(m); toast(m); }
   function onLeft() { /* server ack; UI already updated optimistically */ }
 
+  // The arena finalized and WE won it (server fired arena_champion). app.js does
+  // the confetti + profile refresh; we mark inactive (the event is over) + crow.
+  function onChampion(data) {
+    active = false;
+    var name = (data && data.name) || 'the arena';
+    var pts = (data && data.points) || 0;
+    toast('🏆 Champion! You won ' + name + ' with ' + pts + ' points!', true);
+    setStatus('🏆 You won ' + name + '! A new arena starts shortly.');
+    render();
+  }
+
   // app.js tells us when an arena game starts / ends.
   function onMatchStarted() { setStatus('Game on — good luck!'); }
   function onGameEnded(data) {
@@ -231,5 +253,6 @@
     onLeft: onLeft,
     onMatchStarted: onMatchStarted,
     onGameEnded: onGameEnded,
+    onChampion: onChampion,
   };
 })();

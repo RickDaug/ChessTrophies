@@ -2936,6 +2936,12 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       window.CTNet.on('arenaJoined', (d) => window.CT_Arena && window.CT_Arena.onJoined(d));
       window.CTNet.on('arenaErr', (d) => window.CT_Arena && window.CT_Arena.onErr(d));
       window.CTNet.on('arenaLeft', (d) => window.CT_Arena && window.CT_Arena.onLeft(d));
+      window.CTNet.on('arenaChampion', (d) => {
+        if (window.CT_Arena) window.CT_Arena.onChampion(d);
+        try { ctCelebrate('big'); } catch (e) {}
+        // arena_wins bumped server-side — pull the fresh profile.
+        if (window.fetch) fetchMe().then((p) => syncRemoteProfile(p)).catch(() => {});
+      });
       // Rematch (1v1) lifecycle
       window.CTNet.on('rematchOffered', handleRematchOffered);
       window.CTNet.on('rematchDeclined', (d) => handleRematchEnded(d, 'Rematch declined.'));
@@ -4704,6 +4710,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     $('#prof-streak').textContent = u.currentStreak;
     $('#prof-best-streak').textContent = u.bestStreak;
     $('#prof-streak-trophies').textContent = u.streakTrophies.length;
+    { const aw = $('#prof-arena-wins'); if (aw) aw.textContent = u.arenaWins || 0; }
     $('#prof-mates').textContent = u.mateWins || 0;
     $('#prof-comebacks').textContent = u.comebackWins || 0;
     const totalEarned = u.achievements.length + u.streakTrophies.length;

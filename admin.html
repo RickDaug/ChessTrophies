@@ -324,6 +324,16 @@
       </div>
     </div>
 
+    <!-- arena -->
+    <div class="row2">
+      <div class="panel">
+        <h3>⏱️ Arena tournaments</h3>
+        <p class="h3sub" id="arenaSub">Live event · participation · champions</p>
+        <div class="tiles" id="arenaTiles"></div>
+        <div class="stand" id="arenaChamps" style="margin-top:10px"></div>
+      </div>
+    </div>
+
     <!-- users -->
     <div class="users-head">
       <h2>👥 User directory</h2>
@@ -380,6 +390,7 @@
   var payList = $('payList'), signupChart = $('signupChart'), gamesChart = $('gamesChart');
   var sharesEl = $('shares'), sharesSub = $('sharesSub');
   var engageTiles = $('engageTiles'), puzzleTiles = $('puzzleTiles');
+  var arenaTiles = $('arenaTiles'), arenaSub = $('arenaSub'), arenaChamps = $('arenaChamps');
   var seasonBadge = $('seasonBadge'), seasonSub = $('seasonSub'), seasonBody = $('seasonBody');
   var fearedSub = $('fearedSub'), fearedBody = $('fearedBody');
   var qEl = $('q'), sortEl = $('sort'), limitEl = $('limit');
@@ -869,6 +880,32 @@
     puzzleTiles.innerHTML = tiles.join('');
   }
 
+  function renderArena(s) {
+    var a = (s && s.arena) || {};
+    var live = a.live || null;
+    if (arenaSub) {
+      arenaSub.textContent = live
+        ? ('LIVE: ' + (live.name || 'Arena') + ' · ' + num(pick(live.players, 0)) + ' playing')
+        : (a.enabled === false ? 'Arenas disabled' : 'No arena live right now');
+    }
+    if (arenaTiles) {
+      arenaTiles.innerHTML = [
+        tileHtml('Arenas run', num(pick(a.totalArenas, 0)), 'accent'),
+        tileHtml('Games scored', num(pick(a.totalGamesScored, 0)), 'green'),
+        tileHtml('Participants', num(pick(a.participants, 0)), 'blue'),
+        tileHtml('Live players', num(live ? pick(live.players, 0) : 0), 'teal')
+      ].join('');
+    }
+    if (arenaChamps) {
+      var champs = a.recentChampions || [];
+      arenaChamps.innerHTML = champs.length
+        ? ('<table class="stand"><thead><tr><th>Recent arena</th><th>Champion</th></tr></thead><tbody>' +
+            champs.map(function (c) { return '<tr><td class="nm">' + esc(c.name) + '</td><td>' + esc(c.champion) + '</td></tr>'; }).join('') +
+            '</tbody></table>')
+        : '';
+    }
+  }
+
   // ===================================================================
   //  STATS FETCH
   // ===================================================================
@@ -882,6 +919,7 @@
     renderSeason(lastStats);
     renderFeared(lastStats);
     renderPuzzles(lastStats);
+    renderArena(lastStats);
     var st = lastStats.serverTime ? fmtDateTime(lastStats.serverTime) : '';
     updEl.innerHTML = '<span><span class="dot"></span><b>Updated</b> ' + esc(new Date().toLocaleTimeString()) + '</span>' +
       (st ? '<span><b>Server</b> ' + esc(st) + '</span>' : '');

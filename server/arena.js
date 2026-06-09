@@ -15,8 +15,8 @@ import { requireAuth } from './auth.js';
 import * as store from './store.js';
 
 // --- Config (tunable constants) --------------------------------------------
-export const ARENA_DURATION_MS = 30 * 60 * 1000; // each arena runs 30 min
-export const ARENA_BREAK_MS = 10 * 60 * 1000;    // gap before the next one
+export const ARENA_DURATION_MS = Number(process.env.ARENA_DURATION_MS) || 30 * 60 * 1000; // each arena runs 30 min
+export const ARENA_BREAK_MS = Number(process.env.ARENA_BREAK_MS) || 10 * 60 * 1000;       // gap before the next one
 export const ARENA_TC = '5+0';                   // blitz: quick games, fast re-pair
 export const ARENA_BOT_WAIT_MS = Number(process.env.ARENA_BOT_WAIT_MS) || 8 * 1000; // pool wait before a bot game (L2)
 
@@ -118,19 +118,34 @@ export async function advanceLifecycle(now = Date.now(), io = null, deps = {}) {
 // Trophy + notify are Layer 4 (injected via deps so the L2/L4 wiring can add
 // them without changing this signature). Always sets status='finished'.
 export async function finalizeArena(arena, now = Date.now(), io = null, deps = {}) {
-  let championId = null;
+  let championId = null, championPoints = 0;
   try {
     const top = await store.get(
-      'SELECT user_id FROM arena_scores WHERE arena_id = ? AND games > 0 ORDER BY points DESC, games ASC, peak_elo DESC LIMIT 1',
+      'SELECT user_id, points FROM arena_scores WHERE arena_id = ? AND games > 0 ORDER BY points DESC, games ASC, peak_elo DESC LIMIT 1',
       [arena.id]
     );
     championId = top ? top.user_id : null;
+    championPoints = top ? (Number(top.points) || 0) : 0;
   } catch (e) { /* leave champion null */ }
   await store.run("UPDATE arenas SET status = 'finished', champion_id = ? WHERE id = ?", [championId, arena.id]);
   if (championId && typeof deps.onChampion === 'function') {
-    try { await deps.onChampion({ arena, championId, io }); } catch (e) { console.error('[arena] onChampion hook failed', e && e.message); }
+    try { await deps.onChampion({ arena, championId, championPoints, io }); } catch (e) { console.error('[arena] onChampion hook failed', e && e.message); }
   }
   return championId;
+}
+
+// Recent finished arenas with their champion's name — for the client "past
+// champions" strip + admin stats. Best-effort; empty on error.
+export async function recentChampions(limit = 5) {
+  try {
+    return (await store.all(
+      `SELECT a.id AS id, a.name AS name, a.ends_at AS endsAt, u.username AS champion
+         FROM arenas a JOIN users u ON u.id = a.champion_id
+        WHERE a.status = 'finished' AND a.champion_id IS NOT NULL
+        ORDER BY a.ends_at DESC LIMIT ?`,
+      [limit]
+    )) || [];
+  } catch (e) { return []; }
 }
 
 // --- Participation + scoring ------------------------------------------------
@@ -254,7 +269,7 @@ export function mountArena(app) {
       const now = Date.now();
       const live = await liveArena(now);
       const next = await nextArena(now);
-      const out = { enabled: true, live: await summarize(live), next: await summarize(next) };
+      const out = { enabled: true, live: await summarize(live), next: await summarize(next), champions: await recentChampions(3) };
       // normalize players count shape
       if (out.live) out.live.players = Number(out.live.players.n) || 0;
       if (out.next) out.next.players = Number(out.next.players.n) || 0;

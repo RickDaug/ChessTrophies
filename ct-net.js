@@ -146,6 +146,8 @@
     socket.on('arena_joined', function (data) { emit('arenaJoined', data); });
     socket.on('arena_left', function (data) { emit('arenaLeft', data); });
     socket.on('arena_err', function (data) { emit('arenaErr', data); });
+    // Fired to the champion when an arena finalizes ({ arenaId, name, points }).
+    socket.on('arena_champion', function (data) { emit('arenaChampion', data); });
 
     // --- CHECKERS / DRAUGHTS online contract (additive; mirrors chess 1v1) ---
     // Event names are centralized here so a differing server contract is a 1-line

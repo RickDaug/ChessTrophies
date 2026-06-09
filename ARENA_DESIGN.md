@@ -145,4 +145,15 @@ best-effort push). Failure-isolated.
       Gated by `test/arena-ui.mjs` (lobby card + screen + leaderboard + countdown,
       CSP-clean), in CI. csp/build-smoke/a11y green. The realtime loop itself is
       covered server-side by `test/arena-realtime.mjs`.
-- [ ] L4: champion trophy + admin stats + polish
+- [x] **L4: champion reward + admin stats + polish. ARENA FEATURE COMPLETE.**
+      `finalizeArena` now passes the champion's points to a real `onChampion` (wired
+      in server.js, keeping arena.js decoupled from notifyUser/push): durable
+      `arena_wins++` (new users column, db.js + db-pg.js), a live `arena_champion`
+      socket event (client fires confetti + a crowing toast), and a best-effort
+      re-engagement push. `arena_wins` surfaces on `/api/me` → the profile "🏆 Arena
+      titles" stat. `recentChampions()` feeds a "Recent champions" strip on the arena
+      screen (via `/api/arena/current`) + the admin dashboard's new ⏱️ Arena panel
+      (arenas run / games scored / participants / live players + recent champions).
+      `ARENA_DURATION_MS`/`ARENA_BREAK_MS` are now env-tunable. Champion finalize +
+      onChampion + recentChampions unit-tested in `test/arena.mjs`; all suites green
+      (arena, arena-realtime, arena-ui, admin, ranked-bot, build-smoke, a11y, csp).

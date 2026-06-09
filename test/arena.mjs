@@ -134,6 +134,18 @@ async function main() {
   assert(joinResp.status === 401, 'join is auth-gated (401 without a token)');
   log('REST: /config + /current + /leaderboard shapes + auth-gated join ✓');
 
+  // ---- 6) champion finalize + onChampion hook (mutates liveA -> finished) -
+  let championArg = null;
+  const champ = await A.finalizeArena(liveA, Date.now(), null, { onChampion: (a) => { championArg = a; } });
+  assert(champ === 'u_alice', `champion should be Alice (top points), got ${champ}`);
+  assert(championArg && championArg.championId === 'u_alice' && championArg.championPoints === 7,
+    `onChampion should fire with Alice + 7 pts, got ${JSON.stringify(championArg && { id: championArg.championId, pts: championArg.championPoints })}`);
+  const finishedArena = await A.getArena(liveA.id);
+  assert(finishedArena.status === 'finished' && finishedArena.champion_id === 'u_alice', 'arena marked finished with champion_id set');
+  const champs = await A.recentChampions(5);
+  assert(champs.length >= 1 && champs[0].champion === 'Alice', `recentChampions should list Alice, got ${JSON.stringify(champs[0])}`);
+  log('finalize: champion crowned (Alice, 7pts) + onChampion hook + recentChampions ✓');
+
   srv.close();
   cleanup();
   log('PASS — arena scoring, rolling lifecycle, join-gated scoring, leaderboard, and REST all correct');

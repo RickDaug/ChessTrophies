@@ -41,9 +41,9 @@ import * as store from './store.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
 import { mountBilling, mountBillingWebhook, logBillingStatus, stripeRevenueStats } from './billing.js';
 import { mountStore, logStoreStatus } from './entitlements.js';
-import { mountPush, logPushStatus } from './push.js';
+import { mountPush, logPushStatus, sendPushToUser } from './push.js';
 import { mountPuzzles } from './puzzles.js';
-import { mountArena, startArenaScheduler, logArenaStatus } from './arena.js';
+import { mountArena, startArenaScheduler, logArenaStatus, liveArena, arenaEnabled, recentChampions } from './arena.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount, seasonInfo, previousSeasonId } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -295,6 +295,8 @@ app.get('/api/me', requireAuth, async (req, res, next) => {
       emailVerified: !!u.email_verified,
       // Checkers ratings (additive; separate from the chess `elo` above).
       eloCheckers8: u.elo_checkers_8 ?? 1200, eloCheckers10: u.elo_checkers_10 ?? 1200,
+      // Arena tournament titles won (durable counter, crowned at the bell).
+      arenaWins: u.arena_wins || 0,
     });
   } catch (e) { next(e); }
 });
@@ -875,6 +877,24 @@ app.get('/api/admin/stats', async (req, res, next) => {
       };
     } catch (e) { stats.pushStats = { subscriptions: 0, subscribers: 0 }; }
 
+    // --- Arena tournaments ---------------------------------------------------
+    try {
+      const live = await liveArena().catch(() => null);
+      let liveSummary = null;
+      if (live) {
+        const players = await n('SELECT COUNT(*) AS n FROM arena_scores WHERE arena_id = ?', [live.id]);
+        liveSummary = { name: live.name, players, endsAt: Number(live.ends_at) };
+      }
+      stats.arena = {
+        enabled: arenaEnabled(),
+        live: liveSummary,
+        totalArenas:     await n("SELECT COUNT(*) AS n FROM arenas WHERE status = 'finished'"),
+        totalGamesScored: await n('SELECT COALESCE(SUM(games),0) AS n FROM arena_scores'),
+        participants:    await n('SELECT COUNT(DISTINCT user_id) AS n FROM arena_scores'),
+        recentChampions: await recentChampions(5),
+      };
+    } catch (e) { stats.arena = { enabled: false, live: null, totalArenas: 0, totalGamesScored: 0, participants: 0, recentChampions: [] }; }
+
     res.json(stats);
   } catch (e) { next(e); }
 });
@@ -957,7 +977,19 @@ if (store.usingPostgres) {
 
 // Start the rolling arena scheduler AFTER the schema is ensured (above). Inert
 // when ARENA_ENABLED=0. Failure-isolated internally so it can never crash boot.
-startArenaScheduler(io);
+// onChampion crowns the bell-time leader: durable arena_wins++, a live socket
+// celebration, and a best-effort re-engagement push. Wired here (not in arena.js)
+// so arena.js stays decoupled from game.js's notifyUser + push.js.
+startArenaScheduler(io, {
+  onChampion: async ({ arena, championId, championPoints }) => {
+    try { await store.run('UPDATE users SET arena_wins = arena_wins + 1 WHERE id = ?', [championId]); }
+    catch (e) { console.error('[arena] champion increment failed', e && e.message); }
+    try { notifyUser(championId, 'arena_champion', { arenaId: arena.id, name: arena.name, points: championPoints }); }
+    catch (e) {}
+    try { await sendPushToUser(championId, { title: '🏆 Arena champion!', body: `You won ${arena.name} with ${championPoints} points!`, url: '/', tag: 'arena-champ' }); }
+    catch (e) {}
+  },
+});
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {

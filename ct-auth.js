@@ -184,6 +184,7 @@
       currentStreak: Number.isFinite(profile.currentStreak) ? profile.currentStreak : (existing.currentStreak || 0),
       bestStreak: Number.isFinite(profile.bestStreak) ? profile.bestStreak : (existing.bestStreak || 0),
       invitesAccepted: Number.isFinite(profile.invitesAccepted) ? profile.invitesAccepted : (existing.invitesAccepted || 0),
+      arenaWins: Number.isFinite(profile.arenaWins) ? profile.arenaWins : (existing.arenaWins || 0),
       isPremium: Boolean(profile.isPremium ?? existing.isPremium),
       // Email verification is server-authoritative (soft nudge only).
       emailVerified: Boolean(profile.emailVerified ?? existing.emailVerified),
