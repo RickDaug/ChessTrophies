@@ -130,6 +130,30 @@
   .legend span { display:inline-flex; align-items:center; gap:6px; }
   .legend i { width:10px; height:10px; border-radius:3px; display:inline-block; }
 
+  /* ---------- mini KPI tiles inside panels ---------- */
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:10px; margin-top:4px; }
+  .tile { background:var(--bg2); border:1px solid var(--border); border-radius:12px; padding:11px 12px; }
+  .tile .t-lbl { color:var(--faint); font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+  .tile .t-val { font-size:21px; font-weight:800; margin-top:5px; letter-spacing:-.01em; line-height:1; }
+  .tile .t-val.accent { color:var(--accent); }
+  .tile .t-val.green { color:var(--green); }
+  .tile .t-val.blue { color:var(--blue); }
+  .tile .t-val.purple { color:var(--purple); }
+  .tile .t-val.teal { color:var(--teal); }
+  .tile .t-val.pink { color:var(--pink); }
+
+  /* ---------- standings / streak lists ---------- */
+  .stand { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:4px; }
+  .stand th { text-align:left; color:var(--faint); font-size:10px; text-transform:uppercase; letter-spacing:.05em; padding:6px 8px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  .stand td { padding:7px 8px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  .stand tr:last-child td { border-bottom:none; }
+  .stand td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .stand .rk { color:var(--faint); width:26px; }
+  .stand .nm { font-weight:600; }
+  .stand .pts { font-weight:800; color:var(--accent); }
+  .stand .wld { color:var(--muted); }
+  .stand .fire { font-weight:800; color:var(--red); }
+
   /* mini stat strip inside revenue panel */
   .mini { display:flex; gap:18px; flex-wrap:wrap; margin-top:2px; }
   .mini > div { min-width:84px; }
@@ -268,6 +292,38 @@
       </div>
     </div>
 
+    <!-- engagement systems: games / push tiles -->
+    <div class="row2">
+      <div class="panel">
+        <h3>🎮 Engagement</h3>
+        <p class="h3sub">Ranked vs casual games · push reach</p>
+        <div class="tiles" id="engageTiles"></div>
+      </div>
+    </div>
+
+    <!-- season + most feared -->
+    <div class="row2 c2b">
+      <div class="panel">
+        <h3>🏆 Season <span id="seasonBadge"></span></h3>
+        <p class="h3sub" id="seasonSub">Current monthly ladder</p>
+        <div id="seasonBody"></div>
+      </div>
+      <div class="panel">
+        <h3>🩸 Most feared</h3>
+        <p class="h3sub" id="fearedSub">Top live streaks · Victim Wall</p>
+        <div id="fearedBody"></div>
+      </div>
+    </div>
+
+    <!-- puzzles -->
+    <div class="row2">
+      <div class="panel">
+        <h3>🧩 Puzzles</h3>
+        <p class="h3sub">Puzzle rating · solves · Rush</p>
+        <div class="tiles" id="puzzleTiles"></div>
+      </div>
+    </div>
+
     <!-- users -->
     <div class="users-head">
       <h2>👥 User directory</h2>
@@ -323,6 +379,9 @@
   var revBadge = $('revBadge'), revMini = $('revMini'), revChart = $('revChart');
   var payList = $('payList'), signupChart = $('signupChart'), gamesChart = $('gamesChart');
   var sharesEl = $('shares'), sharesSub = $('sharesSub');
+  var engageTiles = $('engageTiles'), puzzleTiles = $('puzzleTiles');
+  var seasonBadge = $('seasonBadge'), seasonSub = $('seasonSub'), seasonBody = $('seasonBody');
+  var fearedSub = $('fearedSub'), fearedBody = $('fearedBody');
   var qEl = $('q'), sortEl = $('sort'), limitEl = $('limit');
   var usersErr = $('usersErr'), usersCount = $('usersCount'), usersBody = $('usersBody'), copyMsg = $('copyMsg');
 
@@ -728,6 +787,89 @@
   }
 
   // ===================================================================
+  //  ENGAGEMENT TILES (games breakdown + push reach)
+  // ===================================================================
+  function tileHtml(label, val, color) {
+    return '<div class="tile"><div class="t-lbl">' + esc(label) + '</div>' +
+      '<div class="t-val' + (color ? ' ' + color : '') + '">' + val + '</div></div>';
+  }
+  function renderEngagement(s) {
+    s = s || {};
+    var gb = s.gamesBreakdown || {};
+    var ps = s.pushStats || {};
+    var tiles = [
+      tileHtml('Ranked games', num(pick(gb.ranked, 0)), 'green'),
+      tileHtml('Casual games', num(pick(gb.casual, 0)), 'blue'),
+      tileHtml('Push subscribers', num(pick(ps.subscribers, 0)), 'teal'),
+      tileHtml('Push subscriptions', num(pick(ps.subscriptions, 0)), 'purple')
+    ];
+    engageTiles.innerHTML = tiles.join('');
+  }
+
+  // ===================================================================
+  //  SEASON PANEL
+  // ===================================================================
+  function renderSeason(s) {
+    var se = (s && s.season) || {};
+    seasonBadge.innerHTML = se.seasonId ? '<span class="badge">' + esc(se.seasonId) + '</span>' : '';
+    var players = Number(pick(se.players, 0)) || 0;
+    seasonSub.textContent = 'Current monthly ladder · ' + players.toLocaleString() + ' player' + (players === 1 ? '' : 's');
+    var top = Array.isArray(se.top) ? se.top : [];
+    if (!top.length) { seasonBody.innerHTML = '<div class="chart-empty">No season games yet</div>'; return; }
+    var rows = top.map(function (p, i) {
+      p = p || {};
+      var wld = num(pick(p.wins, 0)) + '–' + num(pick(p.losses, 0)) + '–' + num(pick(p.draws, 0));
+      return '<tr>' +
+        '<td class="rk num">' + (i + 1) + '</td>' +
+        '<td class="nm">' + esc(p.username || '—') + '</td>' +
+        '<td class="pts num">' + num(pick(p.points, 0)) + '</td>' +
+        '<td class="wld num">' + esc(wld) + '</td>' +
+      '</tr>';
+    }).join('');
+    seasonBody.innerHTML = '<table class="stand"><thead><tr>' +
+      '<th>#</th><th>Player</th><th style="text-align:right;">Pts</th><th style="text-align:right;">W–L–D</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  // ===================================================================
+  //  MOST FEARED PANEL (Victim Wall)
+  // ===================================================================
+  function renderFeared(s) {
+    var f = (s && s.feared) || {};
+    var victims = Number(pick(f.totalVictims, 0)) || 0;
+    fearedSub.textContent = 'Top live streaks · ' + victims.toLocaleString() + ' victim' + (victims === 1 ? '' : 's') + ' recorded';
+    var top = Array.isArray(f.top) ? f.top : [];
+    if (!top.length) { fearedBody.innerHTML = '<div class="chart-empty">No active streaks</div>'; return; }
+    var rows = top.map(function (p, i) {
+      p = p || {};
+      return '<tr>' +
+        '<td class="rk num">' + (i + 1) + '</td>' +
+        '<td class="nm">' + esc(p.username || '—') + '</td>' +
+        '<td class="fire num">🔥 ' + num(pick(p.streak, 0)) + '</td>' +
+      '</tr>';
+    }).join('');
+    fearedBody.innerHTML = '<table class="stand"><thead><tr>' +
+      '<th>#</th><th>Player</th><th style="text-align:right;">Streak</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  // ===================================================================
+  //  PUZZLES PANEL
+  // ===================================================================
+  function renderPuzzles(s) {
+    var p = (s && s.puzzleStats) || {};
+    var tiles = [
+      tileHtml('Avg rating', num(pick(p.avgRating, 0)), 'accent'),
+      tileHtml('Rated players', num(pick(p.players, 0)), 'blue'),
+      tileHtml('Total solved', num(pick(p.totalSolved, 0)), 'green'),
+      tileHtml('Solved today', num(pick(p.solvedToday, 0)), 'teal'),
+      tileHtml('Rush plays', num(pick(p.rushPlays, 0)), 'purple'),
+      tileHtml('Rush best', num(pick(p.rushBest, 0)), 'pink')
+    ];
+    puzzleTiles.innerHTML = tiles.join('');
+  }
+
+  // ===================================================================
   //  STATS FETCH
   // ===================================================================
   function renderAll(s) {
@@ -736,6 +878,10 @@
     renderRevenue(lastStats);
     renderSeries(lastStats);
     renderShares(lastStats);
+    renderEngagement(lastStats);
+    renderSeason(lastStats);
+    renderFeared(lastStats);
+    renderPuzzles(lastStats);
     var st = lastStats.serverTime ? fmtDateTime(lastStats.serverTime) : '';
     updEl.innerHTML = '<span><span class="dot"></span><b>Updated</b> ' + esc(new Date().toLocaleTimeString()) + '</span>' +
       (st ? '<span><b>Server</b> ' + esc(st) + '</span>' : '');

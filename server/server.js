@@ -794,6 +794,81 @@ app.get('/api/admin/stats', async (req, res, next) => {
       gamesDaily:   await dailyCountSeries('games', 30),
     };
 
+    // --- Games breakdown (ranked vs casual, human-vs-human) -----------------
+    // Bot games write NO games row by design, so `ranked` here is human ranked
+    // volume only. Each block is failure-isolated so an empty/missing table can
+    // never 500 this endpoint.
+    try {
+      stats.gamesBreakdown = {
+        ranked: await n("SELECT COUNT(*) AS n FROM games WHERE mode = ?", ['ranked']),
+        casual: await n("SELECT COUNT(*) AS n FROM games WHERE mode = ?", ['casual']),
+      };
+    } catch (e) { stats.gamesBreakdown = { ranked: 0, casual: 0 }; }
+
+    // --- Current season ladder (monthly) ------------------------------------
+    // season_id is the UTC year-month; standings are points DESC then peak_elo.
+    try {
+      const seasonId = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+      const players = await n('SELECT COUNT(*) AS n FROM season_stats WHERE season_id = ?', [seasonId]);
+      const rows = await store.all(
+        `SELECT u.username AS username, s.points AS points, s.wins AS wins, s.losses AS losses, s.draws AS draws
+           FROM season_stats s JOIN users u ON u.id = s.user_id
+          WHERE s.season_id = ?
+          ORDER BY s.points DESC, s.peak_elo DESC
+          LIMIT 8`,
+        [seasonId]
+      );
+      stats.season = {
+        seasonId,
+        players,
+        top: (rows || []).map(r => ({
+          username: r.username || '—',
+          points: Number(r.points) || 0,
+          wins: Number(r.wins) || 0,
+          losses: Number(r.losses) || 0,
+          draws: Number(r.draws) || 0,
+        })),
+      };
+    } catch (e) { stats.season = { seasonId: new Date().toISOString().slice(0, 7), players: 0, top: [] }; }
+
+    // --- Most feared (Victim Wall) ------------------------------------------
+    // Total victims recorded + the current top live streaks.
+    try {
+      const totalVictims = await n('SELECT COUNT(*) AS n FROM streak_victims');
+      const rows = await store.all(
+        `SELECT username, current_streak AS streak FROM users
+          WHERE current_streak > 0
+          ORDER BY current_streak DESC
+          LIMIT 8`
+      );
+      stats.feared = {
+        totalVictims,
+        top: (rows || []).map(r => ({ username: r.username || '—', streak: Number(r.streak) || 0 })),
+      };
+    } catch (e) { stats.feared = { totalVictims: 0, top: [] }; }
+
+    // --- Puzzle rating / Rush -----------------------------------------------
+    try {
+      const today = new Date().toISOString().slice(0, 10); // UTC YYYY-MM-DD
+      const avgRow = await store.get('SELECT AVG(rating) AS a FROM puzzle_ratings');
+      stats.puzzleStats = {
+        avgRating:   avgRow && avgRow.a != null ? Math.round(Number(avgRow.a)) : 0,
+        players:     await n('SELECT COUNT(*) AS n FROM puzzle_ratings'),
+        totalSolved: await n('SELECT COUNT(*) AS n FROM puzzle_solves'),
+        solvedToday: await n('SELECT COUNT(*) AS n FROM puzzle_solves WHERE day_key = ?', [today]),
+        rushPlays:   await n('SELECT COUNT(*) AS n FROM rush_scores'),
+        rushBest:    Number((await store.get('SELECT MAX(score) AS m FROM rush_scores') || {}).m) || 0,
+      };
+    } catch (e) { stats.puzzleStats = { avgRating: 0, players: 0, totalSolved: 0, solvedToday: 0, rushPlays: 0, rushBest: 0 }; }
+
+    // --- Web Push reach -----------------------------------------------------
+    try {
+      stats.pushStats = {
+        subscriptions: await n('SELECT COUNT(*) AS n FROM push_subscriptions'),
+        subscribers:   await n('SELECT COUNT(DISTINCT user_id) AS n FROM push_subscriptions'),
+      };
+    } catch (e) { stats.pushStats = { subscriptions: 0, subscribers: 0 }; }
+
     res.json(stats);
   } catch (e) { next(e); }
 });
