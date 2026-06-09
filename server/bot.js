@@ -23,16 +23,26 @@ const CANDIDATE_DIRS = [path.resolve(__dirname, '..'), __dirname];
 
 let CT_AI = null;
 let ChessCtor = null;
+// Captures WHY the engine did/didn't load, surfaced via /health for prod
+// debugging (files-missing vs eval-threw vs wrong-place).
+const _diag = { dirname: __dirname, checked: [], error: null, loaded: false };
 
 function tryLoad() {
   if (CT_AI && ChessCtor) return true;
-  for (const dir of CANDIDATE_DIRS) {
+  _diag.checked = [];
+  // Probe the load dirs AND /app/public (where the Dockerfile copies the client
+  // bundle) so we can tell "not in the image" from "copied to the wrong place".
+  const probeDirs = [...CANDIDATE_DIRS, path.join(__dirname, 'public')];
+  for (const dir of probeDirs) {
     const chessPath = path.join(dir, 'chess.min.js');
     const aiPath = path.join(dir, 'ct-ai.js');
+    const rec = { dir, chess: fs.existsSync(chessPath), ai: fs.existsSync(aiPath) };
+    _diag.checked.push(rec);
+    if (CANDIDATE_DIRS.indexOf(dir) === -1) continue; // public is probe-only
     try {
-      if (!fs.existsSync(chessPath) || !fs.existsSync(aiPath)) continue;
+      if (!rec.chess || !rec.ai) continue;
       const Chess = _require(chessPath).Chess;
-      if (!Chess) continue;
+      if (!Chess) { _diag.error = 'chess.min.js has no .Chess export'; continue; }
       globalThis.Chess = Chess;       // ct-ai.js + its _ChessCtor() read this
       const aiSrc = fs.readFileSync(aiPath, 'utf8');
       // Evaluate in this realm (indirect eval) so it installs globalThis.CT_AI.
@@ -40,14 +50,20 @@ function tryLoad() {
       if (globalThis.CT_AI && typeof globalThis.CT_AI.chooseMove === 'function') {
         CT_AI = globalThis.CT_AI;
         ChessCtor = Chess;
+        _diag.loaded = true;
         return true;
       }
+      _diag.error = 'ct-ai.js evaluated but globalThis.CT_AI.chooseMove missing';
     } catch (e) {
+      _diag.error = (e && e.message) || String(e);
       console.error('[bot] engine load attempt failed:', e && e.message);
     }
   }
   return false;
 }
+
+// Diagnostic snapshot for /health (re-runs a load attempt so it's current).
+export function botEngineDiag() { tryLoad(); return _diag; }
 
 // Try once at import so a load failure is visible in the boot logs (non-fatal).
 if (!tryLoad()) {
