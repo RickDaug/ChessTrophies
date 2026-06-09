@@ -33,6 +33,42 @@ function isBotUid(uid) { return typeof uid === 'string' && uid.startsWith('bot_'
 // Per-queued-user backfill timers so we can cancel on match/leave/disconnect.
 const botBackfillTimers = new Map(); // uid -> timeout
 
+// ===========================================================================
+// SEASONS — monthly competitive ladder (deterministic, no cron) -------------
+// ===========================================================================
+// The "current season" is just the UTC calendar month. Everything below is pure
+// date math from a given timestamp — no Date.now() randomness, no scheduled job:
+//   * id    = "YYYY-MM" (e.g. "2026-06")
+//   * name  = "June 2026"
+//   * start = first instant of the month (UTC)
+//   * end   = first instant of NEXT month (UTC, exclusive) = endsAt
+// daysRemaining is ceil((endsAt - at) / day) so the client can render a
+// "season ends in N days" countdown from the API's endsAt without its own clock
+// quirks. Exported so test/season.mjs can assert the math directly.
+const SEASON_MONTHS = ['January','February','March','April','May','June',
+  'July','August','September','October','November','December'];
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function seasonInfo(at = Date.now()) {
+  const d = new Date(at);
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth(); // 0-based
+  const seasonId = `${y}-${String(m + 1).padStart(2, '0')}`;
+  const name = `${SEASON_MONTHS[m]} ${y}`;
+  const startsAt = Date.UTC(y, m, 1);
+  const endsAt = Date.UTC(y, m + 1, 1); // first instant of next month (exclusive)
+  const daysRemaining = Math.max(0, Math.ceil((endsAt - at) / DAY_MS));
+  return { seasonId, name, startsAt, endsAt, daysRemaining };
+}
+
+// The season id immediately PRECEDING the season that contains `at` (for
+// end-of-season recognition: last month's champion).
+export function previousSeasonId(at = Date.now()) {
+  const d = new Date(at);
+  // Step back to the last day of the previous month, then read its season id.
+  return seasonInfo(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 0)).seasonId;
+}
+
 // ---------------------------------------------------------------------------
 // Checkers engine (additive). The engine ships as a UMD/CommonJS script at the
 // repo root (checkers.js). The build also copies it next to the server files in
@@ -1781,6 +1817,17 @@ async function finishBotGame(io, game, override = {}) {
       });
     } catch (e) { console.error('[victim] botgame hook failed', e && e.message); }
   }
+
+  // SEASON LADDER: credit the HUMAN's current-season row (W/L/D + points + peak
+  // elo). The bot seat is never credited (its uid has no users row). Surgical +
+  // failure-isolated: a season-stat write must NEVER affect the ELO write above.
+  try {
+    await recordSeasonResult({
+      userId: humanUid,
+      result: isDraw ? 'draw' : (humanWon ? 'win' : 'loss'),
+      elo: game.botElo + humanDelta, // the human's NEW elo after this game
+    });
+  } catch (e) { console.error('[season] botgame hook failed', e && e.message); }
 }
 
 // ===========================================================================
@@ -1861,6 +1908,40 @@ async function recordVictimAndNotify(io, { winnerId, loserId, loserName, loserIs
 // function directly above).
 export function __test_recordVictimAndNotify(io, args, deps) {
   return recordVictimAndNotify(io, args, deps);
+}
+
+// ===========================================================================
+// SEASON STATS HOOK (surgical + failure-isolated, mirrors recordVictimAndNotify)
+// ===========================================================================
+// Called from the RANKED finish paths AFTER the ELO/streak write, to increment
+// the player's CURRENT-season row (W/L/D + points, peak_elo). This tracks season
+// performance SEPARATELY from the live ELO ladder — it NEVER touches the `users`
+// elo/result write.
+//
+// CRITICAL: fully failure-isolated. Every line runs inside one try/catch that
+// swallows ALL errors, so a season-stat DB failure can NEVER propagate back into
+// finishGame/finishBotGame and so can never affect the real result/ELO write.
+// `deps` lets tests inject a mock `record` (defaulting to the real store call) so
+// both the happy path and "a throwing season write doesn't break finishGame" are
+// unit-testable. Production callers pass no deps.
+async function recordSeasonResult({ userId, result, elo }, deps) {
+  const record = (deps && deps.record) || store.recordSeasonResult;
+  try {
+    if (!userId || isBotUid(userId)) return; // never write season rows for the bot seat
+    if (!['win', 'loss', 'draw'].includes(result)) return;
+    const { seasonId } = seasonInfo();
+    await record({ seasonId, userId, result, elo, now: Date.now() });
+  } catch (e) {
+    // Absolute backstop: nothing here may ever reach the game-finish path.
+    console.error('[season] recordSeasonResult failed', e && e.message);
+  }
+}
+
+// Test-only export so test/season.mjs can verify the hook increments the row,
+// and that a throwing season write is isolated (never throws). Not used by
+// production code (the finish paths call the internal function directly).
+export function __test_recordSeasonResult(args, deps) {
+  return recordSeasonResult(args, deps);
 }
 
 async function finishGame(io, game, override = {}) {
@@ -1995,6 +2076,25 @@ async function finishGame(io, game, override = {}) {
         loserIsBot: false,
       });
     } catch (e) { console.error('[victim] game hook failed', e && e.message); }
+  }
+
+  // SEASON LADDER: on a RANKED human-vs-human result, increment BOTH players'
+  // current-season rows (W/L/D + points + peak elo). Tracked SEPARATELY from the
+  // ELO write above; surgical + failure-isolated (a season-stat write must NEVER
+  // affect the result/ELO write). Casual games don't move the season ladder.
+  if (game.mode === 'ranked') {
+    const whiteResult = isDraw ? 'draw' : (winnerId === game.white ? 'win' : 'loss');
+    const blackResult = isDraw ? 'draw' : (winnerId === game.black ? 'win' : 'loss');
+    try {
+      await recordSeasonResult({
+        userId: game.white, result: whiteResult,
+        elo: (whiteUser ? whiteUser.elo : 0) + wd, // NEW elo after this game
+      });
+      await recordSeasonResult({
+        userId: game.black, result: blackResult,
+        elo: (blackUser ? blackUser.elo : 0) + bd,
+      });
+    } catch (e) { console.error('[season] game hook failed', e && e.message); }
   }
 
   // Stash a short-lived snapshot so a rematch can be set up after the game

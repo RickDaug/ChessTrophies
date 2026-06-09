@@ -214,6 +214,28 @@ export async function recordStreakVictim(v) {
   return sqlite.recordStreakVictim(v);
 }
 
+// --- Seasons (monthly ladder) — backend-agnostic wrappers -------------------
+
+export async function recordSeasonResult(args) {
+  if (usingPostgres) return (await loadPg()).recordSeasonResult(args);
+  return sqlite.recordSeasonResult(args);
+}
+
+export async function seasonLeaderboard(seasonId, limit) {
+  if (usingPostgres) return (await loadPg()).seasonLeaderboard(seasonId, limit);
+  return sqlite.seasonLeaderboard(seasonId, limit);
+}
+
+export async function seasonStatsForUser(seasonId, userId) {
+  if (usingPostgres) return (await loadPg()).seasonStatsForUser(seasonId, userId);
+  return sqlite.seasonStatsForUser(seasonId, userId);
+}
+
+export async function seasonChampion(seasonId) {
+  if (usingPostgres) return (await loadPg()).seasonChampion(seasonId);
+  return sqlite.seasonChampion(seasonId);
+}
+
 // --- Web Push subscriptions (backend-agnostic wrappers) --------------------
 
 export async function addPushSub(sub) {

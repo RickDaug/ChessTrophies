@@ -337,7 +337,90 @@ CREATE TABLE IF NOT EXISTS streak_victims (
 );
 CREATE INDEX IF NOT EXISTS idx_streak_victims_winner ON streak_victims(winner_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_streak_victims_victim ON streak_victims(victim_id, created_at DESC);
+
+-- SEASONS (monthly ladder). One row per (season, user); mirrors db.js. Tracked
+-- SEPARATELY from the live ELO on `users`. No FK on user_id (mirrors the
+-- streak/payments convention).
+CREATE TABLE IF NOT EXISTS season_stats (
+  season_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  wins INTEGER NOT NULL DEFAULT 0,
+  losses INTEGER NOT NULL DEFAULT 0,
+  draws INTEGER NOT NULL DEFAULT 0,
+  points INTEGER NOT NULL DEFAULT 0,
+  peak_elo INTEGER NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (season_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_season_stats_board ON season_stats(season_id, points DESC, peak_elo DESC);
 `);
+}
+
+// --- Seasons (async mirror of db.js) ---------------------------------------
+
+// Idempotently increment a user's season row for one finished ranked game.
+export async function recordSeasonResult({ seasonId, userId, result, elo, now }) {
+  const win = result === 'win' ? 1 : 0;
+  const loss = result === 'loss' ? 1 : 0;
+  const draw = result === 'draw' ? 1 : 0;
+  const points = win * 3 + draw * 1;
+  const peak = Number.isFinite(elo) ? Math.round(elo) : 0;
+  const ts = Number(now) || Date.now();
+  await pool.query(
+    `INSERT INTO season_stats (season_id, user_id, wins, losses, draws, points, peak_elo, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (season_id, user_id) DO UPDATE SET
+       wins = season_stats.wins + EXCLUDED.wins,
+       losses = season_stats.losses + EXCLUDED.losses,
+       draws = season_stats.draws + EXCLUDED.draws,
+       points = season_stats.points + EXCLUDED.points,
+       peak_elo = GREATEST(season_stats.peak_elo, EXCLUDED.peak_elo),
+       updated_at = EXCLUDED.updated_at`,
+    [seasonId, userId, win, loss, draw, points, peak, ts]
+  );
+}
+
+export async function seasonLeaderboard(seasonId, limit = 50) {
+  const { rows } = await pool.query(
+    `SELECT s.user_id, s.wins, s.losses, s.draws, s.points, s.peak_elo,
+            u.username, u.elo, u.is_premium
+     FROM season_stats s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.season_id = $1
+     ORDER BY s.points DESC, s.peak_elo DESC, u.elo DESC
+     LIMIT $2`,
+    [seasonId, limit]
+  );
+  return rows;
+}
+
+export async function seasonStatsForUser(seasonId, userId) {
+  const { rows } = await pool.query(
+    'SELECT wins, losses, draws, points, peak_elo FROM season_stats WHERE season_id = $1 AND user_id = $2',
+    [seasonId, userId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  const r2 = await pool.query(
+    `SELECT COUNT(*) AS ahead FROM season_stats
+     WHERE season_id = $1 AND (points > $2 OR (points = $2 AND peak_elo > $3))`,
+    [seasonId, row.points, row.peak_elo]
+  );
+  return { ...row, rank: (Number(r2.rows[0].ahead) || 0) + 1 };
+}
+
+export async function seasonChampion(seasonId) {
+  const { rows } = await pool.query(
+    `SELECT s.user_id, s.points, s.peak_elo, s.wins, s.losses, s.draws,
+            u.username, u.is_premium
+     FROM season_stats s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.season_id = $1
+     ORDER BY s.points DESC, s.peak_elo DESC, u.elo DESC
+     LIMIT 1`,
+    [seasonId]
+  );
+  return rows[0] || null;
 }
 
 // --- Victim Wall (async mirror of db.js) -----------------------------------

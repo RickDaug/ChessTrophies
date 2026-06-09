@@ -23,7 +23,7 @@ import { mountBilling, mountBillingWebhook, logBillingStatus, stripeRevenueStats
 import { mountStore, logStoreStatus } from './entitlements.js';
 import { mountPush, logPushStatus } from './push.js';
 import { mountPuzzles } from './puzzles.js';
-import { attachSocketHandlers, notifyUser, getOnlineUserCount } from './game.js';
+import { attachSocketHandlers, notifyUser, getOnlineUserCount, seasonInfo, previousSeasonId } from './game.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -374,6 +374,77 @@ app.get('/api/me/victims', requireAuth, async (req, res, next) => {
       at: Number(r.created_at) || 0,
     }));
     res.json({ victims });
+  } catch (e) { if (!e.status) e.status = 500; next(e); }
+});
+
+// --- SEASONS (monthly competitive ladder) ----------------------------------
+// PUBLIC season snapshot: the current season id/name, when it ends (so the
+// client can render a "season ends in N days" countdown from `endsAt` without
+// its own clock quirks), the top-N leaderboard (by points then peak_elo), and —
+// for end-of-season recognition v1 — last season's champion if there is one.
+// Season performance is tracked SEPARATELY from the live ELO ladder (see
+// game.js recordSeasonResult). Mirrors the /api/rankings + /api/feared style.
+app.get('/api/season', async (req, res, next) => {
+  try {
+    const info = seasonInfo();
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+    const rows = await store.seasonLeaderboard(info.seasonId, limit);
+    const leaderboard = rows.map((r, i) => ({
+      rank: i + 1,
+      userId: r.user_id,
+      username: r.username,
+      points: Number(r.points) || 0,
+      wins: Number(r.wins) || 0,
+      losses: Number(r.losses) || 0,
+      draws: Number(r.draws) || 0,
+      peakElo: Number(r.peak_elo) || 0,
+      elo: Number(r.elo) || 0,
+      premium: !!r.is_premium,
+    }));
+    // End-of-season recognition v1: surface the PRIOR season's champion if any.
+    // (Full reward distribution can be a later cron — this just shows the name.)
+    let lastSeasonChampion = null;
+    try {
+      const champ = await store.seasonChampion(previousSeasonId());
+      if (champ) {
+        lastSeasonChampion = {
+          username: champ.username,
+          points: Number(champ.points) || 0,
+          premium: !!champ.is_premium,
+        };
+      }
+    } catch (e) { /* no prior champion -> omit */ }
+    res.json({
+      seasonId: info.seasonId,
+      name: info.name,
+      endsAt: info.endsAt,
+      startsAt: info.startsAt,
+      daysRemaining: info.daysRemaining,
+      leaderboard,
+      lastSeasonChampion,
+    });
+  } catch (e) { if (!e.status) e.status = 500; next(e); }
+});
+
+// AUTH: the caller's own current-season standing (points + W-L-D + rank).
+// Returns nulls (rank null, zeroed counters) when they haven't played a ranked
+// game this season yet.
+app.get('/api/season/me', requireAuth, async (req, res, next) => {
+  try {
+    const info = seasonInfo();
+    const me = await store.seasonStatsForUser(info.seasonId, req.userId);
+    res.json({
+      seasonId: info.seasonId,
+      name: info.name,
+      endsAt: info.endsAt,
+      daysRemaining: info.daysRemaining,
+      points: me ? Number(me.points) || 0 : 0,
+      wins: me ? Number(me.wins) || 0 : 0,
+      losses: me ? Number(me.losses) || 0 : 0,
+      draws: me ? Number(me.draws) || 0 : 0,
+      peakElo: me ? Number(me.peak_elo) || 0 : 0,
+      rank: me ? me.rank : null,
+    });
   } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 

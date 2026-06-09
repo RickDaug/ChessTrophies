@@ -498,6 +498,96 @@ export function recordStreakVictim({ winnerId, victimId, victimName, streakLen, 
   );
 }
 
+// --- SEASONS (monthly competitive ladder) ----------------------------------
+// One row per (season, user): the user's performance THIS season, tracked
+// SEPARATELY from the live ELO/W-L ladder on `users` (resetting that is risky).
+// `season_id` is the UTC calendar month, e.g. "2026-06". `points` is a simple
+// season score (+3 win / +1 draw, ranked games only). `peak_elo` snapshots the
+// user's highest ELO seen during the season. UPSERT-incremented idempotently per
+// finished ranked game. No FK on user_id (mirrors the streak/payments
+// convention) so a write can still land if the user row is momentarily missing.
+// All SQL parameterized.
+db.exec(`
+CREATE TABLE IF NOT EXISTS season_stats (
+  season_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  wins INTEGER NOT NULL DEFAULT 0,
+  losses INTEGER NOT NULL DEFAULT 0,
+  draws INTEGER NOT NULL DEFAULT 0,
+  points INTEGER NOT NULL DEFAULT 0,
+  peak_elo INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (season_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_season_stats_board ON season_stats(season_id, points DESC, peak_elo DESC);
+`);
+
+// Idempotently increment a user's season row for one finished ranked game.
+// result is 'win' | 'loss' | 'draw'. points: +3 win / +1 draw / 0 loss.
+// peak_elo is raised to the max of the existing value and the passed elo.
+// UPSERT so the first game of the season inserts and the rest increment.
+export function recordSeasonResult({ seasonId, userId, result, elo, now }) {
+  const win = result === 'win' ? 1 : 0;
+  const loss = result === 'loss' ? 1 : 0;
+  const draw = result === 'draw' ? 1 : 0;
+  const points = win * 3 + draw * 1;
+  const peak = Number.isFinite(elo) ? Math.round(elo) : 0;
+  const ts = Number(now) || Date.now();
+  return db.prepare(
+    `INSERT INTO season_stats (season_id, user_id, wins, losses, draws, points, peak_elo, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(season_id, user_id) DO UPDATE SET
+       wins = wins + excluded.wins,
+       losses = losses + excluded.losses,
+       draws = draws + excluded.draws,
+       points = points + excluded.points,
+       peak_elo = MAX(peak_elo, excluded.peak_elo),
+       updated_at = excluded.updated_at`
+  ).run(seasonId, userId, win, loss, draw, points, peak, ts);
+}
+
+// Top N for a season's leaderboard: ordered by points then peak_elo, joined to
+// users for the live username/elo/premium. Parameterized.
+export function seasonLeaderboard(seasonId, limit = 50) {
+  return db.prepare(
+    `SELECT s.user_id, s.wins, s.losses, s.draws, s.points, s.peak_elo,
+            u.username, u.elo, u.is_premium
+     FROM season_stats s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.season_id = ?
+     ORDER BY s.points DESC, s.peak_elo DESC, u.elo DESC
+     LIMIT ?`
+  ).all(seasonId, limit);
+}
+
+// A single user's season row + their 1-based rank (by points then peak_elo).
+// Returns null when the user has no row this season.
+export function seasonStatsForUser(seasonId, userId) {
+  const row = db.prepare(
+    'SELECT wins, losses, draws, points, peak_elo FROM season_stats WHERE season_id = ? AND user_id = ?'
+  ).get(seasonId, userId);
+  if (!row) return null;
+  const rankRow = db.prepare(
+    `SELECT COUNT(*) AS ahead FROM season_stats
+     WHERE season_id = ? AND (points > ? OR (points = ? AND peak_elo > ?))`
+  ).get(seasonId, row.points, row.points, row.peak_elo);
+  return { ...row, rank: (Number(rankRow.ahead) || 0) + 1 };
+}
+
+// The champion (rank 1) of a PRIOR season — used for end-of-season recognition.
+// Returns { username, points, ... } or null if that season had no participants.
+export function seasonChampion(seasonId) {
+  return db.prepare(
+    `SELECT s.user_id, s.points, s.peak_elo, s.wins, s.losses, s.draws,
+            u.username, u.is_premium
+     FROM season_stats s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.season_id = ?
+     ORDER BY s.points DESC, s.peak_elo DESC, u.elo DESC
+     LIMIT 1`
+  ).get(seasonId) || null;
+}
+
 // --- Cosmetic store: entitlements ------------------------------------------
 // One row per (user, sku) ownership grant for a one-time cosmetic purchase
 // (themed piece-set). UNIQUE(user_id, sku) makes grants idempotent — a webhook

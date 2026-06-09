@@ -995,6 +995,7 @@
     if (id === 'profile') renderProfile();
     if (id === 'rankings') renderRankings();
     if (id === 'feared') renderFeared();
+    if (id === 'season') renderSeason();
     if (id === 'trophies') renderTrophies();
     if (id === 'friends') { serverRequestsCache = null; renderFriendsList(); }
     // Academy lives in academy.js; it exposes window.CT_renderAcademy to populate #academy-content on demand.
@@ -1500,6 +1501,8 @@
     const upWrap = $('#lobby-premium-card');
     if (upWrap) upWrap.style.display = adsUnlocked() ? '' : 'none';
     applyPremiumCopy();
+    // Season ladder nudge ("Season ends in N days") — ranked-only, best-effort.
+    refreshSeasonNudge();
     // Today's Challenge card + Puzzles nav: only when the puzzle module loaded.
     const _puz = puzzlesAvailable();
     const dailyCard = $('#lobby-daily-card');
@@ -4513,6 +4516,15 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       catch (e) { toast('Find a ranked game to climb the wall.'); }
   }); }
 
+  // Season (monthly ladder) wiring — CSP-safe (no inline handlers).
+  { const b = $('#btn-open-season'); if (b) b.addEventListener('click', () => showScreen('season')); }
+  { const b = $('#btn-season-refresh'); if (b) b.addEventListener('click', () => renderSeason()); }
+  { const b = $('#btn-season-play'); if (b) b.addEventListener('click', () => {
+      if (typeof rankedEnabled === 'function' && !rankedEnabled()) { toast('Ranked play is coming soon.'); return; }
+      try { openTimeControlPicker({}, () => startOnlineOrFakeMatchmaking('ranked')); }
+      catch (e) { toast('Find a ranked game to climb the ladder.'); }
+  }); }
+
   const METRIC_INFO = {
     elo:      { label: 'ELO',     key: u => u.elo,                            unit: '' },
     wins:     { label: 'Wins',    key: u => u.wins,                           unit: 'W' },
@@ -4678,6 +4690,116 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         '<div style="text-align:right">' +
           '<div style="font-weight:800;color:#fb7185">🔥 ' + (Number(p.currentStreak) || 0) + '</div>' +
           '<div class="muted small">ELO ' + (Number(p.elo) || 0) + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // --- SEASON (monthly competitive ladder) ---------------------------------
+  // Cache the last fetched public season snapshot so the lobby nudge can show a
+  // "season ends in N days" line without an extra request on every lobby render.
+  let _seasonCache = null;
+
+  // Pull /api/season once (best-effort) and update the lobby nudge. Called from
+  // the lobby render; never throws.
+  async function refreshSeasonNudge() {
+    const card = $('#lobby-season-nudge');
+    if (!card) return;
+    // Only pitch the ladder when ranked is enabled (it's a ranked-only loop).
+    if (typeof rankedEnabled === 'function' && !rankedEnabled()) { card.style.display = 'none'; return; }
+    try {
+      const data = await api('/api/season');
+      _seasonCache = data || null;
+    } catch (e) { /* leave the nudge hidden on failure */ }
+    if (!_seasonCache) { card.style.display = 'none'; return; }
+    const days = Number(_seasonCache.daysRemaining) || 0;
+    const title = $('#lobby-season-title');
+    const sub = $('#lobby-season-sub');
+    if (title) title.textContent = '🏆 ' + (_seasonCache.name || 'Season') + ' ladder';
+    if (sub) sub.textContent = days > 0
+      ? `Season ends in ${days} day${days === 1 ? '' : 's'} — climb the ladder.`
+      : 'Final day of the season — climb the ladder!';
+    card.style.display = '';
+  }
+
+  // Render the Season view: name + "ends in N days" banner, your standing, the
+  // standings table, and last season's champion if present.
+  async function renderSeason() {
+    const banner = $('#season-name');
+    const countdown = $('#season-countdown');
+    const list = $('#season-list');
+    if (!list) return;
+    list.innerHTML = `<div class="card muted center">Loading the season…</div>`;
+    let data = null;
+    try {
+      data = await api('/api/season?limit=50');
+      _seasonCache = data || null;
+    } catch (e) {
+      list.innerHTML = `<div class="card muted center">Couldn't load the season right now. Try again.</div>`;
+      return;
+    }
+    if (!data) { list.innerHTML = `<div class="card muted center">No season data available.</div>`; return; }
+    if (banner) banner.textContent = data.name || 'This season';
+    const days = Number(data.daysRemaining) || 0;
+    if (countdown) countdown.textContent = days > 0
+      ? `⏳ Season ends in ${days} day${days === 1 ? '' : 's'}`
+      : '⏳ Final day of the season!';
+
+    // Last season's champion (end-of-season recognition v1).
+    const champWrap = $('#season-champion');
+    const champLine = $('#season-champion-line');
+    if (champWrap && champLine) {
+      if (data.lastSeasonChampion && data.lastSeasonChampion.username) {
+        const c = data.lastSeasonChampion;
+        champLine.innerHTML = escapeHTML(c.username) + (c.premium ? ' <span title="Premium">⭐</span>' : '') +
+          ' — ' + (Number(c.points) || 0) + ' pts';
+        champWrap.style.display = '';
+      } else {
+        champWrap.style.display = 'none';
+      }
+    }
+
+    // The caller's own standing (auth only; silent for guests).
+    const meWrap = $('#season-me');
+    const meLine = $('#season-me-line');
+    if (meWrap && meLine) {
+      meWrap.style.display = 'none';
+      if (typeof isServerLoggedIn === 'function' && isServerLoggedIn()) {
+        try {
+          const mine = await api('/api/season/me');
+          if (mine && (mine.rank || mine.points || mine.wins || mine.losses || mine.draws)) {
+            const rankTxt = mine.rank ? '#' + mine.rank : 'unranked';
+            meLine.textContent = `${rankTxt} · ${Number(mine.points) || 0} pts · ` +
+              `${Number(mine.wins) || 0}-${Number(mine.losses) || 0}-${Number(mine.draws) || 0} (W-L-D)`;
+            meWrap.style.display = '';
+          } else {
+            meLine.textContent = 'Play a ranked game this season to get on the board.';
+            meWrap.style.display = '';
+          }
+        } catch (e) { /* leave hidden */ }
+      }
+    }
+
+    const players = (data.leaderboard) || [];
+    if (!players.length) {
+      list.innerHTML = `<div class="card muted center">No ranked games played this season yet — be the first to climb. Win a ranked game (+3 pts) to top the ladder.</div>`;
+      return;
+    }
+    list.innerHTML = players.map((p) => {
+      const rankBadge = p.rank === 1 ? '👑' : p.rank + '.';
+      return '<div class="card" style="display:flex;align-items:center;gap:12px;margin-bottom:10px">' +
+        '<div style="font-size:18px;min-width:34px;text-align:center;font-weight:800">' + rankBadge + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:700;display:flex;align-items:center;gap:6px">' +
+            escapeHTML(p.username || 'Player') +
+            (p.premium ? ' <span title="Premium">⭐</span>' : '') +
+          '</div>' +
+          '<div class="muted small">' + (Number(p.wins) || 0) + '-' + (Number(p.losses) || 0) + '-' + (Number(p.draws) || 0) +
+            ' (W-L-D) · ELO ' + (Number(p.elo) || 0) + '</div>' +
+        '</div>' +
+        '<div style="text-align:right">' +
+          '<div style="font-weight:800;color:#facc15">' + (Number(p.points) || 0) + ' pts</div>' +
+          '<div class="muted small">peak ' + (Number(p.peakElo) || 0) + '</div>' +
         '</div>' +
       '</div>';
     }).join('');
@@ -5086,6 +5208,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const act = t.getAttribute('data-act');
     if (act === 'open-premium') openPremium();
     else if (act === 'open-daily') openDailyPuzzle();
+    else if (act === 'open-season') showScreen('season');
   });
 
   // ---------------------------------------------------------------------------

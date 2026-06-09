@@ -651,6 +651,17 @@
 
     <!-- Today's Challenge — opens the daily puzzle (puzzles.js). Hidden by app.js
          when the puzzle module failed to load (graceful degrade). -->
+    <div id="lobby-season-nudge" class="card" data-act="open-season" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(250,204,21,.10), var(--panel))">
+      <div class="pc-row" style="display:flex;align-items:center;gap:12px">
+        <div class="pc-icon" style="font-size:26px">🏆</div>
+        <div style="flex:1;min-width:0">
+          <div class="pc-title" style="font-weight:800;font-size:16px" id="lobby-season-title">Season ladder</div>
+          <div class="muted small" style="margin-top:4px" id="lobby-season-sub">Climb the monthly ladder before it resets.</div>
+        </div>
+        <div class="pill gold">View</div>
+      </div>
+    </div>
+
     <div id="lobby-daily-card" class="card" data-act="open-daily" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
       <div class="pc-row" style="display:flex;align-items:center;gap:12px">
         <div class="pc-icon" style="font-size:26px">🧩</div>
@@ -966,6 +977,13 @@
   <!-- RANKINGS -->
   <section id="screen-rankings" class="screen">
     <div class="top-bar"><h1>Rankings</h1></div>
+    <div class="card" id="season-promo" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">
+      <div>
+        <div style="font-weight:700">🏆 Season</div>
+        <div class="muted small" id="season-promo-sub">A fresh monthly ladder. Climb before it resets.</div>
+      </div>
+      <button class="btn small" id="btn-open-season" style="padding:8px 14px;white-space:nowrap">View season</button>
+    </div>
     <div class="card" id="feared-promo" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">
       <div>
         <div style="font-weight:700">🩸 Most Feared</div>
@@ -1000,6 +1018,30 @@
       <button class="btn small" id="btn-feared-revenge" style="padding:8px 14px">Find a ranked game</button>
     </div>
     <div id="feared-list"></div>
+  </section>
+
+  <!-- SEASON (monthly competitive ladder) -->
+  <section id="screen-season" class="screen">
+    <div class="top-bar"><h1>🏆 Season</h1></div>
+    <div class="card" id="season-banner" style="margin-bottom:12px;text-align:center">
+      <div style="font-weight:800;font-size:18px" id="season-name">This season</div>
+      <div class="muted small" id="season-countdown" style="margin-top:4px">Season ends soon — climb the ladder.</div>
+    </div>
+    <div class="card" id="season-me" style="margin-bottom:12px;display:none">
+      <div style="font-weight:700">Your standing</div>
+      <div class="muted small" id="season-me-line" style="margin-top:4px"></div>
+    </div>
+    <div class="card" id="season-champion" style="margin-bottom:12px;display:none">
+      <div style="font-weight:700">🥇 Last season's champion</div>
+      <div class="muted small" id="season-champion-line" style="margin-top:4px"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="btn btn-secondary small" id="btn-season-refresh" style="padding:8px 14px">Refresh</button>
+      <button class="btn small" id="btn-season-play" style="padding:8px 14px">Find a ranked game</button>
+    </div>
+    <h3 style="margin:8px 0">Standings</h3>
+    <div id="season-list"></div>
+    <p class="muted small center" style="margin-top:16px">Points: +3 per ranked win, +1 per draw. End-of-season rewards arrive after the month closes.</p>
   </section>
 
   <!-- TROPHIES -->
