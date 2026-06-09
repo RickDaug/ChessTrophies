@@ -1042,6 +1042,57 @@
       layer.appendChild(frag);
     } catch (e) {}
   }
+  // Named rating tiers. Crossing UP into a higher one on a ranked win is a
+  // celebratory "rank up" moment (the reveal below). Boundaries are every ~200
+  // ELO; names stay chess-credible.
+  var CT_TIERS = [
+    { min: 0,    name: 'Novice',           icon: '🪶' },
+    { min: 800,  name: 'Apprentice',       icon: '♟️' },
+    { min: 1000, name: 'Casual',           icon: '🛡️' },
+    { min: 1200, name: 'Intermediate',     icon: '⚔️' },
+    { min: 1400, name: 'Skilled',          icon: '🎯' },
+    { min: 1600, name: 'Advanced',         icon: '🔥' },
+    { min: 1800, name: 'Expert',           icon: '💎' },
+    { min: 2000, name: 'Candidate Master', icon: '👑' },
+    { min: 2200, name: 'Master',           icon: '🏅' },
+    { min: 2400, name: 'Grandmaster',      icon: '⭐' },
+  ];
+  function ctTierIndex(elo) {
+    var i = 0;
+    for (var k = 0; k < CT_TIERS.length; k++) { if (elo >= CT_TIERS[k].min) i = k; }
+    return i;
+  }
+  // A brief, centered "Rank Up!" reveal. Inline styles + CSS transitions only
+  // (CSP-safe, no @keyframes / no asset). Reduced-motion shows it static + brief.
+  function ctRankUpReveal(tier, newElo) {
+    try {
+      if (!tier) return;
+      var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var o = document.createElement('div');
+      o.setAttribute('role', 'status');
+      o.style.cssText = 'position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;pointer-events:none';
+      var card = document.createElement('div');
+      card.style.cssText = 'text-align:center;padding:24px 40px;border-radius:18px;background:linear-gradient(160deg,rgba(22,30,50,.97),rgba(12,18,32,.97));border:1px solid rgba(245,196,81,.5);box-shadow:0 18px 60px rgba(0,0,0,.55),0 0 0 1px rgba(245,196,81,.15)';
+      card.innerHTML = '<div style="font-size:48px;line-height:1">' + tier.icon + '</div>' +
+        '<div style="font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#f5c451;font-weight:800;margin-top:10px">Rank up</div>' +
+        '<div style="font-size:25px;font-weight:800;color:#fff;margin-top:2px">' + tier.name + '</div>' +
+        '<div style="font-size:13px;color:#9fb2cc;margin-top:4px">ELO ' + newElo + '</div>';
+      if (!reduce) {
+        card.style.opacity = '0';
+        card.style.transform = 'scale(.86) translateY(10px)';
+        card.style.transition = 'opacity .4s ease, transform .45s cubic-bezier(.2,1.3,.4,1)';
+      }
+      o.appendChild(card);
+      document.body.appendChild(o);
+      if (!reduce) {
+        requestAnimationFrame(function () { card.style.opacity = '1'; card.style.transform = 'scale(1) translateY(0)'; });
+        setTimeout(function () { card.style.opacity = '0'; card.style.transform = 'scale(1) translateY(-6px)'; }, 2100);
+        setTimeout(function () { if (o.parentNode) o.parentNode.removeChild(o); }, 2700);
+      } else {
+        setTimeout(function () { if (o.parentNode) o.parentNode.removeChild(o); }, 1700);
+      }
+    } catch (e) {}
+  }
   // Briefly punctuate a checkmate on the board: flash the mated king's square red
   // and topple the king (CSS). Visual only — does NOT touch the engine/board state.
   // Returns the delay (ms) the caller should wait before showing the result modal
@@ -4026,6 +4077,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Set true if the 7-win-streak milestone fired its own big confetti burst, so
     // the win-celebration block below doesn't fire a second competing burst.
     let streakBurstFired = false;
+    // Set to the new tier object if this ranked win crossed UP into a higher
+    // named tier; the centralized celebration block fires the reveal (so it
+    // respects the mate-moment delay + doesn't stack on the streak burst).
+    let rankUpTier = null;
 
     if (isRanked) {
       // Compute ELO change
@@ -4037,6 +4092,16 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       me.ratingHistory.push(me.elo);
       if (me.ratingHistory.length > 30) me.ratingHistory = me.ratingHistory.slice(-30);
       rewards.push(`<div class="card row between"><div>ELO</div><div class="pill ${delta >= 0 ? 'success' : 'danger'}"><span class="ct-elo-pop">${delta >= 0 ? '+' : ''}${delta}</span> (now ${me.elo})</div></div>`);
+
+      // Rank-up: did this win cross into a higher named tier? (Only on a gain —
+      // we never punish a rating drop with a "rank down" callout.)
+      if (delta > 0) {
+        const _newTierIdx = ctTierIndex(me.elo);
+        if (_newTierIdx > ctTierIndex(me.elo - delta)) {
+          rankUpTier = CT_TIERS[_newTierIdx];
+          rewards.unshift(`<div class="card row between" style="border-color:rgba(245,196,81,.55);background:linear-gradient(160deg,rgba(245,196,81,.10),transparent)"><div>${rankUpTier.icon} Rank up — <b>${rankUpTier.name}</b></div><div class="pill success">ELO ${me.elo}</div></div>`);
+        }
+      }
 
       // Opponent ELO update (saved in DB)
       const db = loadDB();
@@ -4370,6 +4435,11 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         // stack another burst on top (keeps win+streak cohesive, not competing).
         if (streakBurstFired) {
           // streak 'big' already played; nothing more to fire.
+        } else if (rankUpTier) {
+          // Crossing into a new tier is THE moment: a big burst + the reveal.
+          ctCelebrate('big');
+          try { if (window.ChessSounds && window.ChessSounds.streakMilestone) window.ChessSounds.streakMilestone(); } catch (e) {}
+          setTimeout(function () { ctRankUpReveal(rankUpTier, me.elo); }, 240);
         } else if (_newTrophies >= 2) {
           // Multiple unlocks: the loud, layered moment.
           ctCelebrate('big');
@@ -5389,6 +5459,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     recordDailyPlay, renderPlayStreak,
     // Pure daily-play-streak helpers, exposed for testing.
     _streak: { todayKey, yesterdayKeyOf, computePlayStreak },
+    // Rank-tier helpers + the reveal, exposed for testing.
+    _rank: { tiers: CT_TIERS, tierIndex: ctTierIndex, reveal: ctRankUpReveal },
   };
 
   if (document.readyState === 'loading') {
