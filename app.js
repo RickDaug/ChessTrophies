@@ -4469,6 +4469,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       if (!s || !s.token) return;               // guests / offline: nothing to sync
       const r = await api('/api/billing/sync', { method: 'POST', body: JSON.stringify({}) });
       if (!r || typeof r.isPremium !== 'boolean' || !state.user) return;
+      // Themed sets are a premium-only perk — enforce on EVERY sync (even when the
+      // flag didn't change) so a lapsed/cancelled member loses access (reverts to
+      // Classic) rather than keeping a set persisted in localStorage.
+      try { if (window.CT_Sets && window.CT_Sets.enforcePremium) window.CT_Sets.enforcePremium(r.isPremium); } catch (e) {}
       if (state.user.isPremium === r.isPremium) return;
       state.user.isPremium = r.isPremium;
       try { const db = loadDB(); if (db.users[state.user.id]) { db.users[state.user.id].isPremium = r.isPremium; saveDB(db); } } catch (e) {}
@@ -4485,6 +4489,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     showScreen('lobby');
     // Native AdMob banner: shown for free users, suppressed for premium. No-op on web.
     try { if (window.CT_Ads) window.CT_Ads.refresh(!!(state.user && state.user.isPremium)); } catch (e) {}
+    // Enforce the premium-only themed-set gate immediately from cached state
+    // (syncPremiumFromStripe re-enforces against Stripe's live status right after).
+    try { if (window.CT_Sets && window.CT_Sets.enforcePremium) window.CT_Sets.enforcePremium(!!(state.user && state.user.isPremium)); } catch (e) {}
     // Reconcile premium from Stripe (self-healing; best-effort, async).
     syncPremiumFromStripe();
   }

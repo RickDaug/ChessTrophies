@@ -103,6 +103,25 @@
     }).catch(function (e) { return null; });
   }
 
+  // Apply a set TEMPORARILY without persisting — used by the Store so anyone
+  // (incl. non-subscribers) can preview a set before subscribing. A reload or
+  // enforcePremium() will drop it.
+  function preview(slug) {
+    if (!slug || slug === 'classic') { activeSlug = null; clearBoard(); rerender(); return Promise.resolve(null); }
+    return load(slug).then(function (set) { activeSlug = slug; applyBoard(set); rerender(); return set; })
+      .catch(function () { return null; });
+  }
+
+  // Themed sets are a PREMIUM perk: usable only while the subscription is active.
+  // Call this once premium status is known (login / billing-sync). If the user is
+  // NOT premium but a premium set is active/persisted, revert to Classic — this is
+  // what makes a lapsed/cancelled member lose access to the cosmetics.
+  function enforcePremium(isPremium) {
+    if (isPremium) return;
+    var persisted = null; try { persisted = localStorage.getItem(EQUIP_KEY); } catch (e) {}
+    if (activeSlug || persisted) { activeSlug = null; clearBoard(); persist(null); rerender(); }
+  }
+
   function persist(slug) {
     try { if (slug) localStorage.setItem(EQUIP_KEY, slug); else localStorage.removeItem(EQUIP_KEY); } catch (e) {}
   }
@@ -127,7 +146,8 @@
 
   window.CT_PIECE_SETS_MANIFEST = MANIFEST;
   window.CT_Sets = {
-    manifest: manifest, get: get, load: load, equip: equip,
+    manifest: manifest, get: get, load: load, equip: equip, preview: preview,
+    enforcePremium: enforcePremium,
     activeSet: activeSet, activeSlug: activeSlugGet, isCached: isCached,
     pieceSVG: pieceSVG, init: init
   };
