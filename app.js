@@ -4965,9 +4965,15 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const list = $('#season-list');
     if (!list) return;
     list.innerHTML = `<div class="card muted center">Loading the season…</div>`;
+    // Fire BOTH requests up front so they run in PARALLEL (was sequential — the
+    // standing waited for the leaderboard round-trip to finish first).
+    const seasonP = api('/api/season?limit=50');
+    const meP = (typeof isServerLoggedIn === 'function' && isServerLoggedIn())
+      ? api('/api/season/me').catch(() => null)
+      : Promise.resolve(null);
     let data = null;
     try {
-      data = await api('/api/season?limit=50');
+      data = await seasonP;
       _seasonCache = data || null;
     } catch (e) {
       list.innerHTML = `<div class="card muted center">Couldn't load the season right now. Try again.</div>`;
@@ -4999,9 +5005,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const meLine = $('#season-me-line');
     if (meWrap && meLine) {
       meWrap.style.display = 'none';
-      if (typeof isServerLoggedIn === 'function' && isServerLoggedIn()) {
+      {
         try {
-          const mine = await api('/api/season/me');
+          const mine = await meP; // already in-flight (parallel with the leaderboard)
           if (mine && (mine.rank || mine.points || mine.wins || mine.losses || mine.draws)) {
             const rankTxt = mine.rank ? '#' + mine.rank : 'unranked';
             meLine.textContent = `${rankTxt} · ${Number(mine.points) || 0} pts · ` +
@@ -5145,7 +5151,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
 
   function renderTrophies() {
-  if (!state.user) return;
+    if (!state.user) return;
+    // Heavy build (~84 achievement tiers + streak cards = a ~100ms+ synchronous
+    // task). Defer past the screen-switch paint so the tab change is INSTANT; the
+    // trophy grids fill in one frame later.
+    requestAnimationFrame(_renderTrophiesNow);
+  }
+  function _renderTrophiesNow() {
+    if (!state.user) return;
     const u = state.user;
     const sWrap = $('#streak-trophies');
     if (u.streakTrophies.length === 0) {
@@ -5158,11 +5171,16 @@ $('#btn-mm-cancel').addEventListener('click', () => {
           <div class="desc">${t.victims.length} consecutive wins · tap to see opponents</div>
         </div>
       `).join('');
-      $$('#streak-trophies .trophy').forEach(el => {
-        el.addEventListener('click', () => {
-          const t = u.streakTrophies.find(x => x.id === el.dataset.trophyId);
-          if (t) showTrophyDetail(t);
-        });
+    }
+    // Delegated detail click (bound ONCE) — survives the innerHTML rebuild above
+    // and avoids binding a listener per trophy card on every render.
+    if (sWrap && !sWrap.dataset.boundDetail) {
+      sWrap.dataset.boundDetail = '1';
+      sWrap.addEventListener('click', (e) => {
+        const el = e.target && e.target.closest ? e.target.closest('.trophy[data-trophy-id]') : null;
+        if (!el || !state.user) return;
+        const t = state.user.streakTrophies.find(x => x.id === el.dataset.trophyId);
+        if (t) showTrophyDetail(t);
       });
     }
     const aWrap = $('#achievement-trophies');
