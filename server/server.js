@@ -136,7 +136,7 @@ app.use((req, res, next) => {
 });
 
 // Health
-app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'sentry-2026-06-08', litestream: HAS_LITESTREAM, sentry: !!Sentry }));
+app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'admin-dash-2026-06-09', litestream: HAS_LITESTREAM, sentry: !!Sentry }));
 
 // Public runtime config (NO auth). The client reads this to decide whether to
 // show ranked matchmaking UI. Server enforcement is separate (socket handlers),
