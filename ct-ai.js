@@ -274,6 +274,56 @@
     return { depth: 6, budget: 3800, noise: 0, slackN: 1, slackP: 0 };
   }
 
+  // ELO-TARGETED difficulty — a SMOOTH (continuous) version of difficultyFor used
+  // by bestMoveForElo so a backfill bot can match ANY opponent rating, not just
+  // the three named tiers. Same knobs (depth / noise / slack), same weakening
+  // machinery — we just interpolate them across the rating range instead of
+  // banding. Anchors below are chosen to line up with difficultyFor at the tier
+  // centres (~800/1300/1800) so behaviour stays consistent with the named tiers.
+  //   depth   : integer search depth (rounded from the interpolated value)
+  //   noise   : centipawns of root jitter (more at low elo => human blunders)
+  //   slackN  : how many top candidates are eligible (more at low elo)
+  //   slackP  : probability of taking a non-best candidate (higher at low elo)
+  // Higher elo => deeper + ~0 noise + slackN=1 (plays near-best, clean), so the
+  // endgame mate-conversion + the no-slack-past-mate guard keep working.
+  function _lerp(a, b, t) { return a + (b - a) * t; }
+  function _clamp(x, lo, hi) { return x < lo ? lo : (x > hi ? hi : x); }
+  // Piecewise-linear anchors over (elo -> knob). Monotonic in strength.
+  var ELO_ANCHORS = [
+    { elo: 600,  depth: 1, noise: 110, slackN: 5, slackP: 0.70 },
+    { elo: 800,  depth: 2, noise: 70,  slackN: 4, slackP: 0.55 },
+    { elo: 1000, depth: 2, noise: 55,  slackN: 4, slackP: 0.48 },
+    { elo: 1300, depth: 3, noise: 40,  slackN: 3, slackP: 0.40 },
+    { elo: 1500, depth: 3, noise: 28,  slackN: 3, slackP: 0.30 },
+    { elo: 1700, depth: 3, noise: 18,  slackN: 3, slackP: 0.22 },
+    { elo: 1800, depth: 4, noise: 12,  slackN: 2, slackP: 0.14 },
+    { elo: 2000, depth: 4, noise: 4,   slackN: 2, slackP: 0.06 },
+    { elo: 2200, depth: 5, noise: 0,   slackN: 1, slackP: 0 },
+    { elo: 2400, depth: 6, noise: 0,   slackN: 1, slackP: 0 },
+  ];
+  function difficultyForElo(targetElo) {
+    var elo = (typeof targetElo === 'number' && isFinite(targetElo)) ? targetElo : 1200;
+    elo = _clamp(elo, ELO_ANCHORS[0].elo, ELO_ANCHORS[ELO_ANCHORS.length - 1].elo);
+    // Find the bracketing anchors and interpolate each knob between them.
+    var lo = ELO_ANCHORS[0], hi = ELO_ANCHORS[ELO_ANCHORS.length - 1];
+    for (var i = 0; i < ELO_ANCHORS.length - 1; i++) {
+      if (elo >= ELO_ANCHORS[i].elo && elo <= ELO_ANCHORS[i + 1].elo) {
+        lo = ELO_ANCHORS[i]; hi = ELO_ANCHORS[i + 1]; break;
+      }
+    }
+    var span = (hi.elo - lo.elo) || 1;
+    var t = (elo - lo.elo) / span;
+    var depth = Math.max(1, Math.round(_lerp(lo.depth, hi.depth, t)));
+    var noise = Math.max(0, Math.round(_lerp(lo.noise, hi.noise, t)));
+    var slackN = Math.max(1, Math.round(_lerp(lo.slackN, hi.slackN, t)));
+    var slackP = _clamp(_lerp(lo.slackP, hi.slackP, t), 0, 1);
+    // Scale the time budget with depth so deeper searches aren't truncated mid-
+    // iteration (which would silently weaken high elos). Mirrors difficultyFor's
+    // roughly geometric budget growth.
+    var budget = 400 + depth * depth * 120;
+    return { depth: depth, budget: budget, noise: noise, slackN: slackN, slackP: slackP };
+  }
+
   // Resolve the CT_960Castle API on whichever global is live (window or worker
   // self). Returns null when chess960.js isn't loaded — callers must tolerate it.
   function _castleApi() {
@@ -297,7 +347,11 @@
   // chess960.js is loaded, legal 960 castles are added to the ROOT candidate set
   // and scored against the normal moves. When it is undefined the function takes
   // the byte-for-byte original standard-chess path (no castle augmentation).
-  function chooseMove(chess, aiElo, startFen960) {
+  // `cfgOverride` (optional, 4th arg) lets a caller supply an explicit difficulty
+  // config object (same shape as difficultyFor's return) INSTEAD of the banded
+  // difficultyFor(aiElo) lookup — used by bestMoveForElo to pass smoothly
+  // interpolated knobs. When omitted, behaviour is byte-for-byte the original.
+  function chooseMove(chess, aiElo, startFen960, cfgOverride) {
     aiElo = aiElo || 1200;
     var moves = chess.moves({ verbose: true });
     // 960 castle candidates (only when a 960 start FEN is supplied AND the
@@ -313,7 +367,7 @@
       castleDescs.forEach(function (d) { d.castle = true; d.from = d.kingFrom; d.to = d.kingTo; d.piece = 'k'; });
     }
     if (moves.length === 0 && castleDescs.length === 0) return null;
-    var cfg = difficultyFor(aiElo);
+    var cfg = cfgOverride || difficultyFor(aiElo);
     var turn = chess.turn();
     var maximizing = turn === 'w';
     var sign = maximizing ? 1 : -1;
@@ -454,10 +508,29 @@
     } catch (e) { return null; }
   }
 
+  // ELO-TARGETED move selection. Picks a move for the side to move in `fen`,
+  // tuned to play at roughly `targetElo` strength, by mapping the target rating
+  // onto smoothly-interpolated depth/noise/slack knobs (difficultyForElo) and
+  // feeding them through the SAME chooseMove weakening machinery (no new engine).
+  // Lower targetElo => shallower + noisier + slacker (more human-blundery);
+  // higher targetElo => deeper + clean (near-best). The no-slack-past-forced-mate
+  // guard inside chooseMove still fires, so high-elo bots convert K+Q / K+R mates.
+  // Returns the chosen verbose move (same shape as chooseMove), or null if there
+  // is no legal move / the FEN is unusable. Never throws — safe for edge FENs.
+  function bestMoveForElo(fen, targetElo) {
+    try {
+      var c = new (_ChessCtor())(fen);
+      if (typeof c.moves !== 'function' || c.moves().length === 0) return null;
+      var cfg = difficultyForElo(targetElo);
+      // aiElo (2nd arg) is informational here — cfg drives the actual strength.
+      return chooseMove(c, targetElo, undefined, cfg);
+    } catch (e) { return null; }
+  }
+
   // Expose on the correct global: window on the main thread, self inside a worker,
   // globalThis under Node (head-less tests).
   var glob = _g();
-  var api = { chooseMove: chooseMove, evaluate: evaluatePosition, bestMove: bestMove };
+  var api = { chooseMove: chooseMove, evaluate: evaluatePosition, bestMove: bestMove, bestMoveForElo: bestMoveForElo };
 
   // Worker-backed async search — ONLY on the main thread (window + Worker present).
   // Moves the up-to-~4s minimax search OFF the UI thread so the app never freezes.
