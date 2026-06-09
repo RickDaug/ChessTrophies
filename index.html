@@ -241,8 +241,9 @@
   /* BOTTOM NAV */
   #bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(11, 18, 32, 0.92); backdrop-filter: blur(12px); border-top: 1px solid var(--border); display: none; justify-content: space-around; padding: 8px 4px calc(8px + env(safe-area-inset-bottom)); max-width: 480px; margin: 0 auto; z-index: 50; }
   #bottom-nav.show { display: flex; }
-  .nav-item { flex: 1; padding: 8px 4px; text-align: center; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 600; transition: color .15s; }
+  .nav-item { flex: 1; padding: 8px 4px; text-align: center; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 600; transition: color .15s; background: none; border: 0; font-family: inherit; appearance: none; -webkit-appearance: none; }
   .nav-item.active { color: var(--accent); }
+  .nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; border-radius: 8px; }
   .nav-item svg { width: 22px; height: 22px; margin-bottom: 2px; }
 
   /* ACADEMY ROADMAP */
@@ -1184,27 +1185,27 @@
 <!-- BOTTOM NAV — 5 items for comfortable tap targets. Learn/Friends/Settings are
      reachable from within the screens (Profile shortcuts, Academy ⚙ Settings, lobby).
      The Puzzles item is hidden by app.js if puzzles.js failed to load. -->
-    <nav id="bottom-nav">
-      <div class="nav-item active" data-nav="lobby">
-        <span class="nav-icon">♟</span>
+    <nav id="bottom-nav" aria-label="Primary">
+      <button type="button" class="nav-item active" data-nav="lobby" aria-current="page">
+        <span class="nav-icon" aria-hidden="true">♟</span>
         <span class="nav-label">Play</span>
-      </div>
-      <div class="nav-item" data-nav="puzzles" id="nav-puzzles">
-        <span class="nav-icon">🧩</span>
+      </button>
+      <button type="button" class="nav-item" data-nav="puzzles" id="nav-puzzles">
+        <span class="nav-icon" aria-hidden="true">🧩</span>
         <span class="nav-label">Puzzles</span>
-      </div>
-      <div class="nav-item" data-nav="trophies">
-        <span class="nav-icon">🏆</span>
+      </button>
+      <button type="button" class="nav-item" data-nav="trophies">
+        <span class="nav-icon" aria-hidden="true">🏆</span>
         <span class="nav-label">Trophies</span>
-      </div>
-      <div class="nav-item" data-nav="rankings">
-        <span class="nav-icon">🏅</span>
+      </button>
+      <button type="button" class="nav-item" data-nav="rankings">
+        <span class="nav-icon" aria-hidden="true">🏅</span>
         <span class="nav-label">Rankings</span>
-      </div>
-      <div class="nav-item" data-nav="profile">
-        <span class="nav-icon">👤</span>
+      </button>
+      <button type="button" class="nav-item" data-nav="profile">
+        <span class="nav-icon" aria-hidden="true">👤</span>
         <span class="nav-label">Profile</span>
-      </div>
+      </button>
 </nav>
 </div>
 

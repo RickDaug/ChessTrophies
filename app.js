@@ -988,7 +988,9 @@
     $$('.screen').forEach(s => s.classList.remove('active'));
     $('#screen-' + id).classList.add('active');
     $$('#bottom-nav .nav-item').forEach(n => {
-      n.classList.toggle('active', n.dataset.nav === id);
+      const on = n.dataset.nav === id;
+      n.classList.toggle('active', on);
+      if (on) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current');
     });
     window.scrollTo(0, 0);
     if (id === 'lobby') renderLobby();
