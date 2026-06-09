@@ -16,6 +16,21 @@ import 'dotenv/config';
 // Surfaced on /health so a deploy can confirm backups infra is actually present.
 const HAS_LITESTREAM = (() => { try { return existsSync('/usr/local/bin/litestream'); } catch (e) { return false; } })();
 
+// Error tracking (Sentry) — env-gated like billing/push: lazy-imported so the
+// server boots fine WITHOUT the dep, and inert unless SENTRY_DSN is set.
+let Sentry = null;
+async function initSentry() {
+  if (!process.env.SENTRY_DSN) { console.log('[sentry] SENTRY_DSN not set — error tracking DISABLED'); return; }
+  try {
+    const mod = await import('@sentry/node');
+    mod.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV || 'production', tracesSampleRate: 0 });
+    Sentry = mod;
+    console.log('[sentry] error tracking ENABLED');
+  } catch (e) { console.error('[sentry] init failed (continuing without it):', e && e.message); Sentry = null; }
+}
+function captureException(err) { try { if (Sentry) Sentry.captureException(err); } catch (e) {} }
+await initSentry();
+
 import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, verifyEmailCode, resendEmailVerification } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
 // `db` is still imported directly only to close the SQLite handle on shutdown
@@ -121,7 +136,7 @@ app.use((req, res, next) => {
 });
 
 // Health
-app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'jwt-revoke-2026-06-08', litestream: HAS_LITESTREAM }));
+app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'sentry-2026-06-08', litestream: HAS_LITESTREAM, sentry: !!Sentry }));
 
 // Public runtime config (NO auth). The client reads this to decide whether to
 // show ranked matchmaking UI. Server enforcement is separate (socket handlers),
@@ -834,6 +849,7 @@ app.get('/', (req, res) => res.sendFile(path.join(staticDir, 'index.html')));
 app.use((err, req, res, next) => {
   console.error('[server]', err);
   const status = err.status || 500;
+  if (status >= 500) captureException(err); // report unexpected server errors to Sentry (no-op if unconfigured)
   // Surface friendly validation/auth messages for client errors (4xx);
   // hide unexpected server errors behind a generic message.
   const message = (status >= 400 && status < 500 && err.message) ? err.message : 'Internal server error';
@@ -912,8 +928,11 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 // manager restarts us in a known-good state.
 process.on('unhandledRejection', (reason) => {
   console.error('[unhandledRejection]', reason);
+  captureException(reason instanceof Error ? reason : new Error('unhandledRejection: ' + String(reason)));
 });
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err);
+  // Flush the crash to Sentry (up to 2s) before exiting so it isn't lost.
+  try { if (Sentry) { Sentry.captureException(err); Sentry.close(2000).finally(() => process.exit(1)); return; } } catch (e) {}
   process.exit(1);
 });

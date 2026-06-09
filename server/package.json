@@ -10,6 +10,7 @@
     "migrate": "node db.js"
   },
   "dependencies": {
+    "@sentry/node": "^8.0.0",
     "@socket.io/redis-adapter": "^8.3.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.1.2",
