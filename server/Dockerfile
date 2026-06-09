@@ -15,11 +15,13 @@ ARG LITESTREAM_VERSION=0.3.13
 # extract fails, the image builds without litestream and the entrypoint falls back
 # to plain `node server.js` (backups simply unavailable). tar extracts the whole
 # archive (the binary) rather than naming a member, which is more robust.
-RUN ( wget -qO /tmp/litestream.tar.gz "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-v${LITESTREAM_VERSION}-linux-amd64.tar.gz" \
-      && tar -C /usr/local/bin -xzf /tmp/litestream.tar.gz \
-      && rm -f /tmp/litestream.tar.gz \
-      && litestream version ) \
-    || echo "[docker] WARNING: Litestream install failed — building WITHOUT backups (entrypoint will run plain node server.js)."
+RUN ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)" \
+    && case "$ARCH" in arm64) LS_ARCH=arm64 ;; *) LS_ARCH=amd64 ;; esac \
+    && ( wget -qO /tmp/litestream.tar.gz "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-v${LITESTREAM_VERSION}-linux-${LS_ARCH}.tar.gz" \
+         && tar -C /usr/local/bin -xzf /tmp/litestream.tar.gz \
+         && rm -f /tmp/litestream.tar.gz \
+         && litestream version ) \
+    || echo "[docker] WARNING: Litestream install failed — building WITHOUT backups (entrypoint runs plain node server.js)."
 
 WORKDIR /app
 

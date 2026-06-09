@@ -9,7 +9,12 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import { Redis } from 'ioredis';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync } from 'node:fs';
 import 'dotenv/config';
+
+// Whether the Litestream binary made it into the image (build is best-effort).
+// Surfaced on /health so a deploy can confirm backups infra is actually present.
+const HAS_LITESTREAM = (() => { try { return existsSync('/usr/local/bin/litestream'); } catch (e) { return false; } })();
 
 import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, verifyEmailCode, resendEmailVerification } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
@@ -116,7 +121,7 @@ app.use((req, res, next) => {
 });
 
 // Health
-app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'litestream-2026-06-08' }));
+app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'litestream-2026-06-08', litestream: HAS_LITESTREAM }));
 
 // Public runtime config (NO auth). The client reads this to decide whether to
 // show ranked matchmaking UI. Server enforcement is separate (socket handlers),
