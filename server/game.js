@@ -1594,7 +1594,7 @@ async function maybeBotReply(io, game) {
 // anyone who waits too long, and re-pool players when their arena game ends.
 // Single-instance only (gated on !scaleR, like ranked bot-backfill). Every entry
 // point is failure-isolated — an arena error can never disturb ranked/casual.
-const ARENA_PAIR_INTERVAL_MS = Number(process.env.ARENA_PAIR_INTERVAL_MS) || 3000;
+const ARENA_PAIR_INTERVAL_MS = Number(process.env.ARENA_PAIR_INTERVAL_MS) || 2000;
 
 // Re-add a player to the pool after their arena game ends, IF the arena is still
 // live, they're still connected, and they haven't left. Called from the finish

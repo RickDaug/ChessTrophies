@@ -14,11 +14,16 @@
 import { requireAuth } from './auth.js';
 import * as store from './store.js';
 
-// --- Config (tunable constants) --------------------------------------------
-export const ARENA_DURATION_MS = Number(process.env.ARENA_DURATION_MS) || 30 * 60 * 1000; // each arena runs 30 min
-export const ARENA_BREAK_MS = Number(process.env.ARENA_BREAK_MS) || 10 * 60 * 1000;       // gap before the next one
-export const ARENA_TC = '5+0';                   // blitz: quick games, fast re-pair
-export const ARENA_BOT_WAIT_MS = Number(process.env.ARENA_BOT_WAIT_MS) || 8 * 1000; // pool wait before a bot game (L2)
+// --- Config (tunable constants; every one is env-overridable so the owner can
+// retune the live pacing on Railway without a redeploy) ----------------------
+// Pacing tuned for a snappy arena feel + a growing player base: short blitz
+// games (more games per event), a 20-min event with a short break (frequent
+// champions, little dead time), and fast matchmaking/bot-backfill so a lone
+// joiner is in a game within ~4s.
+export const ARENA_DURATION_MS = Number(process.env.ARENA_DURATION_MS) || 20 * 60 * 1000; // each arena runs 20 min
+export const ARENA_BREAK_MS = Number(process.env.ARENA_BREAK_MS) || 5 * 60 * 1000;        // gap before the next one
+export const ARENA_TC = process.env.ARENA_TC || '3+2';   // blitz w/ increment: ~6-10 games/arena, no flag-racing
+export const ARENA_BOT_WAIT_MS = Number(process.env.ARENA_BOT_WAIT_MS) || 4 * 1000; // pool wait before a bot game (L2)
 
 // Themed arena names, cycled deterministically by start slot.
 const ARENA_NAMES = [

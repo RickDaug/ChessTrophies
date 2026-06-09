@@ -43,10 +43,15 @@ An arena row: `{ id, name, tc, starts_at, ends_at, status, champion_id, created_
 - **Rolling:** `ensureArena(now)` guarantees exactly one arena that is live or
   upcoming. When the current one finishes, the next is scheduled to start after
   a short break. Defaults (config constants, easy to tune):
-  - duration `ARENA_DURATION_MS` = 30 min
-  - break between arenas `ARENA_BREAK_MS` = 10 min
-  - arena time control `ARENA_TC` = `5+0` (blitz, so games are quick and players
-    re-pair often). Requires adding `5+0` (and `3+2`) to game.js `TC_ALLOWLIST`.
+  - duration `ARENA_DURATION_MS` = 20 min (tuned down from 30 for more frequent
+    champions + leaderboard resets — env-overridable)
+  - break between arenas `ARENA_BREAK_MS` = 5 min (tuned down from 10 to minimize
+    dead "next arena in…" time — env-overridable)
+  - arena time control `ARENA_TC` = `3+2` (blitz w/ increment: ~6-10 games per
+    arena, no flag-racing; tuned from `5+0` — env-overridable). `5+0`/`3+2` are
+    in game.js `TC_ALLOWLIST`.
+  - bot-backfill wait `ARENA_BOT_WAIT_MS` = 4s, pairing pass every 2s
+    (`ARENA_PAIR_INTERVAL_MS`) — a lone joiner is in a game within ~4s.
   - names cycle a themed list (e.g. "Blitz Arena", "Knight Owl Arena", …).
 - A single `arenaTick()` (setInterval ~5s, guarded/failure-isolated) drives:
   flip `upcoming→live` at start, `live→finished` + finalize at end, ensure a

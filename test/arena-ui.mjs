@@ -35,7 +35,7 @@ const NOW = Date.now();
 const ARENA = {
   enabled: true,
   live: {
-    id: 'arena_test1', name: 'Blitz Arena', tc: '5+0',
+    id: 'arena_test1', name: 'Blitz Arena', tc: '3+2',
     startsAt: NOW - 5 * 60000, endsAt: NOW + 18 * 60000, status: 'live', championId: null, players: 3,
     top: [
       { rank: 1, userId: 'u1', username: 'Reaper', points: 11, games: 5, wins: 5, draws: 0, losses: 0, streak: 5, onFire: true },
