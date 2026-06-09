@@ -42,6 +42,15 @@ export function dailyIndex(dayKey, n) {
 
 // Strip server-only fields before sending a puzzle to the client. (Everything
 // in the seed is already public — this is future-proofing for DB columns.)
+//
+// RESIDUAL RISK (accepted, for now): /daily and /next still ship the full `moves`
+// solution line because the client's punish-then-retry UX drives its wrong-move
+// detection from it. The streak is no longer forgeable from this (POST /solved now
+// re-verifies the submitted line server-side), but a determined client could read
+// the answer out of the daily payload and replay it. To fully close this, move the
+// solution off the wire (e.g. validate moves server-side as they're played, or
+// send only the FEN + a per-step "was that correct?" check) — tracked as a
+// follow-up so we don't break the existing punish-then-retry loop here.
 function publicPuzzle(p) {
   return {
     id: p.id,
@@ -83,6 +92,45 @@ async function getPuzzleSet() {
   const fromDb = await loadDbPuzzles();
   const set = (fromDb && fromDb.length) ? fromDb : PUZZLE_SEED.slice();
   return set.slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+// The expected SOLVER line for a puzzle = the even-index plies of its `moves`
+// array (0,2,4,…). The odd plies are scripted opponent replies the UI auto-plays;
+// the player never submits those, so they are NOT part of the proof-of-solve.
+function solverLine(p) {
+  const out = [];
+  for (let i = 0; i < p.moves.length; i += 2) out.push(p.moves[i]);
+  return out;
+}
+
+// Normalize a UCI token for comparison: lowercase, trimmed, and tolerant of a
+// trailing promotion letter the client may or may not include (chess.js can emit
+// a 4-char UCI for a forced/queen promotion). We compare the from/to squares
+// strictly and the promotion piece only when BOTH sides specify one.
+function uciMatches(submitted, expected) {
+  if (typeof submitted !== 'string' || typeof expected !== 'string') return false;
+  const s = submitted.trim().toLowerCase();
+  const e = expected.trim().toLowerCase();
+  if (s === e) return true;
+  // from/to (first 4 chars) must match exactly.
+  if (s.slice(0, 4) !== e.slice(0, 4)) return false;
+  // If one side omits the promotion letter, accept (the squares already match
+  // and only one promotion is legal from->to for the moving pawn).
+  if (s.length === 4 || e.length === 4) return true;
+  return s.slice(4) === e.slice(4);
+}
+
+// Server-side proof check: does the submitted move line MATCH the stored solver
+// solution for this puzzle? The client must submit exactly the solver plies it
+// played, in order. Returns true only on a full, exact-length match.
+function verifySolution(puzzle, submittedMoves) {
+  if (!Array.isArray(submittedMoves)) return false;
+  const expected = solverLine(puzzle);
+  if (submittedMoves.length !== expected.length) return false;
+  for (let i = 0; i < expected.length; i++) {
+    if (!uciMatches(submittedMoves[i], expected[i])) return false;
+  }
+  return true;
 }
 
 // Pick the puzzle nearest `target` rating; ties broken by id for determinism.
@@ -128,16 +176,34 @@ export function mountPuzzles(app) {
   });
 
   // AUTH: record that the user solved a puzzle today (idempotent) + bump the
-  // daily streak. Validates the puzzleId exists in the active set so a client
-  // can't inflate its streak with arbitrary ids.
+  // daily streak. Requires PROOF of solve: the client must submit the solver's
+  // move line (`moves`), which the server validates against the stored solution
+  // for that puzzle. A bare puzzleId is NOT sufficient — without this check the
+  // streak was trivially forgeable (just POST any valid id). Only a CORRECT line
+  // records the solve + advances the streak; anything else is rejected (400).
   app.post('/api/puzzles/solved', requireAuth, async (req, res, next) => {
     try {
       const body = req.body || {};
       const puzzleId = typeof body.puzzleId === 'string' ? body.puzzleId.trim().slice(0, 128) : '';
       if (!puzzleId) return res.status(400).json({ error: 'puzzleId is required.' });
+      // The submitted solving line is REQUIRED proof of solve. Cap length to a
+      // sane bound so a giant payload can't be used to DoS the comparison.
+      const submittedMoves = Array.isArray(body.moves)
+        ? body.moves.slice(0, 64).map((m) => (typeof m === 'string' ? m : ''))
+        : null;
+      if (!submittedMoves || !submittedMoves.length) {
+        return res.status(400).json({ error: 'moves (the solving line) is required.' });
+      }
       const set = await getPuzzleSet();
-      if (!set.some((p) => p.id === puzzleId)) {
+      const puzzle = set.find((p) => p.id === puzzleId);
+      if (!puzzle) {
         return res.status(404).json({ error: 'Unknown puzzle.' });
+      }
+      // SERVER-SIDE VERIFICATION: the submitted line must match the stored solver
+      // solution (the even-index plies). Reject forged/incorrect solves with 400
+      // BEFORE touching the streak, so a wrong/missing line never advances it.
+      if (!verifySolution(puzzle, submittedMoves)) {
+        return res.status(400).json({ error: 'Incorrect solution.' });
       }
       const dayKey = utcDayKey();
       const result = await store.recordPuzzleSolved(req.userId, puzzleId, dayKey, Date.now());

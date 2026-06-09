@@ -138,20 +138,47 @@ async function partB() {
     assert(su.ok, `signup failed: ${su.status}`);
     const token = (await su.json()).token;
 
-    const s1 = await (await post('/api/puzzles/solved', { puzzleId: d1.puzzle.id }, token)).json();
+    // The CORRECT proof-of-solve line = the daily puzzle's even-index (solver)
+    // plies. The client must submit exactly these for the server to verify.
+    const solverLine = d1.puzzle.moves.filter((_, i) => i % 2 === 0);
+    assert(solverLine.length >= 1, 'daily puzzle has no solver plies');
+
+    // SECURITY: /solved must REQUIRE proof of solve. A bare id (no `moves`) must
+    // be rejected (400) and must NOT advance the streak — this is the forgery
+    // that the BLOCKER was about (curl the id => free streak).
+    const noMoves = await post('/api/puzzles/solved', { puzzleId: d1.puzzle.id }, token);
+    assert(noMoves.status === 400, `/solved without moves should be 400, got ${noMoves.status}`);
+    const progAfterNoMoves = await (await get('/api/puzzles/progress', token)).json();
+    assert(progAfterNoMoves.currentStreak === 0 && progAfterNoMoves.totalSolved === 0,
+      `missing-moves solve must NOT advance streak, got ${JSON.stringify(progAfterNoMoves)}`);
+    log('B4a OK — /solved with MISSING solution line rejected (400), streak unchanged ✓');
+
+    // A WRONG solution line must also be rejected (400) and not advance the streak.
+    const wrongLine = solverLine.slice();
+    wrongLine[0] = wrongLine[0] === 'a1a1' ? 'h1h1' : 'a1a1'; // a non-matching token
+    const wrong = await post('/api/puzzles/solved', { puzzleId: d1.puzzle.id, moves: wrongLine }, token);
+    assert(wrong.status === 400, `/solved with WRONG moves should be 400, got ${wrong.status}`);
+    const progAfterWrong = await (await get('/api/puzzles/progress', token)).json();
+    assert(progAfterWrong.currentStreak === 0 && progAfterWrong.totalSolved === 0,
+      `wrong-moves solve must NOT advance streak, got ${JSON.stringify(progAfterWrong)}`);
+    log('B4b OK — /solved with WRONG solution line rejected (400), streak unchanged ✓');
+
+    // The CORRECT solution line records the solve and advances the streak to 1.
+    const s1 = await (await post('/api/puzzles/solved', { puzzleId: d1.puzzle.id, moves: solverLine }, token)).json();
     assert(s1.ok && s1.solved, '/solved did not record');
     assert(s1.currentStreak === 1, `first solve streak should be 1, got ${s1.currentStreak}`);
     assert(s1.alreadySolved === false, 'first solve should not be alreadySolved');
-    log(`B4 OK — first solve records, streak=1 ✓`);
+    log(`B4 OK — CORRECT solution line records, streak=1 ✓`);
 
-    // Re-solving the SAME puzzle the SAME day must NOT inflate the streak.
-    const s2 = await (await post('/api/puzzles/solved', { puzzleId: d1.puzzle.id }, token)).json();
+    // Re-solving the SAME puzzle the SAME day (with the correct line) must NOT
+    // inflate the streak.
+    const s2 = await (await post('/api/puzzles/solved', { puzzleId: d1.puzzle.id, moves: solverLine }, token)).json();
     assert(s2.currentStreak === 1, `re-solve must keep streak at 1, got ${s2.currentStreak}`);
     assert(s2.alreadySolved === true, 're-solve should report alreadySolved=true');
-    log('B5 OK — idempotent: re-solving same puzzle keeps streak at 1 ✓');
+    log('B5 OK — idempotent: re-solving same puzzle (correct line) keeps streak at 1 ✓');
 
     // Unknown puzzle id is rejected (can't pad the streak with garbage ids).
-    const bad = await post('/api/puzzles/solved', { puzzleId: 'does-not-exist' }, token);
+    const bad = await post('/api/puzzles/solved', { puzzleId: 'does-not-exist', moves: solverLine }, token);
     assert(bad.status === 404, `unknown puzzleId should be 404, got ${bad.status}`);
     log('B6 OK — unknown puzzleId rejected (404) ✓');
 

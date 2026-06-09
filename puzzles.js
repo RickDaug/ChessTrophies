@@ -254,6 +254,9 @@
       solved: false,
       busy: false,
       punished: false,       // true after a wrong move's refutation is on the board
+      solverMoves: [],        // the solver's correct UCI plies, in order — this is
+                              // the proof-of-solve we POST to /solved for the
+                              // server to re-verify against the stored solution.
     };
     refs.title.textContent = p.title || 'Find the best move';
     refs.streak.style.display = 'none';
@@ -327,6 +330,10 @@
       var mv = state.chess.move({ from: from, to: to, promotion: promo });
       state.lastMove = { from: from, to: to };
       state.hintSquares = null;
+      // Record this correct solver ply as part of the proof-of-solve line we'll
+      // submit to /solved. Use the EXPECTED token so it always matches the stored
+      // solution's promotion spelling (the played token may omit/normalize it).
+      state.solverMoves.push(expected);
       renderBoard();
       state.stepIndex++;
       // Solved if we've consumed the whole line.
@@ -475,16 +482,19 @@
       }
     } catch (e) {}
     // Best-effort server record (auth-gated; ignore failures / unauthenticated).
-    recordSolved(p.id);
+    // Submit the solver's move line so the server can VERIFY the solve before it
+    // advances the streak — a bare id is no longer accepted.
+    recordSolved(p.id, state.solverMoves.slice());
   }
 
-  function recordSolved(puzzleId) {
+  function recordSolved(puzzleId, moves) {
     var token = authToken();
     var headers = { 'Content-Type': 'application/json' };
     if (token) headers.Authorization = 'Bearer ' + token;
     try {
       fetch(apiUrl('/api/puzzles/solved'), {
-        method: 'POST', headers: headers, body: JSON.stringify({ puzzleId: puzzleId }),
+        method: 'POST', headers: headers,
+        body: JSON.stringify({ puzzleId: puzzleId, moves: moves || [] }),
       }).then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) {
           if (data && typeof data.currentStreak === 'number' && data.currentStreak > 0) {
