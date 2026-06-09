@@ -888,6 +888,13 @@
       <div class="muted small" id="prof-email">—</div>
       <div class="muted small" id="prof-region" style="margin-top:4px">—</div>
     </div>
+    <!-- Coach: weekly improvement summary (rendered by coach.js) -->
+    <div id="profile-coach" style="margin-bottom:14px"></div>
+    <!-- Daily-reminder opt-in (shown only when Web Push is supported + configured + not yet subscribed) -->
+    <div class="card row between" id="profile-reminders" style="display:none">
+      <div><div style="font-weight:600">🔔 Daily reminders</div><div class="muted small">Don't lose your streak — get a nudge when today's puzzle is ready.</div></div>
+      <button class="btn btn-secondary small" id="btn-enable-reminders" style="white-space:nowrap">Enable</button>
+    </div>
     <div class="stat-grid">
       <div class="stat"><div class="v" id="prof-elo">—</div><div class="l">ELO</div></div>
       <div class="stat"><div class="v" id="prof-games">—</div><div class="l">Games</div></div>
@@ -1515,6 +1522,8 @@
      this module fails to load, app.js degrades the entry points gracefully. -->
 <script defer src="puzzles.js?v=20260607a"></script>
 <script defer src="shop.js?v=20260608a"></script>
+<script defer src="ct-push.js?v=20260608a"></script>
+<script defer src="coach.js?v=20260608a"></script>
 <script defer src="ct-sw-register.js?v=20260606c"></script>
 </body>
 </html>

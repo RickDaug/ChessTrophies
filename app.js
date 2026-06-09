@@ -4346,9 +4346,32 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   // ---------------------------------------------------------------------------
   // Profile screen
   // ---------------------------------------------------------------------------
+  // Show the daily-reminder opt-in only when Web Push is supported by the browser,
+  // configured on the server (VAPID set), the user is logged in, not already
+  // subscribed, and hasn't denied permission. Stays hidden otherwise (incl. while
+  // push is unconfigured), so it never nags.
+  function updateReminderCard() {
+    const card = $('#profile-reminders'); if (!card) return;
+    const btn = $('#btn-enable-reminders');
+    let show = false, subscribed = false;
+    try {
+      const P = window.CT_Push;
+      const supported = ('Notification' in window) && ('serviceWorker' in navigator) && ('PushManager' in window);
+      const enabled = !!(P && P.isEnabled && P.isEnabled());
+      subscribed = !!(P && P.isSubscribed && P.isSubscribed());
+      const denied = ('Notification' in window) && Notification.permission === 'denied';
+      show = !!(P && supported && enabled && !subscribed && !denied && state.user && !state.user.isGuest);
+    } catch (e) {}
+    card.style.display = show ? '' : 'none';
+    if (btn) btn.textContent = subscribed ? '✓ On' : 'Enable';
+  }
+
   function renderProfile() {
   if (!state.user) return;
     const u = state.user;
+    // Coach summary + daily-reminder opt-in (deferred modules; guard).
+    try { if (window.CT_Coach) window.CT_Coach.renderInto('#profile-coach'); } catch (e) {}
+    updateReminderCard();
     // Avatar: use custom/stock image or fallback to initial
   const profAvEl = $('#prof-avatar');
   if (profAvEl) {
@@ -4831,6 +4854,12 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // Deferred puzzles.js hasn't executed yet; DOMContentLoaded will be next.
       document.addEventListener('DOMContentLoaded', initPuzzles, { once: true });
     }
+    // Web Push: detect support/permission/config once (deferred ct-push.js, like puzzles).
+    const initPushSafe = function () {
+      try { if (window.CT_Push && window.CT_Push.init) window.CT_Push.init().then(function () { try { updateReminderCard(); } catch (e) {} }).catch(function () {}); } catch (e) {}
+    };
+    if (document.readyState === 'loading' || !window.CT_Push) document.addEventListener('DOMContentLoaded', initPushSafe, { once: true });
+    else initPushSafe();
     const session = getSession();
     const db = loadDB();
     if (session && (session.userId || session.token)) {
@@ -4898,6 +4927,16 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   // session). The static fallback link (#link-billing-portal) covers the rest.
   if ($('#btn-manage-subscription')) $('#btn-manage-subscription').addEventListener('click', () => {
     if (billingCfg.enabled) openBillingPortal();
+  });
+  // Profile → Enable daily reminders (Web Push opt-in; subscribes via ct-push.js).
+  if ($('#btn-enable-reminders')) $('#btn-enable-reminders').addEventListener('click', () => {
+    try {
+      if (!window.CT_Push || !window.CT_Push.subscribe) { toast('Reminders aren’t available on this device.'); return; }
+      Promise.resolve(window.CT_Push.subscribe()).then((ok) => {
+        toast(ok === false ? 'Couldn’t enable reminders.' : 'Reminders on — we’ll nudge you about your streak 🔔', ok !== false);
+        updateReminderCard();
+      }).catch(() => { toast('Couldn’t enable reminders.'); });
+    } catch (e) { toast('Couldn’t enable reminders.'); }
   });
   if ($('#btn-premium-close')) $('#btn-premium-close').addEventListener('click', () => closeModal('premium'));
 

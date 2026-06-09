@@ -21,6 +21,7 @@ import * as store from './store.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
 import { mountBilling, mountBillingWebhook, logBillingStatus, stripeRevenueStats } from './billing.js';
 import { mountStore, logStoreStatus } from './entitlements.js';
+import { mountPush, logPushStatus } from './push.js';
 import { mountPuzzles } from './puzzles.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount } from './game.js';
 
@@ -136,6 +137,10 @@ mountStore(app);
 // routes + an auth-gated /solved that records progress via the store facade.
 // Falls back to the bundled verified seed corpus when the puzzles table is empty.
 mountPuzzles(app);
+
+// Web Push re-engagement (subscribe/unsubscribe/test + config). Env-gated like
+// billing/email: inert (503) until VAPID_PUBLIC_KEY/PRIVATE_KEY/SUBJECT are set.
+mountPush(app);
 
 function requireStringField(body, name, { min = 1, max = 255 } = {}) {
   const value = body[name];
@@ -715,6 +720,8 @@ httpServer.listen(PORT, () => {
   logBillingStatus();
   // ...and how many cosmetic-store sets are live vs preview-only.
   logStoreStatus();
+  // ...and whether Web Push is configured (VAPID) or inert.
+  logPushStatus();
 });
 
 // --- Graceful shutdown + global error handlers ---------------------------------
