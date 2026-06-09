@@ -35,9 +35,8 @@ export function appUrl() {
   return (process.env.APP_URL || '').replace(/\/+$/, '');
 }
 
-// True when the Stripe SDK + secret key are available — enough to CREATE a
-// one-time Checkout Session and verify webhooks, independent of the subscription
-// STRIPE_PRICE_ID (the store sells one-time per-SKU prices, not the sub price).
+// True when the Stripe secret key is available — enough to verify inbound
+// webhook signatures, independent of the subscription STRIPE_PRICE_ID.
 export function stripeConfigured() {
   return !!process.env.STRIPE_SECRET_KEY;
 }
@@ -249,55 +248,14 @@ async function handleEvent(event) {
 
   try {
     if (type === 'checkout.session.completed') {
+      // SUBSCRIPTION premium flip ONLY. Themed piece-sets are now a premium
+      // perk (no one-time purchases), so this path is purely the subscription
+      // upgrade. Revenue is recorded on invoice.payment_succeeded so the first
+      // charge isn't counted twice.
       const customerId = typeof obj.customer === 'string' ? obj.customer : (obj.customer && obj.customer.id);
-      const meta = obj.metadata || {};
-      const isOneTimeSet = obj.mode === 'payment' || meta.kind === 'piece_set';
-      if (isOneTimeSet) {
-        // ONE-TIME cosmetic purchase (a themed piece-set). This path is fully
-        // ISOLATED from the subscription premium-flip above: it grants an
-        // entitlement and records revenue, but NEVER touches is_premium. We
-        // distinguish purely by session.mode ('payment' vs 'subscription') /
-        // metadata.kind, so a one-time set purchase can't accidentally grant
-        // premium and a subscription can't grant a set.
-        const sku = meta.sku;
-        const userId = obj.client_reference_id || (await userIdForCustomer(customerId));
-        if (sku && userId) {
-          // Grant the entitlement (idempotent on UNIQUE(user_id, sku)) and record
-          // the one-time revenue in the SAME transaction, both keyed on event.id
-          // so a webhook retry can neither double-grant nor double-count. The
-          // SQLite/Postgres transaction split is handled inside the store facade.
-          await store.grantSetPurchase({
-            userId, sku, eventId: event.id,
-            amountCents: obj.amount_total != null ? obj.amount_total : 0,
-            currency: obj.currency || 'usd',
-          });
-        } else {
-          console.error(`[billing] one-time checkout ${event.id} missing sku/userId (sku=${sku}, userId=${userId}); cannot grant.`);
-        }
-      } else {
-        // SUBSCRIPTION premium flip ONLY. Revenue is recorded on
-        // invoice.payment_succeeded so the first charge isn't counted twice.
-        const userId = obj.client_reference_id || (await userIdForCustomer(customerId));
-        if (userId) await store.setPremiumByUserId(userId, true, 'active');
-        else if (customerId) await store.setPremiumByCustomer(customerId, true, 'active');
-      }
-    } else if (type === 'charge.refunded' || type === 'charge.dispute.created') {
-      // Refund / chargeback of a one-time set purchase -> REVOKE the entitlement.
-      // The sku/user come from the metadata we mirrored onto the PaymentIntent at
-      // checkout (charge.metadata for charge.refunded; dispute.charge.metadata for
-      // disputes). Only acts when a piece_set sku is resolvable; never demotes
-      // premium (subscriptions are revoked via customer.subscription.*).
-      const charge = type === 'charge.refunded' ? obj : (obj.charge && typeof obj.charge === 'object' ? obj.charge : null);
-      const cmeta = (charge && charge.metadata) || obj.metadata || {};
-      if (cmeta.kind === 'piece_set' && cmeta.sku) {
-        let userId = cmeta.userId;
-        if (!userId) {
-          const customerId = charge && (typeof charge.customer === 'string' ? charge.customer : (charge.customer && charge.customer.id));
-          userId = await userIdForCustomer(customerId);
-        }
-        if (userId) await store.revokeEntitlement(userId, cmeta.sku);
-        else console.error(`[billing] ${type} ${event.id}: piece_set refund/dispute but no resolvable user for sku ${cmeta.sku}.`);
-      }
+      const userId = obj.client_reference_id || (await userIdForCustomer(customerId));
+      if (userId) await store.setPremiumByUserId(userId, true, 'active');
+      else if (customerId) await store.setPremiumByCustomer(customerId, true, 'active');
     } else if (type === 'invoice.payment_succeeded') {
       // The single source of truth for revenue (idempotent on event.id). Also
       // (re)affirm premium so renewals keep the user active.
@@ -341,10 +299,8 @@ async function handleEvent(event) {
 // Register POST /api/billing/webhook. MUST be mounted BEFORE express.json().
 export function mountBillingWebhook(app) {
   app.post('/api/billing/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-    // Gate on the Stripe SECRET KEY only (not the subscription STRIPE_PRICE_ID):
-    // the same webhook delivers BOTH subscription events and one-time store-set
-    // events, so a store-only deployment (secret + per-set prices, no sub price)
-    // must still accept and process webhooks.
+    // Gate on the Stripe SECRET KEY (enough to verify webhook signatures),
+    // independent of the subscription STRIPE_PRICE_ID.
     if (!stripeConfigured()) return res.status(503).json({ error: 'Billing is not configured yet.' });
     const stripe = await getStripe();
     if (!stripe) return res.status(503).json({ error: 'Billing is not configured yet.' });
