@@ -713,7 +713,8 @@
     if (!state.user) return [];
     const newly = checkAchievementsFor(state.user, {});
     if (newly.length) {
-      try { saveDB(state.user); } catch (e) {}
+      try { const db = loadDB(); if (state.user && db.users && db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); } } catch (e) {}
+      try { if (window.CT_syncProgress) window.CT_syncProgress(); } catch (e) {}
       if (!(opts && opts.silent)) {
         for (const def of newly) {
           try { toast(`🏆 Trophy unlocked: ${def.name}`, true); } catch (e) {}
@@ -3299,6 +3300,11 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     return {
       lessonsCompleted: (state.user && state.user.lessonsCompleted) || [],
       puzzles,
+      // Trophy leaderboard: push the earned trophies + the tier-weighted points so
+      // the server can rank this user. Server stores these verbatim (client-auth).
+      achievements: (state.user && state.user.achievements) || [],
+      streakTrophies: (state.user && state.user.streakTrophies) || [],
+      trophyPoints: userTrophyPoints(state.user),
     };
   }
 
@@ -4697,6 +4703,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       state.user = me;
       // A trophy earned this game may unlock a free board set — announce it.
       try { applyTrophyUnlocks(); } catch (e) {}
+      // Push trophies + points to the server so the trophy leaderboard updates.
+      try { if (window.CT_syncProgress) window.CT_syncProgress(); } catch (e) {}
     } else if (state.gameMode === 'friendly') {
       rewards.push(`<div class="card center muted">Friendly match — doesn't count against your record.</div>`);
     } else if (state.gameMode === 'unranked') {
@@ -5118,7 +5126,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   // Score a normalized player by the active metric.
   function rankScore(u, metric) {
     if (metric === 'wins') return u.wins || 0;
-    if (metric === 'trophies') return u.trophies || 0;
+    if (metric === 'trophies') return u.trophyPoints || u.trophies || 0;
     if (metric === 'streak') return u.bestStreak || 0;
     if (metric === 'checkers8') return u.eloCheckers8 || 1200;
     if (metric === 'checkers10') return u.eloCheckers10 || 1200;
@@ -5129,7 +5137,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     return {
       id: p.id, username: p.username || 'Player', region: p.region || '',
       elo: p.elo || 1200, wins: p.wins || 0, losses: p.losses || 0,
-      bestStreak: p.best_streak || 0, trophies: p.trophies || 0,
+      bestStreak: p.best_streak || 0, trophies: p.trophies || 0, trophyPoints: p.trophy_points || 0,
       eloCheckers8: p.elo_checkers_8 || 1200, eloCheckers10: p.elo_checkers_10 || 1200,
     };
   }
@@ -5141,6 +5149,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       elo: u.elo || 1200, wins: u.wins || 0, losses: u.losses || 0, draws: u.draws || 0,
       bestStreak: u.bestStreak || 0,
       trophies: ((u.streakTrophies && u.streakTrophies.length) || 0) + ((u.achievements && u.achievements.length) || 0),
+      trophyPoints: userTrophyPoints(u),
       eloCheckers8: ck.elo8 || 1200, eloCheckers10: ck.elo10 || 1200,
       checkersGames: (ck.wins || 0) + (ck.losses || 0) + (ck.draws || 0),
     };
@@ -5151,7 +5160,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   function participatedInMetric(u, metric) {
     if (metric === 'wins')     return (u.wins || 0) > 0;
     if (metric === 'streak')   return (u.bestStreak || 0) > 0;
-    if (metric === 'trophies') return (u.trophies || 0) > 0;
+    if (metric === 'trophies') return ((u.trophyPoints || 0) > 0) || ((u.trophies || 0) > 0);
     if (metric === 'checkers8' || metric === 'checkers10') return (u.checkersGames || 0) > 0;
     return ((u.wins || 0) + (u.losses || 0) + (u.draws || 0)) > 0; // elo
   }
@@ -5184,16 +5193,17 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       const top = i < 3 ? `top${i + 1}` : '';
       const meTag = u.id === me.id ? 'me' : '';
       const score = rankScore(u, currentRankMetric);
-      const scoreLabel = currentRankMetric === 'trophies' ? `${score}🏆` :
+      const scoreLabel = currentRankMetric === 'trophies' ? `${score} pts` :
                         currentRankMetric === 'wins' ? `${score}W` :
                         currentRankMetric === 'streak' ? `${score}🔥` :
                         score;
+      const metaExtra = currentRankMetric === 'trophies' ? ` · 🏆 ${u.trophies || 0}` : '';
       return `<div class="rank-row ${top} ${meTag}">
         <div class="rank-num">${i + 1}</div>
         <div class="avatar" style="width:32px;height:32px;font-size:13px">${escapeHTML((u.username[0] || '?').toUpperCase())}</div>
         <div class="rank-info">
           <div class="rank-name">${escapeHTML(u.username)}${u.id === me.id ? ' <span class="pill gold small">you</span>' : ''}</div>
-          <div class="rank-meta">${escapeHTML(u.region || '—')} · ELO ${u.elo} · ${u.wins}W ${u.losses}L</div>
+          <div class="rank-meta">${escapeHTML(u.region || '—')} · ELO ${u.elo} · ${u.wins}W ${u.losses}L${metaExtra}</div>
         </div>
         <div class="rank-elo">${scoreLabel}</div>
       </div>`;
@@ -5536,6 +5546,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   // feats carry a small flat bonus on top of their tier.
   function trophyPoints(def) {
     return (def.tier || 1) * 10 + (def.hidden ? 20 : 0) + (def.embarrassing ? 5 : 0);
+  }
+  // Total tier-weighted trophy points a user has earned (the trophy-leaderboard
+  // score). Catalog trophies only, so it matches the trophy-case hero's number.
+  function userTrophyPoints(user) {
+    if (!user) return 0;
+    let pts = 0;
+    for (const t of ACHIEVEMENT_TIERS) { if (hasAchievement(user, t.id)) pts += trophyPoints(t); }
+    return pts;
   }
 
   function _renderTrophiesNow() {

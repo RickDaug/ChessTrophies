@@ -14,6 +14,7 @@
     "test:review": "node test/review-eval.mjs",
     "test:rankings": "node test/rankings.mjs",
     "test:rankings-participation": "node test/rankings-participation.mjs",
+    "test:trophy-leaderboard": "node test/trophy-leaderboard.mjs",
     "test:session": "node test/session.mjs",
     "test:streak": "node test/streak.mjs",
     "test:admin": "node test/admin.mjs",
