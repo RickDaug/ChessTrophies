@@ -32,6 +32,8 @@
     "test:trophy-overhaul": "node test/trophy-overhaul.mjs",
     "test:trophy-cosmetics": "node test/trophy-cosmetics.mjs",
     "test:trophy-showcase": "node test/trophy-showcase.mjs",
+    "test:public-profile": "node test/public-profile.mjs",
+    "test:profile-viewer-ui": "node test/profile-viewer-ui.mjs",
     "test:puzzles": "node test/puzzles.mjs",
     "test:a11y": "node test/a11y.mjs",
     "test:arena": "node test/arena.mjs",

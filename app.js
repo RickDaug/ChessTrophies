@@ -1942,6 +1942,7 @@ function renderFriendsSummary() {
           '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(f.username) + '</div>' +
           '<div class="muted small">ELO ' + f.elo + ' \u00b7 ' + (f.wins||0) + 'W ' + (f.losses||0) + 'L</div></div>' +
           '<div class="friend-actions" style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
+            '<button type="button" class="pill fc-profile" data-fid="' + escapeHTML(String(f.id)) + '" title="View profile" style="cursor:pointer;background:#2a3142;color:var(--muted);border:1px solid var(--border);">👤</button>' +
             '<button type="button" class="pill gold fc-go-chess" data-fid="' + escapeHTML(String(f.id)) + '" title="Challenge to chess" style="cursor:pointer;border:none;">♟ Chess</button>' +
             '<button type="button" class="pill fc-go-checkers" data-fid="' + escapeHTML(String(f.id)) + '" title="Challenge to checkers" style="cursor:pointer;background:#2a3142;color:var(--accent,#ffd97a);border:1px solid var(--accent,#ffd97a);">⛀ Checkers</button>' +
           '</div></div>';
@@ -1954,6 +1955,9 @@ function renderFriendsSummary() {
     });
     // Explicit per-friend challenge buttons (clearer than the catch-all modal):
     // one starts a chess challenge, the other a checkers challenge directly.
+    $$('#friends-list .fc-profile').forEach(function(b){
+      b.addEventListener('click', function(e){ e.stopPropagation(); openUserProfile(b.dataset.fid); });
+    });
     $$('#friends-list .fc-go-chess').forEach(function(b){
       b.addEventListener('click', function(e){ e.stopPropagation(); startFriendChess(b.dataset.fid); });
     });
@@ -2000,6 +2004,7 @@ function renderFriendsSummary() {
           '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(f.username) + '</div>' +
           '<div class="muted small">ELO ' + (f.elo || 1200) + ' · ' + (f.wins||0) + 'W ' + (f.losses||0) + 'L</div></div>' +
           '<div class="friend-actions" style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
+            '<button type="button" class="pill fc-profile" data-fid="' + escapeHTML(String(f.id)) + '" title="View profile" style="cursor:pointer;background:#2a3142;color:var(--muted);border:1px solid var(--border);">👤</button>' +
             '<button type="button" class="pill gold fc-go-chess" data-fid="' + escapeHTML(String(f.id)) + '" title="Challenge to chess" style="cursor:pointer;border:none;">♟ Chess</button>' +
             '<button type="button" class="pill fc-go-checkers" data-fid="' + escapeHTML(String(f.id)) + '" title="Challenge to checkers" style="cursor:pointer;background:#2a3142;color:var(--accent,#ffd97a);border:1px solid var(--accent,#ffd97a);">⛀ Checkers</button>' +
           '</div></div>';
@@ -2012,6 +2017,9 @@ function renderFriendsSummary() {
     });
     // Explicit per-friend challenge buttons (clearer than the catch-all modal):
     // one starts a chess challenge, the other a checkers challenge directly.
+    $$('#friends-list .fc-profile').forEach(function(b){
+      b.addEventListener('click', function(e){ e.stopPropagation(); openUserProfile(b.dataset.fid); });
+    });
     $$('#friends-list .fc-go-chess').forEach(function(b){
       b.addEventListener('click', function(e){ e.stopPropagation(); startFriendChess(b.dataset.fid); });
     });
@@ -5154,6 +5162,57 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     openModal('showcase');
   }
 
+  // Public profile viewer — fetches a SAFE subset for any user (rankings/friends)
+  // and renders their stats + trophy showcase into a modal. Your own id routes to
+  // your editable profile screen instead.
+  async function openUserProfile(id) {
+    if (!id) return;
+    if (state.user && id === state.user.id) { showScreen('profile'); return; }
+    const body = $('#user-profile-body');
+    if (body) body.innerHTML = '<div class="card muted center">Loading…</div>';
+    openModal('user-profile');
+    let p = null;
+    try { p = await api('/api/users/' + encodeURIComponent(id) + '/profile'); } catch (e) {}
+    if (!body) return;
+    if (!p || !p.username) { body.innerHTML = '<div class="card muted center">Couldn\'t load this profile.</div>'; return; }
+    const games = (p.wins || 0) + (p.losses || 0) + (p.draws || 0);
+    const winrate = games ? Math.round((p.wins / games) * 100) + '%' : '—';
+    const showIds = (p.showcase || []).filter(sid => ACHIEVEMENT_TIERS.find(t => t.id === sid));
+    const showHTML = showIds.length
+      ? '<div class="showcase-row">' + showIds.map(sid => {
+          const def = ACHIEVEMENT_TIERS.find(t => t.id === sid);
+          return `<div class="showcase-item"><div class="icon">${trophyArtHTML(def, true)}</div><div class="showcase-name">${escapeHTML(def.name)}</div></div>`;
+        }).join('') + '</div>'
+      : '<div class="muted small">No showcase set yet.</div>';
+    const avatarHTML = (typeof getAvatarHTML === 'function')
+      ? getAvatarHTML({ avatarStock: p.avatarStock, avatarDataUrl: p.avatarDataUrl, username: p.username }, 72)
+      : '';
+    body.innerHTML = `
+      <div class="center">
+        <div style="width:72px;height:72px;margin:0 auto">${avatarHTML}</div>
+        <h2 style="margin-top:8px">${escapeHTML(p.username)}${p.isPremium ? ' <span class="pill gold small">⭐ Premium</span>' : ''}</h2>
+        <div class="muted small" style="margin-top:2px">${escapeHTML(p.region || '—')}</div>
+      </div>
+      <div class="stat-grid" style="margin-top:14px">
+        <div class="stat"><div class="v">${p.elo}</div><div class="l">ELO</div></div>
+        <div class="stat"><div class="v">${p.wins}</div><div class="l">Wins</div></div>
+        <div class="stat"><div class="v">${winrate}</div><div class="l">Win rate</div></div>
+      </div>
+      <div class="stat-grid" style="margin-top:8px">
+        <div class="stat"><div class="v">${p.bestStreak || 0}</div><div class="l">Best streak</div></div>
+        <div class="stat"><div class="v">${p.arenaWins || 0}</div><div class="l">🏆 Arena</div></div>
+        <div class="stat"><div class="v">${p.trophyCount || 0}</div><div class="l">Trophies</div></div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="row between" style="margin-bottom:${showIds.length ? '10px' : '6px'}">
+          <div style="font-weight:700">🏆 Trophy showcase</div>
+          <div class="muted small">${(p.trophyPoints || 0).toLocaleString()} pts</div>
+        </div>
+        ${showHTML}
+      </div>`;
+  }
+  window.CT_openUserProfile = openUserProfile;
+
   // ---------------------------------------------------------------------------
   // Rankings screen
   // ---------------------------------------------------------------------------
@@ -5279,7 +5338,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
                         currentRankMetric === 'streak' ? `${score}🔥` :
                         score;
       const metaExtra = currentRankMetric === 'trophies' ? ` · 🏆 ${u.trophies || 0}` : '';
-      return `<div class="rank-row ${top} ${meTag}">
+      // Server-backed rows carry a real user id → tap to view that player's profile.
+      const viewable = serverBacked && u.id ? ` data-view-user="${escapeHTML(String(u.id))}" style="cursor:pointer"` : '';
+      return `<div class="rank-row ${top} ${meTag}"${viewable}>
         <div class="rank-num">${i + 1}</div>
         <div class="avatar" style="width:32px;height:32px;font-size:13px">${escapeHTML((u.username[0] || '?').toUpperCase())}</div>
         <div class="rank-info">
@@ -5290,6 +5351,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       </div>`;
     }).join('');
     wrap.innerHTML = summary + rows;
+    // Delegated tap → public profile viewer (bound once; survives re-renders).
+    if (!wrap.dataset.boundProfile) {
+      wrap.dataset.boundProfile = '1';
+      wrap.addEventListener('click', (e) => {
+        const row = e.target && e.target.closest ? e.target.closest('.rank-row[data-view-user]') : null;
+        if (row) openUserProfile(row.dataset.viewUser);
+      });
+    }
   }
 
   // Rankings are server-authoritative: a logged-in account pulls the real global
@@ -5888,6 +5957,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
   $('#btn-trophy-close').addEventListener('click', () => closeModal('trophy-detail'));
   { const _sc = $('#btn-showcase-close'); if (_sc) _sc.addEventListener('click', () => closeModal('showcase')); }
+  { const _up = $('#btn-user-profile-close'); if (_up) _up.addEventListener('click', () => closeModal('user-profile')); }
 
   function escapeHTML(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));

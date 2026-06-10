@@ -318,6 +318,37 @@ app.get('/api/me', requireAuth, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// Public profile — a SAFE subset of any user (no email/token/customer ids), for
+// the in-app profile viewer reached from rankings/friends. Public on purpose: it
+// exposes only what the leaderboard already does (name/region/rating/record) plus
+// the user's earned trophies + pinned showcase. Rate-limited by the global limiter.
+app.get('/api/users/:id/profile', async (req, res, next) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!id) { res.status(400).json({ error: 'Missing user id.' }); return; }
+    const u = await store.getUserById(id);
+    if (!u) { res.status(404).json({ error: 'User not found.' }); return; }
+    let achievements = [], streakTrophies = [];
+    try { const a = JSON.parse(u.achievements || '[]'); if (Array.isArray(a)) achievements = a; } catch (e) {}
+    try { const s = JSON.parse(u.streak_trophies || '[]'); if (Array.isArray(s)) streakTrophies = s; } catch (e) {}
+    const progress = store.getProgress(u); // { lessonsCompleted, puzzles, showcase }
+    res.json({
+      id: u.id, username: u.username, region: u.region || '',
+      elo: u.elo, wins: u.wins, losses: u.losses, draws: u.draws,
+      bestStreak: u.best_streak, isPremium: !!u.is_premium,
+      avatarStock: u.avatar_stock || 'av_knight', avatarDataUrl: u.avatar_data_url || '',
+      arenaWins: u.arena_wins || 0,
+      trophyPoints: u.trophy_points || 0,
+      trophyCount: achievements.length + streakTrophies.length,
+      streakTrophyCount: streakTrophies.length,
+      // Earned achievement ids (+ counts) so the client renders the showcase/case.
+      achievements: achievements.map(a => ({ id: a.id, count: (a.count != null ? a.count : 1) })).filter(a => a.id),
+      showcase: Array.isArray(progress.showcase) ? progress.showcase.slice(0, 5) : [],
+      memberSince: u.created_at || 0,
+    });
+  } catch (e) { next(e); }
+});
+
 // Persist the player's chosen avatar so opponents can see it in-game. Both fields
 // are optional; data URLs are size-capped to avoid bloating the row.
 app.post('/api/profile/avatar', requireAuth, async (req, res, next) => {
@@ -704,7 +735,23 @@ app.post('/api/progress', requireAuth, async (req, res, next) => {
       if (!Array.isArray(body.showcase)) throw new Error('showcase must be an array.');
       showcase = body.showcase.filter(x => typeof x === 'string' && x.length <= 40).slice(0, 5);
     }
-    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles, showcase });
+    // Trophy leaderboard fields (client-authoritative). Forwarded to the store,
+    // which persists them into the achievements/streak_trophies/trophy_points
+    // columns. Bounded here; the store validates again.
+    let achievements, streakTrophies, trophyPoints;
+    if (body.achievements !== undefined) {
+      if (!Array.isArray(body.achievements)) throw new Error('achievements must be an array.');
+      achievements = body.achievements.filter(a => a && typeof a === 'object' && typeof a.id === 'string').slice(0, 2000);
+    }
+    if (body.streakTrophies !== undefined) {
+      if (!Array.isArray(body.streakTrophies)) throw new Error('streakTrophies must be an array.');
+      streakTrophies = body.streakTrophies.slice(0, 2000);
+    }
+    if (body.trophyPoints !== undefined) {
+      if (!Number.isFinite(body.trophyPoints)) throw new Error('trophyPoints must be a number.');
+      trophyPoints = body.trophyPoints;
+    }
+    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles, showcase, achievements, streakTrophies, trophyPoints });
     res.json(result);
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
