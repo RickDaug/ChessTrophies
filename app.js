@@ -725,9 +725,30 @@
         renderLobby && renderLobby();
       } catch (e) {}
     }
+    // Trophy-tied cosmetic unlocks ride on the same achievement state.
+    try { applyTrophyUnlocks(opts); } catch (e) {}
     return newly;
   }
   window.CT_reconcileTrophies = reconcileMilestoneTrophies;
+  // Recompute which board/piece sets the user has unlocked via trophies and tell
+  // CT_Sets (piece-sets.js). Toasts each set the moment its trophy is earned
+  // (unless silent — e.g. the boot catch-up, where the sets are already "owned").
+  function applyTrophyUnlocks(opts) {
+    if (!state.user || !window.CT_Sets || !window.CT_Sets.setTrophyUnlocks) return [];
+    const earned = (state.user.achievements || [])
+      .filter(a => ((a.count != null) ? a.count : 1) > 0)
+      .map(a => a.id);
+    let newly = [];
+    try { newly = window.CT_Sets.setTrophyUnlocks(earned) || []; } catch (e) {}
+    if (newly.length && !(opts && opts.silent)) {
+      for (const slug of newly) {
+        const m = window.CT_Sets.get && window.CT_Sets.get(slug);
+        if (m) toast(`🎨 Board set unlocked: ${m.name} — equip it free in the Store!`, true);
+      }
+    }
+    return newly;
+  }
+  window.CT_applyTrophyUnlocks = applyTrophyUnlocks;
   function tierColor(tier) {
     return ['#cd7f32','#9aa0b3','#f5c451','#7dd4ff','#c084fc','#34d399','#fb7185','#ffffff'][Math.min((tier || 1) - 1, 7)];
   }
@@ -4674,6 +4695,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       db2.users[me.id] = me;
       saveDB(db2);
       state.user = me;
+      // A trophy earned this game may unlock a free board set — announce it.
+      try { applyTrophyUnlocks(); } catch (e) {}
     } else if (state.gameMode === 'friendly') {
       rewards.push(`<div class="card center muted">Friendly match — doesn't count against your record.</div>`);
     } else if (state.gameMode === 'unranked') {
@@ -5711,6 +5734,16 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       const when = e && (e.firstAt || e.awardedAt);
       metaLine = `<div class="muted small center" style="margin-top:6px">Earned${when ? ' ' + new Date(when).toLocaleDateString() : ''}${cnt > 1 ? ` · earned ×${cnt}` : ''}</div>`;
     }
+    // Cosmetic reward: some trophies unlock a free board set.
+    let rewardLine = '';
+    try {
+      const reward = window.CT_Sets && window.CT_Sets.unlockForAchievement && window.CT_Sets.unlockForAchievement(def.id);
+      if (reward) {
+        rewardLine = got
+          ? `<div class="card center" style="margin-top:12px;border-color:${color}66;background:linear-gradient(160deg, ${color}1a, var(--panel))">🎨 Unlocks the <b>${escapeHTML(reward.name)}</b> board set — <span data-open-store="1" style="color:var(--accent);cursor:pointer;text-decoration:underline">equip it free</span></div>`
+          : `<div class="card center muted" style="margin-top:12px">🎨 Reward: unlocks the <b>${escapeHTML(reward.name)}</b> board set (free)</div>`;
+      }
+    } catch (e2) {}
     const body = $('#trophy-detail-body');
     body.innerHTML = `
       <div class="center">
@@ -5721,6 +5754,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         ${metaLine}
         ${progHTML}
       </div>
+      ${rewardLine}
       ${got && !def.embarrassing ? `<button class="btn btn-block" id="btn-share-ach" style="margin-top:16px">Share trophy card</button>` : ''}`;
     const sb = document.getElementById('btn-share-ach');
     if (sb) sb.addEventListener('click', () => { if (window.CT_shareTrophyCard) window.CT_shareTrophyCard(def); });
@@ -5782,6 +5816,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // Themed sets are a premium-only perk — enforce on EVERY sync (even when the
       // flag didn't change) so a lapsed/cancelled member loses access (reverts to
       // Classic) rather than keeping a set persisted in localStorage.
+      try { applyTrophyUnlocks({ silent: true }); } catch (e) {}
       try { if (window.CT_Sets && window.CT_Sets.enforcePremium) window.CT_Sets.enforcePremium(r.isPremium); } catch (e) {}
       if (state.user.isPremium === r.isPremium) return;
       state.user.isPremium = r.isPremium;
@@ -5799,8 +5834,11 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     showScreen('lobby');
     // Native AdMob banner: shown for free users, suppressed for premium. No-op on web.
     try { if (window.CT_Ads) window.CT_Ads.refresh(!!(state.user && state.user.isPremium)); } catch (e) {}
-    // Enforce the premium-only themed-set gate immediately from cached state
-    // (syncPremiumFromStripe re-enforces against Stripe's live status right after).
+    // Populate trophy-unlocked sets first, then enforce the premium-only gate from
+    // cached state (syncPremiumFromStripe re-enforces against Stripe right after).
+    // Order matters: enforcePremium must see the unlocked list so it won't strip a
+    // trophy-earned set from a non-subscriber.
+    try { applyTrophyUnlocks({ silent: true }); } catch (e) {}
     try { if (window.CT_Sets && window.CT_Sets.enforcePremium) window.CT_Sets.enforcePremium(!!(state.user && state.user.isPremium)); } catch (e) {}
     // Reconcile premium from Stripe (self-healing; best-effort, async).
     syncPremiumFromStripe();

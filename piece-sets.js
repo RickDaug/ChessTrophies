@@ -41,10 +41,24 @@
     { slug: 'zombies-survivors',   name: 'Zombies vs Survivors',             factions: { w: 'Survivors', b: 'Zombies' },          price: 299, era: 'Apocalypse',     accent: '#7f8c8d' }
   ];
 
+  // TROPHY UNLOCKS — a curated subset of sets is earnable FREE by hitting a
+  // milestone trophy (no Premium needed); the rest stay Premium-only so the
+  // subscription keeps real exclusive value. slug -> { ach: <achievement id>,
+  // label: <how to earn it> }. The achievement ids live in trophy-data.js.
+  var UNLOCKS = {
+    'vikings-saxons':       { ach: 'streak_t4',  label: 'Win 10 ranked games in a row' },
+    'gods-titans':          { ach: 'wins_t6',    label: 'Win 100 ranked games' },
+    'dragons-slayers':      { ach: 'gauntlet_t4', label: 'Beat every Gauntlet challenger' },
+    'spartans-persians':    { ach: 'arena_t2',   label: 'Win 5 arena tournaments' },
+    'wizards-necromancers': { ach: 'open_t3',    label: 'Master all 7 trainer openings' },
+    'robots-cyborgs':       { ach: 'puz_t3',     label: 'Solve 100 tactics puzzles' }
+  };
+
   var EQUIP_KEY = 'ct_equipped_set';
   var cache = {};      // slug -> full set json
   var pending = {};    // slug -> Promise (de-dupe concurrent loads)
   var activeSlug = null;
+  var unlockedSlugs = []; // sets the user has earned via trophies (computed from achievements)
 
   function apiBase() {
     try { return (window.CT_SERVER_URL || '').replace(/\/+$/, ''); } catch (e) { return ''; }
@@ -112,14 +126,40 @@
       .catch(function () { return null; });
   }
 
-  // Themed sets are a PREMIUM perk: usable only while the subscription is active.
-  // Call this once premium status is known (login / billing-sync). If the user is
-  // NOT premium but a premium set is active/persisted, revert to Classic — this is
-  // what makes a lapsed/cancelled member lose access to the cosmetics.
+  // Themed sets are a PREMIUM perk OR a trophy reward. enforcePremium reverts a
+  // lapsed/cancelled member to Classic — but it must NOT strip a set the user
+  // earned with a trophy (those are theirs to keep regardless of subscription).
+  // Call setTrophyUnlocks() with the user's earned achievements BEFORE this.
   function enforcePremium(isPremium) {
     if (isPremium) return;
     var persisted = null; try { persisted = localStorage.getItem(EQUIP_KEY); } catch (e) {}
-    if (activeSlug || persisted) { activeSlug = null; clearBoard(); persist(null); rerender(); }
+    var cur = activeSlug || persisted;
+    if (cur && !isTrophyUnlocked(cur)) { activeSlug = null; clearBoard(); persist(null); rerender(); }
+  }
+
+  // Recompute which sets are unlocked from the user's earned achievement ids.
+  // Returns the slugs that became unlocked since the last call (for a toast).
+  function setTrophyUnlocks(earnedIds) {
+    var idset = {}; (earnedIds || []).forEach(function (id) { idset[id] = true; });
+    var next = [], newly = [];
+    for (var slug in UNLOCKS) {
+      if (idset[UNLOCKS[slug].ach]) {
+        next.push(slug);
+        if (unlockedSlugs.indexOf(slug) === -1) newly.push(slug);
+      }
+    }
+    unlockedSlugs = next;
+    return newly;
+  }
+  function isTrophyUnlocked(slug) { return unlockedSlugs.indexOf(slug) !== -1; }
+  function trophyUnlockedSlugs() { return unlockedSlugs.slice(); }
+  function unlockInfo(slug) { return UNLOCKS[slug] || null; }
+  // Reverse: which set (if any) a given achievement id unlocks. For the trophy UI.
+  function unlockForAchievement(achId) {
+    for (var slug in UNLOCKS) {
+      if (UNLOCKS[slug].ach === achId) { var m = get(slug); return { slug: slug, name: m ? m.name : slug, label: UNLOCKS[slug].label }; }
+    }
+    return null;
   }
 
   function persist(slug) {
@@ -148,6 +188,9 @@
   window.CT_Sets = {
     manifest: manifest, get: get, load: load, equip: equip, preview: preview,
     enforcePremium: enforcePremium,
+    setTrophyUnlocks: setTrophyUnlocks, isTrophyUnlocked: isTrophyUnlocked,
+    trophyUnlockedSlugs: trophyUnlockedSlugs, unlockInfo: unlockInfo,
+    unlockForAchievement: unlockForAchievement,
     activeSet: activeSet, activeSlug: activeSlugGet, isCached: isCached,
     pieceSVG: pieceSVG, init: init
   };

@@ -44,19 +44,31 @@
     box.innerHTML = html;
   }
 
+  function isUnlocked(slug) { try { return !!(window.CT_Sets && window.CT_Sets.isTrophyUnlocked && window.CT_Sets.isTrophyUnlocked(slug)); } catch (e) { return false; } }
+  function unlockInfo(slug) { try { return (window.CT_Sets && window.CT_Sets.unlockInfo) ? window.CT_Sets.unlockInfo(slug) : null; } catch (e) { return null; } }
+
   function cardFor(m) {
     var slug = m.slug;
     var premium = isPremium();
+    var unlocked = isUnlocked(slug);          // earned free via a trophy
+    var info = unlockInfo(slug);              // { ach, label } if this set is trophy-earnable
+    var canEquip = premium || unlocked;
     var equipped = (window.CT_Sets && window.CT_Sets.activeSlug && window.CT_Sets.activeSlug() === slug);
     var card = document.createElement('div');
     card.className = 'card';
     card.style.cssText = 'padding:10px;display:flex;flex-direction:column;gap:8px';
     var act, label;
-    if (premium) { act = 'equip'; label = equipped ? '✓ Equipped' : 'Equip'; }
+    if (canEquip) { act = 'equip'; label = equipped ? '✓ Equipped' : 'Equip'; }
     else { act = 'preview'; label = equipped ? 'Previewing' : 'Preview'; }
-    var tag = premium
-      ? '<span style="color:#2e9e5b;font-weight:700;font-size:12px">Included</span>'
-      : '<span style="color:var(--accent);font-weight:700;font-size:12px">🔒 Premium</span>';
+    var tag;
+    if (unlocked) tag = '<span style="color:var(--accent);font-weight:700;font-size:12px">🏆 Unlocked</span>';
+    else if (premium) tag = '<span style="color:#2e9e5b;font-weight:700;font-size:12px">Included</span>';
+    else if (info) tag = '<span style="color:var(--accent);font-weight:700;font-size:12px">🏆 / 🔒</span>';
+    else tag = '<span style="color:var(--accent);font-weight:700;font-size:12px">🔒 Premium</span>';
+    // For a still-locked but trophy-earnable set, spell out how to earn it free.
+    var sub = (!canEquip && info)
+      ? '<div class="small" style="color:var(--muted);line-height:1.3">🏆 ' + esc(info.label) + ' — or get it with Premium</div>'
+      : '';
     card.innerHTML =
       '<div class="ct-shop-preview" style="background:#0d1422"></div>' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
@@ -64,7 +76,7 @@
           '<div style="font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(m.name) + '</div>' +
           '<div class="small" style="color:var(--muted)">' + esc(m.factions ? (m.factions.w + ' vs ' + m.factions.b) : '') + '</div>' +
         '</div>' + tag +
-      '</div>' +
+      '</div>' + sub +
       '<button class="btn ' + (equipped ? 'btn-secondary' : '') + '" data-shop-act="' + act + '" data-slug="' + esc(slug) + '" style="padding:8px;font-size:13px">' + esc(label) + '</button>';
     if (window.CT_Sets) {
       window.CT_Sets.load(slug).then(function (set) {
@@ -79,11 +91,11 @@
     var body = screen.querySelector('.screen-body') || screen;
     var premium = isPremium();
     var head = premium
-      ? '<div class="small" style="color:var(--muted);margin-bottom:10px">✨ Premium is active — equip any board &amp; piece set below. They stay yours while your membership is active.</div>'
+      ? '<div class="small" style="color:var(--muted);margin-bottom:10px">✨ Premium is active — equip any board &amp; piece set below. They stay yours while your membership is active. A few sets are also earnable free by winning trophies 🏆.</div>'
       : '<div class="card" style="border:1px solid var(--accent);background:linear-gradient(135deg, rgba(245,196,81,.12), var(--panel));margin-bottom:12px;padding:12px">' +
-          '<div style="font-weight:800;margin-bottom:4px">🎨 Unlock every set with Premium</div>' +
-          '<div class="small" style="color:var(--muted);margin-bottom:10px">All ' + (window.CT_PIECE_SETS_MANIFEST ? window.CT_PIECE_SETS_MANIFEST.length : 19) + ' themed board &amp; piece sets are included with Premium — yours to equip while your membership is active. Preview any set free below.</div>' +
-          '<button class="btn btn-block" data-shop-act="unlock" style="font-weight:700">Unlock with Premium</button>' +
+          '<div style="font-weight:800;margin-bottom:4px">🎨 Earn sets free, or unlock them all with Premium</div>' +
+          '<div class="small" style="color:var(--muted);margin-bottom:10px">Some board &amp; piece sets unlock free by earning trophies 🏆 — look for the requirement on each card. The full collection of ' + (window.CT_PIECE_SETS_MANIFEST ? window.CT_PIECE_SETS_MANIFEST.length : 19) + ' sets comes with Premium. Preview any set free below.</div>' +
+          '<button class="btn btn-block" data-shop-act="unlock" style="font-weight:700">Unlock all with Premium</button>' +
         '</div>';
     body.innerHTML = head +
       '<div id="ct-shop-classic" style="margin-bottom:12px"></div>' +
@@ -94,7 +106,10 @@
       '<button class="btn ' + (activeNull ? 'btn-secondary' : '') + '" data-shop-act="classic" style="padding:8px 14px;font-size:13px">' + (activeNull ? '✓ Equipped' : 'Use Classic') + '</button></div>';
 
     var grid = $('#ct-shop-grid');
-    var items = (window.CT_PIECE_SETS_MANIFEST || []);
+    var items = (window.CT_PIECE_SETS_MANIFEST || []).slice();
+    // Surface earnable/earned sets first: unlocked → trophy-earnable → the rest.
+    var rank = function (m) { return isUnlocked(m.slug) ? 0 : (unlockInfo(m.slug) ? 1 : 2); };
+    items.sort(function (a, b) { return rank(a) - rank(b); });
     grid.innerHTML = '';
     items.forEach(function (m) { grid.appendChild(cardFor(m)); });
   }
