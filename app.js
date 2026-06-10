@@ -3305,6 +3305,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       achievements: (state.user && state.user.achievements) || [],
       streakTrophies: (state.user && state.user.streakTrophies) || [],
       trophyPoints: userTrophyPoints(state.user),
+      // Pinned trophy ids for the profile showcase (≤5).
+      showcase: (state.user && state.user.showcase) || [],
     };
   }
 
@@ -3349,6 +3351,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         checkAchievementsFor(state.user);
         renderPlayStreak();
       }
+    }
+    // Profile trophy showcase: adopt the server's pinned list (multi-device) only
+    // when we don't have a local one yet, so a fresh device picks it up without
+    // clobbering an in-progress local edit.
+    if (state.user && Array.isArray(p.showcase) && p.showcase.length && !((state.user.showcase || []).length)) {
+      state.user.showcase = p.showcase.slice(0, 5);
+      const db = loadDB();
+      if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
     }
     // Refresh any visible rank/academy UI now that counts may have grown.
     try { if (window.CT_renderAcademy && document.getElementById('screen-academy').classList.contains('active')) window.CT_renderAcademy(); } catch (e) {}
@@ -5071,6 +5081,77 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     $('#prof-trophies-total').textContent = totalEarned;
     $('#prof-trophy-progress').textContent =
       `${u.achievements.length}/${ACHIEVEMENT_TIERS.length} achievement tiers · ${u.streakTrophies.length} streak ${u.streakTrophies.length === 1 ? 'trophy' : 'trophies'}`;
+    renderProfileShowcase();
+  }
+
+  // Profile trophy showcase: up to 5 pinned trophies, shown as medallions. The
+  // pinned list (state.user.showcase) is local-authoritative and synced to the
+  // server (gatherLocalProgress) so it's durable + ready for a public profile.
+  function renderProfileShowcase() {
+    const wrap = $('#prof-showcase');
+    if (!wrap || !state.user) return;
+    const u = state.user;
+    const earnedDefs = ACHIEVEMENT_TIERS.filter(t => hasAchievement(u, t.id));
+    const earnedIds = earnedDefs.map(d => d.id);
+    // Keep only still-valid pinned ids (earned + in the catalog), max 5.
+    const pinned = (u.showcase || []).filter(id => earnedIds.includes(id)).slice(0, 5);
+    const canEdit = earnedDefs.length > 0;
+    const slots = pinned.map(id => {
+      const def = ACHIEVEMENT_TIERS.find(t => t.id === id);
+      return `<div class="showcase-item"><div class="icon">${trophyArtHTML(def, true)}</div><div class="showcase-name">${escapeHTML(def.name)}</div></div>`;
+    }).join('');
+    wrap.innerHTML = `
+      <div class="row between" style="margin-bottom:${pinned.length ? '10px' : '6px'}">
+        <div style="font-weight:700">🏆 Trophy showcase</div>
+        ${canEdit ? `<button class="btn btn-ghost small" id="btn-edit-showcase" style="padding:5px 12px">${pinned.length ? 'Edit' : 'Pin trophies'}</button>` : ''}
+      </div>
+      ${pinned.length
+        ? `<div class="showcase-row">${slots}</div>`
+        : `<div class="muted small">${canEdit ? 'Pin up to 5 favorite trophies to show them off here.' : 'Earn trophies to showcase them here.'}</div>`}`;
+    const b = $('#btn-edit-showcase');
+    if (b) b.addEventListener('click', openShowcaseEditor);
+  }
+
+  function openShowcaseEditor() {
+    const u = state.user;
+    if (!u) return;
+    const earnedDefs = ACHIEVEMENT_TIERS.filter(t => hasAchievement(u, t.id));
+    if (!earnedDefs.length) { toast('Earn a trophy first, then you can showcase it.'); return; }
+    const earnedIds = earnedDefs.map(d => d.id);
+    let sel = (u.showcase || []).filter(id => earnedIds.includes(id)).slice(0, 5);
+    const body = $('#showcase-edit-body');
+    function paint() {
+      body.innerHTML = `<div class="muted small" style="margin-bottom:8px">Tap to pin up to 5 (${sel.length}/5).</div>
+        <div class="showcase-grid">` + earnedDefs.map(d => {
+          const on = sel.includes(d.id);
+          return `<div class="showcase-pick ${on ? 'on' : ''}" data-id="${d.id}">
+            <div class="icon">${trophyArtHTML(d, true)}</div>
+            <div class="showcase-name">${escapeHTML(d.name)}</div>
+            ${on ? '<div class="pin-badge">📌</div>' : ''}
+          </div>`;
+        }).join('') + '</div>';
+    }
+    paint();
+    body.onclick = (e) => {
+      const el = e.target && e.target.closest ? e.target.closest('.showcase-pick[data-id]') : null;
+      if (!el) return;
+      const id = el.dataset.id;
+      const i = sel.indexOf(id);
+      if (i >= 0) sel.splice(i, 1);
+      else if (sel.length >= 5) { toast('You can pin up to 5 trophies.'); return; }
+      else sel.push(id);
+      paint();
+    };
+    const saveBtn = $('#btn-showcase-save');
+    saveBtn.onclick = () => {
+      u.showcase = sel.slice(0, 5);
+      try { const db = loadDB(); if (db.users[u.id]) { db.users[u.id] = u; saveDB(db); } } catch (e) {}
+      try { if (window.CT_syncProgress) window.CT_syncProgress(); } catch (e) {}
+      closeModal('showcase');
+      renderProfileShowcase();
+      toast('Showcase updated 🏆', true);
+    };
+    openModal('showcase');
   }
 
   // ---------------------------------------------------------------------------
@@ -5806,6 +5887,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     openModal('trophy-detail');
   }
   $('#btn-trophy-close').addEventListener('click', () => closeModal('trophy-detail'));
+  { const _sc = $('#btn-showcase-close'); if (_sc) _sc.addEventListener('click', () => closeModal('showcase')); }
 
   function escapeHTML(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));

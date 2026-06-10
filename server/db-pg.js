@@ -836,16 +836,24 @@ export function getProgress(user) {
   return {
     lessonsCompleted: Array.isArray(p.lessonsCompleted) ? p.lessonsCompleted : [],
     puzzles: p.puzzles && typeof p.puzzles === 'object' ? p.puzzles : {},
+    showcase: Array.isArray(p.showcase) ? p.showcase : [],
   };
+}
+
+function sanitizeShowcase(arr, fallback) {
+  if (!Array.isArray(arr)) return Array.isArray(fallback) ? fallback : [];
+  return arr.filter(x => typeof x === 'string' && x.length <= 40).slice(0, 5);
 }
 
 export async function setProgress(userId, progress) {
   const user = await getUserById(userId);
   if (!user) throw new Error('User not found.');
+  const existing = getProgress(user);
   const flags = parseFlags(user);
   flags.progress = {
     lessonsCompleted: Array.isArray(progress.lessonsCompleted) ? progress.lessonsCompleted : [],
     puzzles: progress.puzzles && typeof progress.puzzles === 'object' ? progress.puzzles : {},
+    showcase: sanitizeShowcase(progress.showcase, existing.showcase),
   };
   // Trophy leaderboard fields (optional, client-authoritative) — mirrors db.js.
   const ach = Array.isArray(progress.achievements) ? progress.achievements.slice(0, 2000) : null;

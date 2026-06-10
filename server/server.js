@@ -698,7 +698,13 @@ app.post('/api/progress', requireAuth, async (req, res, next) => {
       throw new Error(`Too many puzzle entries (max ${MAX_PUZZLE_KEYS}).`);
     }
 
-    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles });
+    // Profile trophy showcase: ≤5 short string ids (validated again in the store).
+    let showcase;
+    if (body.showcase !== undefined) {
+      if (!Array.isArray(body.showcase)) throw new Error('showcase must be an array.');
+      showcase = body.showcase.filter(x => typeof x === 'string' && x.length <= 40).slice(0, 5);
+    }
+    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles, showcase });
     res.json(result);
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });

@@ -284,6 +284,16 @@
   .tchip.active { background: var(--accent); color: #1a1205; border-color: var(--accent); }
   .fam-head .bar { height: 4px; border-radius: 2px; background: var(--panel-2); overflow: hidden; margin-top: 6px; }
   .fam-head .bar > i { display: block; height: 100%; background: var(--accent); transition: width .3s ease; }
+  /* Profile trophy showcase */
+  .showcase-row { display: flex; gap: 8px; }
+  .showcase-item { flex: 1 1 0; min-width: 0; text-align: center; }
+  .showcase-item .icon, .showcase-pick .icon { width: 52px; height: 52px; margin: 0 auto 4px; display: flex; align-items: center; justify-content: center; }
+  .showcase-item .icon svg, .showcase-pick .icon svg { width: 100%; height: 100%; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+  .showcase-name { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .showcase-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; max-height: 50vh; overflow-y: auto; padding: 2px; }
+  .showcase-pick { position: relative; text-align: center; padding: 8px 4px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+  .showcase-pick.on { border-color: var(--accent); background: rgba(245, 196, 81, .12); }
+  .showcase-pick .pin-badge { position: absolute; top: 3px; right: 5px; font-size: 12px; }
 
   /* MODAL */
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: none; align-items: flex-end; justify-content: center; z-index: 100; animation: fade .2s; }
@@ -1060,6 +1070,7 @@
       <div class="stat"><div class="v" id="prof-comebacks">0</div><div class="l">Comebacks</div></div>
       <div class="stat"><div class="v" id="prof-trophies-total">0</div><div class="l">Trophies</div></div>
     </div>
+    <div class="card" id="prof-showcase" style="margin-bottom:0"></div>
     <div class="card row between" data-go="trophies" style="cursor:pointer">
       <div>
         <div style="font-weight:600">Trophy progress</div>
@@ -1555,6 +1566,16 @@
     <div class="handle"></div>
     <div class="trophy-detail" id="trophy-detail-body"></div>
     <button class="btn btn-block" id="btn-trophy-close" style="margin-top:14px">Close</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-showcase">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2 style="margin-top:0">Choose your showcase</h2>
+    <div id="showcase-edit-body"></div>
+    <button class="btn btn-block" id="btn-showcase-save" style="margin-top:12px">Save showcase</button>
+    <button class="btn btn-ghost btn-block" id="btn-showcase-close" style="margin-top:8px">Cancel</button>
   </div>
 </div>
 

@@ -78,6 +78,17 @@ async function main() {
   const wins = db.topByMetric('wins', 100).map(r => r.id);
   check(!wins.includes(champ) && !wins.includes(rookie), "trophy users don't appear on the WINS board (no ranked wins)");
 
+  // --- Profile showcase persistence (setProgress / getProgress) ---
+  db.setProgress(champ, { lessonsCompleted: [], puzzles: {}, showcase: ['wins_t6', 'gauntlet_t4', 'arena_t2', 'open_t3', 'wins_t1', 'overflow'] });
+  const prog = db.getProgress(db.getUserById(champ));
+  check(prog.showcase.length === 5, `showcase capped at 5 (got ${prog.showcase.length})`);
+  check(prog.showcase[0] === 'wins_t6', 'showcase preserves the pinned order');
+  // A later sync that omits showcase must NOT wipe it.
+  db.setProgress(champ, { lessonsCompleted: ['l1'], puzzles: {} });
+  const prog2 = db.getProgress(db.getUserById(champ));
+  check(prog2.showcase.length === 5, `showcase preserved when a sync omits it (got ${prog2.showcase.length})`);
+  check(prog2.lessonsCompleted.includes('l1'), 'lessons still persist alongside showcase');
+
   log(`DONE — ${passed} passed, ${failed} failed`);
   return failed === 0 ? 0 : 1;
 }
