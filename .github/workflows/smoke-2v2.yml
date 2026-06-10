@@ -67,6 +67,9 @@ jobs:
       - name: New-user funnel (guest persistence + winnable 1st game + CTA) test
         run: npm run test:guest-funnel
 
+      - name: Product analytics (events + funnel aggregation) test
+        run: npm run test:analytics
+
       - name: Ranked seasonal switch test
         run: npm run test:ranked-flag
 

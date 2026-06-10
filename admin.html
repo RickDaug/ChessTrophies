@@ -142,6 +142,32 @@
   .tile .t-val.teal { color:var(--teal); }
   .tile .t-val.pink { color:var(--pink); }
 
+  /* ---------- analytics funnel ---------- */
+  .funnel { display:flex; flex-direction:column; gap:9px; margin-top:6px; }
+  .fn-row { position:relative; }
+  .fn-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:4px; flex-wrap:wrap; }
+  .fn-stage { font-size:12.5px; font-weight:700; color:var(--text); }
+  .fn-vis { font-size:12.5px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .fn-vis b { color:var(--text); font-weight:800; }
+  .fn-track { height:24px; background:#141d33; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .fn-fill { height:100%; min-width:2px; border-radius:7px;
+    background:linear-gradient(90deg, var(--blue), var(--teal)); transition:width .45s ease; }
+  .fn-row:first-child .fn-fill { background:linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .fn-conv { display:flex; gap:12px; margin-top:4px; font-size:11px; flex-wrap:wrap; }
+  .fn-conv .ok { color:var(--green); font-weight:700; }
+  .fn-conv .drop { color:var(--red); font-weight:700; }
+  .fn-conv .ov { color:var(--faint); }
+
+  /* ---------- grouped daily-activity chart legend swatches ---------- */
+  .chart .bar2 { fill:var(--_bar2, var(--teal)); transition:opacity .12s; cursor:pointer; }
+  .chart .bar2:hover { opacity:.75; }
+
+  /* ---------- section heading divider ---------- */
+  .sec-head { display:flex; align-items:center; gap:10px; margin:26px 0 4px; }
+  .sec-head h2 { font-size:15px; margin:0; font-weight:800; letter-spacing:-.01em; }
+  .sec-head .line { flex:1; height:1px; background:linear-gradient(90deg, var(--border), transparent); }
+  .sec-head .tagx { color:var(--faint); font-size:12px; }
+
   /* ---------- standings / streak lists ---------- */
   .stand { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:4px; }
   .stand th { text-align:left; color:var(--faint); font-size:10px; text-transform:uppercase; letter-spacing:.05em; padding:6px 8px; border-bottom:1px solid var(--border); white-space:nowrap; }
@@ -245,6 +271,62 @@
 
     <!-- KPI row -->
     <div class="kpis" id="kpis"></div>
+
+    <!-- ===== PRODUCT ANALYTICS (headline) ===== -->
+    <div class="sec-head">
+      <h2>📊 Product analytics</h2>
+      <span class="tagx">visitor funnel · last 30 days</span>
+      <div class="line"></div>
+    </div>
+
+    <!-- Today KPI tiles -->
+    <div class="row2">
+      <div class="panel">
+        <h3>⚡ Today</h3>
+        <p class="h3sub" id="todaySub">Live visitor activity · since midnight</p>
+        <div class="tiles" id="todayTiles"></div>
+      </div>
+    </div>
+
+    <!-- Funnel + Top events -->
+    <div class="row2 c2">
+      <div class="panel">
+        <div class="hrow">
+          <div>
+            <h3>📊 Conversion funnel</h3>
+            <p class="h3sub" id="funnelSub">Distinct visitors per stage · last 30 days</p>
+          </div>
+        </div>
+        <div class="funnel" id="funnelBody"></div>
+      </div>
+      <div class="panel">
+        <h3>🔥 Top events</h3>
+        <p class="h3sub">Most-fired analytics events</p>
+        <div id="topEventsBody"></div>
+      </div>
+    </div>
+
+    <!-- Daily activity chart -->
+    <div class="row2">
+      <div class="panel">
+        <div class="hrow">
+          <div>
+            <h3>📅 Daily activity</h3>
+            <p class="h3sub">Visitors vs games started · last 14 days</p>
+          </div>
+          <div class="legend">
+            <span><i style="background:var(--blue)"></i> Visitors</span>
+            <span><i style="background:var(--teal)"></i> Games started</span>
+          </div>
+        </div>
+        <div id="dailyChart"></div>
+      </div>
+    </div>
+
+    <div class="sec-head">
+      <h2>💵 Monetization &amp; growth</h2>
+      <div class="line"></div>
+    </div>
 
     <!-- revenue chart + recent payments -->
     <div class="row2 c2">
@@ -390,6 +472,9 @@
   var payList = $('payList'), signupChart = $('signupChart'), gamesChart = $('gamesChart');
   var sharesEl = $('shares'), sharesSub = $('sharesSub');
   var engageTiles = $('engageTiles'), puzzleTiles = $('puzzleTiles');
+  var todayTiles = $('todayTiles'), todaySub = $('todaySub');
+  var funnelBody = $('funnelBody'), funnelSub = $('funnelSub');
+  var topEventsBody = $('topEventsBody'), dailyChart = $('dailyChart');
   var arenaTiles = $('arenaTiles'), arenaSub = $('arenaSub'), arenaChamps = $('arenaChamps');
   var seasonBadge = $('seasonBadge'), seasonSub = $('seasonSub'), seasonBody = $('seasonBody');
   var fearedSub = $('fearedSub'), fearedBody = $('fearedBody');
@@ -581,6 +666,67 @@
     });
 
     // sparse x labels (first, mid, last)
+    addXLabels(svg, data, padL, slot, padT + ih + 14);
+    host.appendChild(svg);
+  }
+
+  // Grouped bar chart: two series side-by-side per slot.
+  // data = [{label, tipLabel, a, b}]; opts {colorA, colorB, nameA, nameB, fmtVal}
+  function groupedBarChart(host, data, opts) {
+    host.innerHTML = '';
+    opts = opts || {};
+    if (!data || !data.length) { emptyChart(host); return; }
+    var W = 720, H = 200, padL = 44, padR = 12, padT = 12, padB = 26;
+    var iw = W - padL - padR, ih = H - padT - padB;
+    var max = 0;
+    data.forEach(function (d) {
+      var a = Number(d.a) || 0, b = Number(d.b) || 0;
+      if (a > max) max = a; if (b > max) max = b;
+    });
+    if (max <= 0) max = 1;
+    var niceMax = niceCeil(max);
+    var svg = svgEl('svg', { class:'chart', width:'100%', height:String(H), viewBox:'0 0 ' + W + ' ' + H });
+    if (opts.colorA) svg.style.setProperty('--_bar', opts.colorA);
+    if (opts.colorB) svg.style.setProperty('--_bar2', opts.colorB);
+
+    var ticks = 4;
+    for (var t = 0; t <= ticks; t++) {
+      var yv = niceMax * t / ticks;
+      var y = padT + ih - (yv / niceMax) * ih;
+      svg.appendChild(svgEl('line', { class:'grid', x1:padL, y1:y, x2:W - padR, y2:y }));
+      var lbl = svgEl('text', { x:padL - 6, y:y + 3, 'text-anchor':'end' });
+      lbl.textContent = opts.fmtAxis ? opts.fmtAxis(yv) : compact(yv);
+      svg.appendChild(lbl);
+    }
+    svg.appendChild(svgEl('line', { class:'axis', x1:padL, y1:padT + ih, x2:W - padR, y2:padT + ih }));
+
+    var n = data.length;
+    var slot = iw / n;
+    var gw = Math.max(2, Math.min(slot * 0.30, 13));
+    var gap = Math.min(3, slot * 0.06);
+    data.forEach(function (d, i) {
+      var av = Number(d.a) || 0, bv = Number(d.b) || 0;
+      var groupW = gw * 2 + gap;
+      var x0 = padL + i * slot + (slot - groupW) / 2;
+      var ah = (av / niceMax) * ih, bh = (bv / niceMax) * ih;
+      svg.appendChild(svgEl('rect', { class:'bar', x:x0, y:padT + ih - ah, width:gw, height:Math.max(0, ah), rx:Math.min(2.5, gw/2) }));
+      svg.appendChild(svgEl('rect', { class:'bar2', x:x0 + gw + gap, y:padT + ih - bh, width:gw, height:Math.max(0, bh), rx:Math.min(2.5, gw/2) }));
+      var hit = svgEl('rect', { class:'hit', x:padL + i*slot, y:padT, width:slot, height:ih });
+      (function (d) {
+        function onMove(ev) {
+          var label = d.tipLabel != null ? d.tipLabel : d.label;
+          var av2 = Number(d.a) || 0, bv2 = Number(d.b) || 0;
+          var na = opts.nameA || 'A', nb = opts.nameB || 'B';
+          showTip('<b>' + esc(label) + '</b><br>' + esc(na) + ': ' + esc(av2.toLocaleString()) +
+            '<br>' + esc(nb) + ': ' + esc(bv2.toLocaleString()), ev.clientX, ev.clientY);
+        }
+        hit.addEventListener('mousemove', onMove);
+        hit.addEventListener('mouseleave', hideTip);
+        hit.addEventListener('touchstart', function (ev) { if (ev.touches && ev.touches[0]) onMove(ev.touches[0]); }, { passive:true });
+      })(d);
+      svg.appendChild(hit);
+    });
+
     addXLabels(svg, data, padL, slot, padT + ih + 14);
     host.appendChild(svg);
   }
@@ -907,11 +1053,126 @@
   }
 
   // ===================================================================
+  //  PRODUCT ANALYTICS  (funnel · today · daily activity · top events)
+  // ===================================================================
+  function pctTxt(part, whole) {
+    var p = Number(part), w = Number(whole);
+    if (!isFinite(p) || !isFinite(w) || w <= 0) return '–';
+    return (Math.round((p / w) * 1000) / 10).toLocaleString() + '%';
+  }
+
+  function renderToday(s) {
+    var a = (s && s.analytics) || {};
+    var td = a.today || {};
+    var ret = a.returning || {};
+    var visT = Number(pick(td.visitors, 0)) || 0;
+    var retT = Number(pick(ret.returningToday, 0)) || 0;
+    var retOf = Number(pick(ret.visitorsToday, visT, 0)) || 0;
+    var retPct = retOf > 0 ? pctTxt(retT, retOf) : '–';
+    if (todaySub) {
+      todaySub.textContent = (a.today || a.returning)
+        ? 'Live visitor activity · since midnight'
+        : 'No analytics data yet';
+    }
+    // Returning tile: % of today's visitors who are returning, with the raw count.
+    var retVal = retPct + (retT ? ' <span style="font-size:12px;color:var(--faint);font-weight:600;">(' + num(retT) + ')</span>' : '');
+    var tiles = [
+      tileHtml('Visitors today', num(pick(td.visitors, 0)), 'blue'),
+      tileHtml('Games started today', num(pick(td.plays, 0)), 'teal'),
+      tileHtml('Sign-ups today', num(pick(td.signups, 0)), 'green'),
+      tileHtml('Returning today', retVal, 'accent')
+    ];
+    todayTiles.innerHTML = tiles.join('');
+  }
+
+  function renderFunnel(s) {
+    var a = (s && s.analytics) || {};
+    var stages = Array.isArray(a.funnel) ? a.funnel.filter(function (x) { return x != null; }) : [];
+    if (!stages.length) {
+      funnelBody.innerHTML = '<div class="chart-empty">No funnel data yet</div>';
+      if (funnelSub) funnelSub.textContent = 'Distinct visitors per stage · last 30 days';
+      return;
+    }
+    var top = Number(pick(stages[0].visitors, 0)) || 0;
+    if (funnelSub) {
+      funnelSub.textContent = top > 0
+        ? top.toLocaleString() + ' landed · ' + pctTxt(pick(stages[stages.length - 1].visitors, 0), top) + ' reached the end'
+        : 'Distinct visitors per stage · last 30 days';
+    }
+    funnelBody.innerHTML = stages.map(function (st, i) {
+      st = st || {};
+      var v = Number(pick(st.visitors, 0)) || 0;
+      var prev = i > 0 ? (Number(pick(stages[i - 1].visitors, 0)) || 0) : v;
+      var widthPct = top > 0 ? Math.max(0.5, (v / top) * 100) : 0;
+      var convPrev = i > 0 ? pctTxt(v, prev) : '100%';
+      var lostPrev = (i > 0 && prev > 0) ? (prev - v) : 0;
+      var dropHtml = '';
+      if (i > 0) {
+        if (lostPrev > 0) {
+          dropHtml = '<span class="drop">▼ ' + pctTxt(lostPrev, prev) + ' lost (−' + num(lostPrev) + ')</span>';
+        } else {
+          dropHtml = '<span class="ok">▲ no drop-off</span>';
+        }
+      }
+      var overall = '<span class="ov">' + pctTxt(v, top) + ' of landed</span>';
+      var convPill = i === 0
+        ? '<span class="ok">100% · entry</span>'
+        : '<span class="ok">' + convPrev + ' vs prev</span>';
+      return '<div class="fn-row">' +
+        '<div class="fn-head">' +
+          '<span class="fn-stage">' + esc(pick(st.stage, st.key, 'Stage ' + (i + 1))) + '</span>' +
+          '<span class="fn-vis"><b>' + num(v) + '</b> visitors</span>' +
+        '</div>' +
+        '<div class="fn-track"><div class="fn-fill" style="width:' + widthPct.toFixed(1) + '%"></div></div>' +
+        '<div class="fn-conv">' + convPill + dropHtml + overall + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function renderDailyActivity(s) {
+    var a = (s && s.analytics) || {};
+    var daily = Array.isArray(a.daily) ? a.daily : null;
+    if (!daily || !daily.length) { emptyChart(dailyChart, 'No daily activity yet'); return; }
+    var data = daily.map(function (d) {
+      d = d || {};
+      return {
+        label: shortDay(d.date), tipLabel: longDay(d.date),
+        a: Number(pick(d.visitors, 0)) || 0,
+        b: Number(pick(d.plays, 0)) || 0
+      };
+    });
+    groupedBarChart(dailyChart, data, {
+      colorA:'var(--blue)', colorB:'var(--teal)', nameA:'Visitors', nameB:'Games started'
+    });
+  }
+
+  function renderTopEvents(s) {
+    var a = (s && s.analytics) || {};
+    var ev = Array.isArray(a.topEvents) ? a.topEvents.filter(function (x) { return x != null; }) : [];
+    if (!ev.length) { topEventsBody.innerHTML = '<div class="chart-empty">No events yet</div>'; return; }
+    var rows = ev.slice(0, 12).map(function (e, i) {
+      e = e || {};
+      return '<tr>' +
+        '<td class="rk num">' + (i + 1) + '</td>' +
+        '<td class="nm">' + esc(pick(e.name, '—')) + '</td>' +
+        '<td class="pts num">' + num(pick(e.count, 0)) + '</td>' +
+      '</tr>';
+    }).join('');
+    topEventsBody.innerHTML = '<table class="stand"><thead><tr>' +
+      '<th>#</th><th>Event</th><th style="text-align:right;">Count</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  // ===================================================================
   //  STATS FETCH
   // ===================================================================
   function renderAll(s) {
     lastStats = s || {};
     renderKpis(lastStats);
+    renderToday(lastStats);
+    renderFunnel(lastStats);
+    renderDailyActivity(lastStats);
+    renderTopEvents(lastStats);
     renderRevenue(lastStats);
     renderSeries(lastStats);
     renderShares(lastStats);

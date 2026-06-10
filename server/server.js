@@ -44,6 +44,7 @@ import { mountStore, logStoreStatus } from './entitlements.js';
 import { mountPush, logPushStatus, sendPushToUser } from './push.js';
 import { mountPuzzles } from './puzzles.js';
 import { mountArena, startArenaScheduler, logArenaStatus, liveArena, arenaEnabled, recentChampions } from './arena.js';
+import { mountAnalytics, analyticsStats, logAnalyticsStatus } from './analytics.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount, seasonInfo, previousSeasonId } from './game.js';
 import { botEngineReady, botEngineDiag } from './bot.js';
 
@@ -168,6 +169,11 @@ mountPush(app);
 // leaderboard. Kill-switchable via ARENA_ENABLED (default on). Routes only here;
 // the realtime pool/pairing + the finish-scoring hook live in game.js.
 mountArena(app);
+
+// Privacy-light product analytics — PUBLIC event ingest (guests fire events) at
+// POST /api/events, rate-limited per visitor+IP. Powers the admin funnel/daily
+// traffic block in /api/admin/stats. Backend-agnostic via the store facade.
+mountAnalytics(app);
 
 function requireStringField(body, name, { min = 1, max = 255 } = {}) {
   const value = body[name];
@@ -895,6 +901,28 @@ app.get('/api/admin/stats', async (req, res, next) => {
         recentChampions: await recentChampions(5),
       };
     } catch (e) { stats.arena = { enabled: false, live: null, totalArenas: 0, totalGamesScored: 0, participants: 0, recentChampions: [] }; }
+
+    // --- Product analytics (privacy-light funnel) ---------------------------
+    // analyticsStats() is itself failure-isolated (returns a zeroed shape on
+    // error), but we double-wrap here so a missing analytics_events table can
+    // never 500 the whole admin dashboard.
+    try {
+      stats.analytics = await analyticsStats();
+    } catch (e) {
+      stats.analytics = {
+        funnel: [
+          { stage: 'Landed',          key: 'land',            visitors: 0 },
+          { stage: 'Played',          key: 'play_start',      visitors: 0 },
+          { stage: 'Finished a game', key: 'play_finish',     visitors: 0 },
+          { stage: 'Saw sign-up',     key: 'signup_cta_view', visitors: 0 },
+          { stage: 'Signed up',       key: 'signup',          visitors: 0 },
+        ],
+        today: { visitors: 0, plays: 0, signups: 0 },
+        daily: [],
+        returning: { visitorsToday: 0, returningToday: 0 },
+        topEvents: [],
+      };
+    }
 
     res.json(stats);
   } catch (e) { next(e); }

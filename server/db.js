@@ -557,6 +557,28 @@ CREATE TABLE IF NOT EXISTS arena_scores (
 CREATE INDEX IF NOT EXISTS idx_arena_scores_board ON arena_scores(arena_id, points DESC, games ASC, peak_elo DESC);
 `);
 
+// --- Product analytics (privacy-light event funnel) ------------------------
+// One row per coarse, anonymous product event keyed by a client-generated
+// `visitor_id` (NOT a tracking cookie / not PII). `name` is one of a small fixed
+// allowlist (validated in analytics.js). `day_key` is the UTC 'YYYY-MM-DD' the
+// event happened on (precomputed in JS so all funnel SQL is portable). `meta` is
+// an optional tiny JSON blob (hard-capped) or NULL. No FK on user_id (guests
+// fire events; user_id is optional). Aggregate telemetry only.
+db.exec(`
+CREATE TABLE IF NOT EXISTS analytics_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  visitor_id TEXT NOT NULL,
+  user_id TEXT,
+  day_key TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  meta TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_analytics_name_day ON analytics_events(name, day_key);
+CREATE INDEX IF NOT EXISTS idx_analytics_visitor ON analytics_events(visitor_id);
+CREATE INDEX IF NOT EXISTS idx_analytics_day ON analytics_events(day_key);
+`);
+
 // Idempotently increment a user's season row for one finished ranked game.
 // result is 'win' | 'loss' | 'draw'. points: +3 win / +1 draw / 0 loss.
 // peak_elo is raised to the max of the existing value and the passed elo.

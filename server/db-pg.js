@@ -341,7 +341,7 @@ CREATE INDEX IF NOT EXISTS idx_streak_victims_winner ON streak_victims(winner_id
 CREATE INDEX IF NOT EXISTS idx_streak_victims_victim ON streak_victims(victim_id, created_at DESC);
 
 -- SEASONS (monthly ladder). One row per (season, user); mirrors db.js. Tracked
--- SEPARATELY from the live ELO on `users`. No FK on user_id (mirrors the
+-- SEPARATELY from the live ELO on the users table. No FK on user_id (mirrors the
 -- streak/payments convention).
 CREATE TABLE IF NOT EXISTS season_stats (
   season_id TEXT NOT NULL,
@@ -384,6 +384,22 @@ CREATE TABLE IF NOT EXISTS arena_scores (
   PRIMARY KEY (arena_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_arena_scores_board ON arena_scores(arena_id, points DESC, games ASC, peak_elo DESC);
+
+-- Product analytics (privacy-light event funnel). One row per coarse, anonymous
+-- product event keyed by a client-generated visitor_id (not PII). Mirrors db.js.
+-- No FK on user_id (guests fire events; user_id is optional). Aggregate telemetry.
+CREATE TABLE IF NOT EXISTS analytics_events (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  visitor_id TEXT NOT NULL,
+  user_id TEXT,
+  day_key TEXT NOT NULL,
+  created_at BIGINT NOT NULL,
+  meta TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_analytics_name_day ON analytics_events(name, day_key);
+CREATE INDEX IF NOT EXISTS idx_analytics_visitor ON analytics_events(visitor_id);
+CREATE INDEX IF NOT EXISTS idx_analytics_day ON analytics_events(day_key);
 `);
 }
 

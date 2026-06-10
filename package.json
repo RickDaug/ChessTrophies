@@ -33,7 +33,8 @@
     "test:arena": "node test/arena.mjs",
     "test:arena-realtime": "node test/arena-realtime.mjs",
     "test:arena-ui": "node test/arena-ui.mjs",
-    "test:guest-funnel": "node test/guest-funnel.mjs"
+    "test:guest-funnel": "node test/guest-funnel.mjs",
+    "test:analytics": "node test/analytics.mjs"
   },
   "repository": {
     "type": "git",

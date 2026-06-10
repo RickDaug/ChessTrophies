@@ -1634,6 +1634,9 @@
 <script defer src="shop.js?v=20260608a"></script>
 <script defer src="ct-push.js?v=20260608a"></script>
 <script defer src="coach.js?v=20260608a"></script>
+<!-- Privacy-light product analytics (window.CT_Analytics). Standalone + optional;
+     loads AFTER app.js so window.CT exists. Fire-and-forget, swallows all errors. -->
+<script defer src="ct-analytics.js?v=20260609a"></script>
 <!-- Arena tournaments UI (window.CT_Arena). Reuses CTNet + the online game flow;
      degrades gracefully (lobby card stays hidden) if it fails to load. -->
 <script defer src="ct-arena.js?v=20260609a"></script>

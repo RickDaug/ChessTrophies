@@ -961,6 +961,8 @@
   }
 
   function openPremium() {
+    // Analytics: the premium modal opened.
+    try { window.CT_Analytics && window.CT_Analytics.track('premium_view'); } catch (e) {}
     const isPremium = state.user && state.user.isPremium;
     const live = !!billingCfg.enabled;
     applyPremiumCopy();
@@ -981,6 +983,8 @@
   function setPremium(value) {
     state.user.isPremium = !!value;
     state.user.premiumSince = value ? Date.now() : null;
+    // Analytics: a confirmed premium activation (client-side activation point).
+    if (value) { try { window.CT_Analytics && window.CT_Analytics.track('purchase'); } catch (e) {} }
     const db = loadDB();
     db.users[state.user.id] = state.user;
     saveDB(db);
@@ -1269,6 +1273,8 @@
       );
       setSession(Object.assign({}, getSession(), { userId: u.id }));
       state.user = u;
+      // Analytics: a successful account creation.
+      try { window.CT_Analytics && window.CT_Analytics.track('signup', { wasGuest: _wasGuest }); } catch (e) {}
       toast('Welcome, ' + u.username + ' 👑', true);
       if (window.__connectGameSocket) window.__connectGameSocket();
       enterApp();
@@ -3008,7 +3014,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       window.CTNet.on('gameOver', handleServerGameOver);
       window.CTNet.on('rateLimited', (d) => toast('Slow down (' + (d && d.event) + ')'));
       // Arena tournaments: forward join/leave acks + errors to CT_Arena.
-      window.CTNet.on('arenaJoined', (d) => window.CT_Arena && window.CT_Arena.onJoined(d));
+      window.CTNet.on('arenaJoined', (d) => {
+        try { window.CT_Analytics && window.CT_Analytics.track('arena_join'); } catch (e) {}
+        return window.CT_Arena && window.CT_Arena.onJoined(d);
+      });
       window.CTNet.on('arenaErr', (d) => window.CT_Arena && window.CT_Arena.onErr(d));
       window.CTNet.on('arenaLeft', (d) => window.CT_Arena && window.CT_Arena.onLeft(d));
       window.CTNet.on('arenaChampion', (d) => {
@@ -3445,6 +3454,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Tear down any previous clock; online clocked games re-init it after startGame.
     clockStop();
     state.gameMode = mode;
+    // Analytics: single chokepoint for a game starting (practice, online, arena…).
+    try { window.CT_Analytics && window.CT_Analytics.track('play_start', { mode: mode }); } catch (e) {}
     if (state.is960 && window.CT_random960Fen) {
       state.startFen960 = state.startFen960 || window.CT_random960Fen();
       try { state.game = new Chess(state.startFen960); }
@@ -4185,6 +4196,13 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const opp = state.opponent;
     const myWon = winnerColor === state.userColor;
     const isDraw = winnerColor === null;
+    // Analytics: a game ended. result is from the local player's perspective.
+    try {
+      window.CT_Analytics && window.CT_Analytics.track('play_finish', {
+        mode: state.gameMode,
+        result: isDraw ? 'draw' : (myWon ? 'win' : 'loss'),
+      });
+    } catch (e) {}
     // Game-over sound
     if (window.ChessSounds) {
       if (isDraw) window.ChessSounds.note ? window.ChessSounds.note(523, 0.4, 'sine', 0.18) : null;
@@ -4533,6 +4551,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
               : 'Track your progress — create a free account');
       }
       _gBtn.style.display = _showGuestCta ? '' : 'none';
+      // Analytics: the guest signup CTA is actually being shown.
+      if (_showGuestCta) { try { window.CT_Analytics && window.CT_Analytics.track('signup_cta_view', { won: !!(myWon || _newTrophyCount > 0) }); } catch (e) {} }
     }
     // Checkmate moment: punctuate the mate on the board (flash + king topple)
     // BEFORE the modal slides up, so the player sees the kill on the board. The
@@ -5429,6 +5449,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     try { document.documentElement.classList.remove('ct-has-session'); } catch (e) {}
   }
   async function init() {
+    // Privacy-light analytics: one 'land' event per page load (boot). Defensive +
+    // optional — ct-analytics.js is a deferred module that may not have loaded yet.
+    try { window.CT_Analytics && window.CT_Analytics.track('land'); } catch (e) {}
     // Fetch the server feature flags (rankedEnabled) once, up front. Fire-and-
     // forget: it defaults to FALSE on failure and re-paints the ranked UI itself
     // via applyRankedGate() when it resolves, so it never blocks boot.
@@ -5596,6 +5619,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   // idempotent per calendar day, so multiple solves in a day only count once.
   window.CT_onPuzzleSolved = function (puzzleId, meta) {
     try {
+      try { window.CT_Analytics && window.CT_Analytics.track('puzzle_solve', { puzzleId: puzzleId }); } catch (e) {}
       recordDailyPlay();
       ctCelebrate('normal');
       toast('Puzzle solved 🔥 daily streak updated', true);
