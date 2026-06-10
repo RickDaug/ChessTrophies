@@ -49,15 +49,17 @@ function esc(s) {
     .replace(/'/g, '&#39;');
 }
 
-// Difficulty label from elo — mirrors the client's aiNameForElo tiers.
+// Difficulty label from elo — EXACTLY mirrors the client's aiNameForElo tiers
+// (app.js) so the share card matches the in-app opponent label.
 function levelForElo(elo) {
   const n = Number(elo) || 1200;
-  if (n < 800) return 'Beginner';
-  if (n < 1200) return 'Club';
-  if (n < 1500) return 'Intermediate';
-  if (n < 1800) return 'Strong';
-  if (n < 2100) return 'Expert';
-  return 'Master';
+  if (n >= 2500) return 'Grandmaster';
+  if (n >= 2300) return 'International Master';
+  if (n >= 2100) return 'Expert';
+  if (n >= 1800) return 'Strong';
+  if (n >= 1500) return 'Intermediate';
+  if (n >= 1200) return 'Club';
+  return 'Beginner';
 }
 
 function shape(row) {
