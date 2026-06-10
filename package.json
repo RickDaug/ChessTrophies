@@ -36,7 +36,9 @@
     "test:guest-funnel": "node test/guest-funnel.mjs",
     "test:analytics": "node test/analytics.mjs",
     "test:challenges": "node test/challenges.mjs",
-    "test:challenge-ui": "node test/challenge-ui.mjs"
+    "test:challenge-ui": "node test/challenge-ui.mjs",
+    "test:leagues": "node test/leagues.mjs",
+    "test:new-features-ui": "node test/new-features-ui.mjs"
   },
   "repository": {
     "type": "git",

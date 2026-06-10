@@ -46,6 +46,7 @@ import { mountPuzzles } from './puzzles.js';
 import { mountArena, startArenaScheduler, logArenaStatus, liveArena, arenaEnabled, recentChampions } from './arena.js';
 import { mountAnalytics, analyticsStats, logAnalyticsStatus } from './analytics.js';
 import { mountChallenges } from './challenges.js';
+import { mountLeagues } from './leagues.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount, seasonInfo, previousSeasonId } from './game.js';
 import { botEngineReady, botEngineDiag } from './bot.js';
 
@@ -179,6 +180,10 @@ mountAnalytics(app);
 // Shareable "beat the Computer" challenge links — the growth loop. PUBLIC
 // create/fetch/result (guests included), rate-limited. See server/challenges.js.
 mountChallenges(app);
+
+// Friend Leagues — private clubs with a join code + a members-only leaderboard.
+// All routes require a real account (requireAuth). See server/leagues.js.
+mountLeagues(app);
 
 function requireStringField(body, name, { min = 1, max = 255 } = {}) {
   const value = body[name];

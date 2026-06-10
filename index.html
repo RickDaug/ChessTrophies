@@ -723,6 +723,42 @@
       </div>
     </div>
 
+    <!-- Bot Gauntlet lobby card (filled by ct-gauntlet.js). -->
+    <div id="lobby-gauntlet-card" class="card" data-act="open-gauntlet" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(245,196,81,.12), var(--panel))">
+      <div class="pc-row" style="display:flex;align-items:center;gap:12px">
+        <div class="pc-icon" style="font-size:26px">⚔️</div>
+        <div style="flex:1;min-width:0">
+          <div class="pc-title" style="font-weight:800;font-size:16px" id="lobby-gauntlet-title">Bot Gauntlet</div>
+          <div class="muted small" style="margin-top:4px" id="lobby-gauntlet-sub">Climb the ladder of bots.</div>
+        </div>
+        <div class="pill gold" id="lobby-gauntlet-pill">Climb</div>
+      </div>
+    </div>
+
+    <!-- Opening Trainer lobby card (filled by openings.js). -->
+    <div id="lobby-openings-card" class="card" data-act="open-openings" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
+      <div class="pc-row" style="display:flex;align-items:center;gap:12px">
+        <div class="pc-icon" style="font-size:26px">📖</div>
+        <div style="flex:1;min-width:0">
+          <div class="pc-title" style="font-weight:800;font-size:16px" id="lobby-openings-title">Opening Trainer</div>
+          <div class="muted small" style="margin-top:4px" id="lobby-openings-sub">Drill real opening lines and build your repertoire.</div>
+        </div>
+        <div class="pill gold">Train</div>
+      </div>
+    </div>
+
+    <!-- Friend Leagues lobby card (shown once signed in; ct-leagues.renderLobbyCard). -->
+    <div id="lobby-leagues-card" class="card" data-act="open-leagues" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
+      <div class="pc-row" style="display:flex;align-items:center;gap:12px">
+        <div class="pc-icon" style="font-size:26px">🛡️</div>
+        <div style="flex:1;min-width:0">
+          <div class="pc-title" style="font-weight:800;font-size:16px">Friend Leagues</div>
+          <div class="muted small" style="margin-top:4px">Start a private club and compete on a members-only board.</div>
+        </div>
+        <div class="pill gold">Open</div>
+      </div>
+    </div>
+
     <div id="lobby-daily-card" class="card" data-act="open-daily" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
       <div class="pc-row" style="display:flex;align-items:center;gap:12px">
         <div class="pc-icon" style="font-size:26px">🧩</div>
@@ -1132,6 +1168,31 @@
     <div id="arena-list"></div>
     <div id="arena-champions" style="margin-top:14px"></div>
     <p class="muted small center" style="margin-top:16px">Win = 2 pts · Draw = 1 · a 3rd straight win and beyond = 3 pts 🔥. Top player at the bell is champion.</p>
+  </section>
+
+  <!-- BOT GAUNTLET (populated by ct-gauntlet.js -> window.CT_Gauntlet) -->
+  <section id="screen-gauntlet" class="screen">
+    <div class="top-bar">
+      <h1>⚔️ Bot Gauntlet</h1>
+      <button class="btn btn-ghost small" id="btn-gauntlet-back">← Lobby</button>
+    </div>
+    <p class="muted small center" style="margin-bottom:12px">Climb the ladder one rung at a time. Beat the next challenger to unlock the one above. Replay anyone you've already toppled.</p>
+    <div id="gauntlet-list"></div>
+  </section>
+
+  <!-- OPENING TRAINER (populated by openings.js -> window.CT_Openings) -->
+  <section id="screen-openings" class="screen">
+    <div class="top-bar"><h1>📖 Openings</h1></div>
+    <div class="screen-body" id="openings-body"></div>
+  </section>
+
+  <!-- FRIEND LEAGUES (populated by ct-leagues.js -> window.CT_Leagues) -->
+  <section id="screen-leagues" class="screen">
+    <div class="top-bar">
+      <h1>🛡️ Leagues</h1>
+      <button class="btn btn-ghost small" data-act="open-lobby" id="btn-leagues-back">← Lobby</button>
+    </div>
+    <div id="leagues-body"></div>
   </section>
 
   <!-- TROPHIES -->
@@ -1699,6 +1760,10 @@
 <!-- Arena tournaments UI (window.CT_Arena). Reuses CTNet + the online game flow;
      degrades gracefully (lobby card stays hidden) if it fails to load. -->
 <script defer src="ct-arena.js?v=20260609a"></script>
+<!-- New solo/social features (self-contained modules; degrade gracefully). -->
+<script defer src="ct-gauntlet.js?v=20260609a"></script>
+<script defer src="openings.js?v=20260609a"></script>
+<script defer src="ct-leagues.js?v=20260609a"></script>
 <script defer src="ct-sw-register.js?v=20260606c"></script>
 </body>
 </html>

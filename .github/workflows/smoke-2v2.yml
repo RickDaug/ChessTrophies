@@ -76,6 +76,12 @@ jobs:
       - name: Challenge growth loop — client receive flow test
         run: npm run test:challenge-ui
 
+      - name: Friend Leagues — server contract test
+        run: npm run test:leagues
+
+      - name: New features (Gauntlet/Openings/Leagues) UI smoke
+        run: npm run test:new-features-ui
+
       - name: Ranked seasonal switch test
         run: npm run test:ranked-flag
 

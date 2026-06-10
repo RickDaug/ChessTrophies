@@ -593,6 +593,23 @@ CREATE TABLE IF NOT EXISTS challenges (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_challenges_created ON challenges(created_at DESC);
+
+-- Friend Leagues: private clubs with a join code + a members-only leaderboard.
+CREATE TABLE IF NOT EXISTS leagues (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  code TEXT UNIQUE NOT NULL,
+  owner_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_leagues_code ON leagues(code);
+CREATE TABLE IF NOT EXISTS league_members (
+  league_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  joined_at INTEGER NOT NULL,
+  PRIMARY KEY (league_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_league_members_user ON league_members(user_id);
 `);
 
 // Idempotently increment a user's season row for one finished ranked game.

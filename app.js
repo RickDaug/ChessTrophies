@@ -1036,6 +1036,13 @@
     // Arena screen owns a poll/countdown ticker — start it on enter, stop on any
     // other screen (exit() is idempotent).
     if (window.CT_Arena) { if (id === 'arena') window.CT_Arena.enter(); else if (window.CT_Arena.exit) window.CT_Arena.exit(); }
+    // Bot Gauntlet / Friend Leagues screens (self-contained modules).
+    if (id === 'gauntlet' && window.CT_Gauntlet) window.CT_Gauntlet.enter();
+    if (id === 'leagues' && window.CT_Leagues) window.CT_Leagues.enter();
+    if (id === 'openings') {
+      if (!window.CT_Openings) { toast('Opening Trainer is unavailable right now.'); $('#screen-openings').classList.remove('active'); $('#screen-lobby').classList.add('active'); return; }
+      try { window.CT_Openings.openTrainer(); } catch (e) {}
+    }
     if (id === 'trophies') renderTrophies();
     if (id === 'friends') { serverRequestsCache = null; renderFriendsList(); }
     // Academy lives in academy.js; it exposes window.CT_renderAcademy to populate #academy-content on demand.
@@ -1710,6 +1717,10 @@
     renderPlayStreak();
     // Live arena card (shown only when an arena is live/upcoming; degrades hidden).
     if (window.CT_Arena && window.CT_Arena.renderLobbyCard) window.CT_Arena.renderLobbyCard();
+    // New-feature lobby cards (each degrades hidden if its module didn't load).
+    if (window.CT_Gauntlet && window.CT_Gauntlet.renderLobbyCard) window.CT_Gauntlet.renderLobbyCard();
+    if (window.CT_Openings && window.CT_Openings.renderLobbyCard) window.CT_Openings.renderLobbyCard();
+    if (window.CT_Leagues && window.CT_Leagues.renderLobbyCard) window.CT_Leagues.renderLobbyCard();
     // Keep the (possibly hidden) checkers stat row in sync with state.user.checkers.
     if (typeof renderCheckersLobbyStats === 'function') renderCheckersLobbyStats();
   }
@@ -3526,6 +3537,20 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     startGame('practice');
   }
 
+  // Bot Gauntlet: start a practice game vs a named roster character. Mirrors
+  // startPracticeGame but names the opponent after the character and stashes the
+  // rung context (state._gauntlet) so finishGame can advance the ladder.
+  function startGauntletGame(character) {
+    if (!character) return;
+    state.is960 = false; state.startFen960 = null;
+    const aiElo = clampElo(character.elo);
+    let rung = -1;
+    try { rung = (window.CT_Gauntlet.ROSTER || []).findIndex(c => c.name === character.name); } catch (e) {}
+    state._gauntlet = { rung, won: false };
+    state.opponent = { username: character.name + ' ' + character.emoji, elo: aiElo, isAI: true, aiElo };
+    startGame('practice');
+  }
+
   function startPractice960(level) {
     state.is960 = true;
     state.startFen960 = window.CT_random960Fen ? window.CT_random960Fen() : null;
@@ -4302,6 +4327,19 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const opp = state.opponent;
     const myWon = winnerColor === state.userColor;
     const isDraw = winnerColor === null;
+    // Bot Gauntlet: if this was a gauntlet game, advance the ladder on a win of the
+    // next rung, then celebrate + clear the context. Gauntlet games are practice
+    // mode, so they never touch ELO; this just drives the ladder progress.
+    if (state._gauntlet && window.CT_Gauntlet) {
+      try {
+        const gres = window.CT_Gauntlet.onResult(myWon);
+        if (gres && gres.advanced) {
+          if (gres.complete) { ctCelebrate('big'); setTimeout(() => ctCelebrate('normal'), 260); toast('🏆 Gauntlet complete! You beat every challenger.', true); }
+          else { ctCelebrate('normal'); toast('Rung cleared! ' + gres.unlockedName + ' is now unlocked.', true); }
+        }
+      } catch (e) {}
+      state._gauntlet = null;
+    }
     // Analytics: a game ended. result is from the local player's perspective.
     try {
       window.CT_Analytics && window.CT_Analytics.track('play_finish', {
@@ -5593,6 +5631,15 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // Deferred puzzles.js hasn't executed yet; DOMContentLoaded will be next.
       document.addEventListener('DOMContentLoaded', initPuzzles, { once: true });
     }
+    // Opening Trainer (openings.js) — same deferred-script timing as puzzles: it
+    // needs init() to mount its renderer into #screen-openings .screen-body.
+    const initOpeningsSafe = function () {
+      if (!window.CT_Openings) { const c = $('#lobby-openings-card'); if (c) c.style.display = 'none'; return; }
+      try { window.CT_Openings.init('#screen-openings .screen-body'); } catch (e) {}
+      try { window.CT_Openings.renderLobbyCard(); } catch (e) {}
+    };
+    if (document.readyState === 'loading' || !window.CT_Openings) document.addEventListener('DOMContentLoaded', initOpeningsSafe, { once: true });
+    else initOpeningsSafe();
     // Web Push: detect support/permission/config once (deferred ct-push.js, like puzzles).
     const initPushSafe = function () {
       try { if (window.CT_Push && window.CT_Push.init) window.CT_Push.init().then(function () { try { updateReminderCard(); } catch (e) {} }).catch(function () {}); } catch (e) {}
@@ -5703,6 +5750,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     else if (act === 'open-daily') openDailyPuzzle();
     else if (act === 'open-season') showScreen('season');
     else if (act === 'open-arena') showScreen('arena');
+    else if (act === 'open-gauntlet') showScreen('gauntlet');
+    else if (act === 'open-openings') showScreen('openings');
+    else if (act === 'open-leagues') showScreen('leagues');
+    else if (act === 'open-lobby') showScreen('lobby');
   });
 
   // ---------------------------------------------------------------------------
@@ -5755,7 +5806,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     get user(){ return state.user; },
     setUser(u){ state.user = u; },
     $, $$, openModal, closeModal, showScreen, showNav, toast, ctCelebrate,
-    loadDB, saveDB, pieceSVG, escapeHTML,
+    loadDB, saveDB, pieceSVG, escapeHTML, startGauntletGame,
     ACHIEVEMENT_TIERS,
     hasAchievement, achievementCount, unlockAchievement, checkAchievementsFor, tierColor,
     renderLobby, renderProfile, renderBoard,
