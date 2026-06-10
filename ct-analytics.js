@@ -20,6 +20,8 @@
   'use strict';
 
   var VID_KEY = 'ct_vid';
+  var SRC_KEY = 'ct_src';   // first-touch traffic attribution (set once per visitor)
+  var UTM_MAX = 64;         // hard cap on any single utm/ref string
 
   // ONLY these event names are ever sent. Off-list names are dropped silently.
   var ALLOWED = {
@@ -74,6 +76,65 @@
     return 'v_' + rnd;
   }
 
+  // --- First-touch traffic-source attribution -------------------------------
+  // Captured ONCE per visitor on first sight and persisted in localStorage so it
+  // stays stable across the session/visits. PII-free: we keep only the referrer
+  // HOSTNAME (never the full URL) plus the campaign-tag UTM params, each capped.
+  var _memSrc = null;
+
+  function clamp(s) {
+    if (s == null) return '';
+    s = String(s);
+    return s.length > UTM_MAX ? s.slice(0, UTM_MAX) : s;
+  }
+
+  // Referrer hostname, or 'direct' if empty / same-origin (self-referral).
+  function refHost() {
+    try {
+      var r = document.referrer;
+      if (!r) return 'direct';
+      var h = new URL(r).hostname;
+      var self = (window.location && window.location.hostname) || '';
+      if (!h || h === self) return 'direct';
+      return clamp(h);
+    } catch (e) { return 'direct'; }
+  }
+
+  // Build the first-touch src object from the CURRENT page (called only once).
+  function captureSrc() {
+    var utm = { utm_source: '', utm_medium: '', utm_campaign: '' };
+    try {
+      var q = new URLSearchParams((window.location && window.location.search) || '');
+      utm.utm_source = clamp(q.get('utm_source') || '');
+      utm.utm_medium = clamp(q.get('utm_medium') || '');
+      utm.utm_campaign = clamp(q.get('utm_campaign') || '');
+    } catch (e) { /* ignore */ }
+    var path = '';
+    try { path = clamp((window.location && window.location.pathname) || ''); } catch (e) { path = ''; }
+    return {
+      ref: refHost(),
+      utm_source: utm.utm_source,
+      utm_medium: utm.utm_medium,
+      utm_campaign: utm.utm_campaign,
+      landingPath: path,
+      ts: Date.now(),
+    };
+  }
+
+  // Return the stored first-touch src, capturing + persisting it on first visit.
+  function firstTouchSrc() {
+    try {
+      var raw = window.localStorage.getItem(SRC_KEY);
+      if (raw) { try { return JSON.parse(raw); } catch (e) { /* fall through to recapture */ } }
+      var s = captureSrc();
+      try { window.localStorage.setItem(SRC_KEY, JSON.stringify(s)); } catch (e) { /* ignore */ }
+      return s;
+    } catch (e) {
+      if (!_memSrc) _memSrc = captureSrc();
+      return _memSrc;
+    }
+  }
+
   // The app's current user id (signed-in OR guest) if a session exists, else null.
   // Never PII — it's the app's own opaque user id.
   function currentUserId() {
@@ -88,11 +149,21 @@
     try {
       if (!name || !ALLOWED[name]) return;
       if (typeof fetch !== 'function') return;
+      var outMeta = (meta && typeof meta === 'object') ? meta : null;
+      // First-touch attribution: auto-attach the stored `src` to the `land`
+      // event (and only land, to keep payloads small) when the caller didn't
+      // already provide one. This lets app.js keep calling track('land') as-is.
+      if (name === 'land' && !(outMeta && outMeta.src)) {
+        try {
+          var src = firstTouchSrc();
+          if (src) outMeta = Object.assign({}, outMeta || {}, { src: src });
+        } catch (e) { /* attribution is best-effort; never break the land event */ }
+      }
       var body = JSON.stringify({
         name: name,
         visitorId: visitorId(),
         userId: currentUserId(),
-        meta: (meta && typeof meta === 'object') ? meta : null,
+        meta: outMeta,
       });
       // keepalive lets the request outlive a page unload (e.g. land/purchase).
       var p = fetch(apiBase() + '/api/events', {

@@ -3,6 +3,9 @@
   "framework": null,
   "buildCommand": "npm run build:dist",
   "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/c/:id", "destination": "https://chesstrophies-production.up.railway.app/c/:id" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

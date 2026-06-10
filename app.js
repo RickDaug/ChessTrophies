@@ -2524,9 +2524,14 @@ function renderFriendsSummary() {
     return r && r.id;
   }
   function challengeUrl(id) {
-    const base = location.origin + location.pathname;
-    let url = base + '?c=' + encodeURIComponent(id);
-    if (state.user && !state.user.isGuest && state.user.id) url += '&invitedBy=' + encodeURIComponent(state.user.id);
+    // Share the canonical `/c/<id>` path so crawlers get a rich Open Graph card
+    // (the Railway route at /c/:id renders per-challenge meta then redirects to
+    // the SPA's ?c= handler). Reuse the same canonical base as buildShareUrl():
+    // the production host in prod, else the current origin (local/preview).
+    const isProd = (typeof location !== 'undefined' && /(^|\.)playchesstrophies\.com$/i.test(location.hostname));
+    const base = isProd ? SHARE_SITE_URL.replace(/\/+$/, '') : (location.origin);
+    let url = base + '/c/' + encodeURIComponent(id);
+    if (state.user && !state.user.isGuest && state.user.id) url += '?invitedBy=' + encodeURIComponent(state.user.id);
     return url;
   }
   function openChallengeShare(url, text) {

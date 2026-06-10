@@ -1,0 +1,8 @@
+# robots.txt for ChessTrophies — allow all crawlers.
+User-agent: *
+Allow: /
+
+# Keep the admin dashboard out of the index (data is server-gated anyway).
+Disallow: /admin.html
+
+Sitemap: https://www.playchesstrophies.com/sitemap.xml

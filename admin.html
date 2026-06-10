@@ -306,6 +306,20 @@
       </div>
     </div>
 
+    <!-- Traffic sources -->
+    <div class="row2 c2">
+      <div class="panel">
+        <h3>🌐 Traffic sources</h3>
+        <p class="h3sub" id="sourcesSub">Where visitors come from · last 30 days</p>
+        <div id="topReferrersBody"></div>
+      </div>
+      <div class="panel">
+        <h3>📣 Campaigns</h3>
+        <p class="h3sub">Top UTM campaigns · last 30 days</p>
+        <div id="topCampaignsBody"></div>
+      </div>
+    </div>
+
     <!-- Daily activity chart -->
     <div class="row2">
       <div class="panel">
@@ -475,6 +489,7 @@
   var todayTiles = $('todayTiles'), todaySub = $('todaySub');
   var funnelBody = $('funnelBody'), funnelSub = $('funnelSub');
   var topEventsBody = $('topEventsBody'), dailyChart = $('dailyChart');
+  var topReferrersBody = $('topReferrersBody'), topCampaignsBody = $('topCampaignsBody'), sourcesSub = $('sourcesSub');
   var arenaTiles = $('arenaTiles'), arenaSub = $('arenaSub'), arenaChamps = $('arenaChamps');
   var seasonBadge = $('seasonBadge'), seasonSub = $('seasonSub'), seasonBody = $('seasonBody');
   var fearedSub = $('fearedSub'), fearedBody = $('fearedBody');
@@ -1163,6 +1178,65 @@
       '</tr></thead><tbody>' + rows + '</tbody></table>';
   }
 
+  // Traffic-source attribution: top referrers (by distinct visitors) + top UTM
+  // campaigns, plus a "Direct" count. Defensive reads throughout; CSP-safe.
+  function renderSources(s) {
+    var a = (s && s.analytics) || {};
+    var src = a.sources || {};
+    var refs = Array.isArray(src.topReferrers) ? src.topReferrers.filter(function (x) { return x != null; }) : [];
+    var camps = Array.isArray(src.topCampaigns) ? src.topCampaigns.filter(function (x) { return x != null; }) : [];
+    var direct = Number(pick(src.direct, 0)) || 0;
+
+    if (sourcesSub) {
+      var totalRefVis = refs.reduce(function (n, r) { return n + (Number(pick(r.visitors, 0)) || 0); }, 0);
+      sourcesSub.textContent = (refs.length || direct)
+        ? (totalRefVis + direct).toLocaleString() + ' attributed visitors · ' + num(direct) + ' direct · last 30 days'
+        : 'Where visitors come from · last 30 days';
+    }
+
+    // Top referrers table — with a leading "Direct" row so it's always visible.
+    var refRows = '';
+    if (direct > 0) {
+      refRows += '<tr>' +
+        '<td class="rk num">–</td>' +
+        '<td class="nm">Direct / none</td>' +
+        '<td class="pts num">' + num(direct) + '</td>' +
+      '</tr>';
+    }
+    refRows += refs.slice(0, 10).map(function (r, i) {
+      r = r || {};
+      return '<tr>' +
+        '<td class="rk num">' + (i + 1) + '</td>' +
+        '<td class="nm">' + esc(pick(r.source, '—')) + '</td>' +
+        '<td class="pts num">' + num(pick(r.visitors, 0)) + '</td>' +
+      '</tr>';
+    }).join('');
+    if (!refRows) {
+      topReferrersBody.innerHTML = '<div class="chart-empty">No traffic-source data yet</div>';
+    } else {
+      topReferrersBody.innerHTML = '<table class="stand"><thead><tr>' +
+        '<th>#</th><th>Referrer / source</th><th style="text-align:right;">Visitors</th>' +
+        '</tr></thead><tbody>' + refRows + '</tbody></table>';
+    }
+
+    // Top campaigns table.
+    if (!camps.length) {
+      topCampaignsBody.innerHTML = '<div class="chart-empty">No campaign tags yet</div>';
+    } else {
+      var campRows = camps.slice(0, 10).map(function (c, i) {
+        c = c || {};
+        return '<tr>' +
+          '<td class="rk num">' + (i + 1) + '</td>' +
+          '<td class="nm">' + esc(pick(c.campaign, '—')) + '</td>' +
+          '<td class="pts num">' + num(pick(c.visitors, 0)) + '</td>' +
+        '</tr>';
+      }).join('');
+      topCampaignsBody.innerHTML = '<table class="stand"><thead><tr>' +
+        '<th>#</th><th>Campaign</th><th style="text-align:right;">Visitors</th>' +
+        '</tr></thead><tbody>' + campRows + '</tbody></table>';
+    }
+  }
+
   // ===================================================================
   //  STATS FETCH
   // ===================================================================
@@ -1173,6 +1247,7 @@
     renderFunnel(lastStats);
     renderDailyActivity(lastStats);
     renderTopEvents(lastStats);
+    renderSources(lastStats);
     renderRevenue(lastStats);
     renderSeries(lastStats);
     renderShares(lastStats);

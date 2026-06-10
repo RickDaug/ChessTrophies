@@ -40,6 +40,42 @@
 <meta name="twitter:image" content="https://www.playchesstrophies.com/og-image.png" />
 <meta name="twitter:image:alt" content="ChessTrophies — play online chess, win trophies" />
 
+<!-- Canonical URL for the app homepage. -->
+<link rel="canonical" href="https://www.playchesstrophies.com/" />
+
+<!-- schema.org structured data (WebApplication + WebSite + Organization) so
+     search engines understand what ChessTrophies is. External JSON in a
+     type="application/ld+json" block — not executable JS, allowed under CSP. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "name": "ChessTrophies",
+      "url": "https://www.playchesstrophies.com/",
+      "applicationCategory": "GameApplication",
+      "operatingSystem": "Any (web browser)",
+      "browserRequirements": "Requires JavaScript and HTML5.",
+      "description": "Play ranked online chess (1v1 & 2v2), climb the ELO ladder, earn trophies, practice vs the computer, and learn with free lessons.",
+      "image": "https://www.playchesstrophies.com/og-image.png",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+    },
+    {
+      "@type": "WebSite",
+      "name": "ChessTrophies",
+      "url": "https://www.playchesstrophies.com/"
+    },
+    {
+      "@type": "Organization",
+      "name": "ChessTrophies",
+      "url": "https://www.playchesstrophies.com/",
+      "logo": "https://www.playchesstrophies.com/icon-512.png"
+    }
+  ]
+}
+</script>
+
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -610,6 +646,10 @@
       By signing up you agree to our
       <a href="terms.html" style="color:var(--accent)">Terms</a> and
       <a href="privacy.html" style="color:var(--accent)">Privacy Policy</a>.
+    </p>
+    <p class="muted center small" style="margin-top:10px">
+      New to chess? Read our free
+      <a href="/learn/" style="color:var(--accent)">chess lessons &amp; strategy guides</a>.
     </p>
   </section>
 

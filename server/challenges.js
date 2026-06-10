@@ -36,6 +36,30 @@ function cleanName(s) {
   return cleaned || 'A player';
 }
 
+// Canonical production host used for the shareable card + redirect.
+const SITE = 'https://www.playchesstrophies.com';
+
+// HTML-escape for safe interpolation into both text nodes and attributes.
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Difficulty label from elo — mirrors the client's aiNameForElo tiers.
+function levelForElo(elo) {
+  const n = Number(elo) || 1200;
+  if (n < 800) return 'Beginner';
+  if (n < 1200) return 'Club';
+  if (n < 1500) return 'Intermediate';
+  if (n < 1800) return 'Strong';
+  if (n < 2100) return 'Expert';
+  return 'Master';
+}
+
 function shape(row) {
   if (!row) return null;
   let meta = null;
@@ -102,4 +126,88 @@ export function mountChallenges(app) {
       res.status(500).json({ error: 'Could not record the result.' });
     }
   });
+
+  // SHARE CARD — crawler-facing HTML for `/c/:id`. Vercel proxies this path to the
+  // Railway server because the static SPA (which handles ?c=) can't render a
+  // per-challenge Open Graph card (crawlers don't run JS). This returns a tiny,
+  // no-JS, CSP-clean page with challenge-specific OG/Twitter meta + a meta-refresh
+  // that bounces real browsers into the SPA at `/?c=<id>`.
+  app.get('/c/:id', async (req, res) => {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    try {
+      const id = String(req.params.id).slice(0, 32);
+      const row = await store.get('SELECT * FROM challenges WHERE id = ?', [id]);
+      const c = shape(row);
+      const image = `${SITE}/og-image.png`;
+
+      if (!c) {
+        // Unknown id — still a valid card that bounces to the home page.
+        const home = SITE + '/';
+        const title = 'Beat the Computer on ChessTrophies';
+        const desc = 'Play chess against the Computer instantly — no sign-up.';
+        return res.status(200).send(
+          page({ title, desc, url: home, image, redirect: home })
+        );
+      }
+
+      const cid = encodeURIComponent(c.id);
+      const url = `${SITE}/?c=${cid}`;
+      const name = c.challengerName || 'A player';
+      const level = levelForElo(c.elo);
+      const title = `${name} challenges you to beat the Computer (${level}) — can you?`;
+
+      // Build the description with social proof + optional "won in K moves" claim.
+      const parts = [];
+      if (c.plays > 0) {
+        parts.push(`${c.plays} player${c.plays === 1 ? ' has' : 's have'} tried · ${c.beats} beat it.`);
+      }
+      const moves = c.meta && Number(c.meta.moves);
+      if (moves && Number.isFinite(moves) && moves > 0) {
+        parts.push(`${name} won in ${moves} moves.`);
+      }
+      parts.push('Play instantly — no sign-up.');
+      const desc = parts.join(' ');
+
+      return res.status(200).send(page({ title, desc, url, image, redirect: url }));
+    } catch (e) {
+      console.error('[challenges] share card failed', e && e.message);
+      // On any failure, bounce to the home page rather than erroring.
+      const home = SITE + '/';
+      try {
+        return res.status(200).send(page({
+          title: 'ChessTrophies',
+          desc: 'Play chess against the Computer instantly — no sign-up.',
+          url: home, image: `${SITE}/og-image.png`, redirect: home,
+        }));
+      } catch (e2) {
+        return res.redirect(302, home);
+      }
+    }
+  });
+}
+
+// Render the standalone share-card HTML page. All dynamic values are HTML-escaped.
+function page({ title, desc, url, image, redirect }) {
+  const t = esc(title), d = esc(desc), u = esc(url), img = esc(image), r = esc(redirect);
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
+    `<meta name="viewport" content="width=device-width, initial-scale=1">` +
+    `<meta http-equiv="refresh" content="0; url=${r}">` +
+    `<title>${t}</title>` +
+    `<meta name="description" content="${d}">` +
+    `<meta property="og:title" content="${t}">` +
+    `<meta property="og:description" content="${d}">` +
+    `<meta property="og:type" content="website">` +
+    `<meta property="og:url" content="${u}">` +
+    `<meta property="og:image" content="${img}">` +
+    `<meta property="og:image:width" content="1200">` +
+    `<meta property="og:image:height" content="630">` +
+    `<meta property="og:site_name" content="ChessTrophies">` +
+    `<meta name="twitter:card" content="summary_large_image">` +
+    `<meta name="twitter:title" content="${t}">` +
+    `<meta name="twitter:description" content="${d}">` +
+    `<meta name="twitter:image" content="${img}">` +
+    `</head><body>` +
+    `<p>Redirecting to ChessTrophies…</p>` +
+    `<p><a href="${r}">Continue to ChessTrophies</a></p>` +
+    `</body></html>`;
 }

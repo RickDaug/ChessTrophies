@@ -146,7 +146,68 @@ function emptyStats() {
     daily: [],
     returning: { visitorsToday: 0, returningToday: 0 },
     topEvents: [],
+    sources: { topReferrers: [], topCampaigns: [], direct: 0 },
   };
+}
+
+// Traffic-source attribution over the last 30 days. We DON'T add columns: the
+// first-touch `src` object rides along in the `meta` TEXT column of each `land`
+// event. We read those rows and group by ref / utm_source in JS (fine at this
+// scale), counting DISTINCT visitors per source. Failure-isolated: any error
+// returns empty arrays so the rest of the analytics block still renders.
+async function sourcesStats(cut30) {
+  try {
+    const rows = await store.all(
+      "SELECT visitor_id, meta FROM analytics_events WHERE name = 'land' AND day_key >= ?",
+      [cut30]
+    );
+    // ref/campaign -> Set of distinct visitor ids; plus a direct-visitor set.
+    const refMap = new Map();      // referrer hostname -> Set(visitorId)
+    const campMap = new Map();     // utm_campaign -> Set(visitorId)
+    const directVisitors = new Set();
+    const addTo = (map, key, vid) => {
+      let set = map.get(key);
+      if (!set) { set = new Set(); map.set(key, set); }
+      set.add(vid);
+    };
+    for (const r of (rows || [])) {
+      const vid = r && r.visitor_id != null ? String(r.visitor_id) : '';
+      if (!vid) continue;
+      let src = null;
+      if (r && r.meta) {
+        try {
+          const parsed = JSON.parse(r.meta);
+          if (parsed && typeof parsed === 'object' && parsed.src && typeof parsed.src === 'object') src = parsed.src;
+        } catch (e) { /* skip unparseable meta */ }
+      }
+      if (!src) continue;
+      // A referrer is the campaign-agnostic origin. utm_source (if present)
+      // wins as the canonical acquisition source; else fall back to ref host.
+      const ref = (typeof src.ref === 'string' && src.ref.trim()) ? src.ref.trim() : 'direct';
+      const utmSource = (typeof src.utm_source === 'string' && src.utm_source.trim()) ? src.utm_source.trim() : '';
+      const sourceKey = utmSource || ref;
+      if (sourceKey === 'direct') {
+        directVisitors.add(vid);
+      } else {
+        addTo(refMap, sourceKey, vid);
+      }
+      const camp = (typeof src.utm_campaign === 'string' && src.utm_campaign.trim()) ? src.utm_campaign.trim() : '';
+      if (camp) addTo(campMap, camp, vid);
+    }
+    const toSorted = (map, labelKey) =>
+      Array.from(map.entries())
+        .map(([k, set]) => ({ [labelKey]: k, visitors: set.size }))
+        .sort((a, b) => b.visitors - a.visitors)
+        .slice(0, 10);
+    return {
+      topReferrers: toSorted(refMap, 'source'),
+      topCampaigns: toSorted(campMap, 'campaign'),
+      direct: directVisitors.size,
+    };
+  } catch (e) {
+    console.error('[analytics] sourcesStats failed:', e && e.message ? e.message : e);
+    return { topReferrers: [], topCampaigns: [], direct: 0 };
+  }
 }
 
 // Compute the stats.analytics shape. Failure-isolated: any error returns the
@@ -221,12 +282,17 @@ export async function analyticsStats() {
     );
     const topEvents = (topRows || []).map(r => ({ name: String(r.name), count: Number(r.count) || 0 }));
 
+    // Traffic-source attribution (last 30 days). Self-isolating — defaults to
+    // empty arrays on error so it can never break the rest of the block.
+    const sources = await sourcesStats(cut30);
+
     return {
       funnel,
       today: today_,
       daily,
       returning: { visitorsToday, returningToday },
       topEvents,
+      sources,
     };
   } catch (e) {
     console.error('[analytics] analyticsStats failed:', e && e.message ? e.message : e);
