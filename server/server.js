@@ -45,6 +45,7 @@ import { mountPush, logPushStatus, sendPushToUser } from './push.js';
 import { mountPuzzles } from './puzzles.js';
 import { mountArena, startArenaScheduler, logArenaStatus, liveArena, arenaEnabled, recentChampions } from './arena.js';
 import { mountAnalytics, analyticsStats, logAnalyticsStatus } from './analytics.js';
+import { mountChallenges } from './challenges.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount, seasonInfo, previousSeasonId } from './game.js';
 import { botEngineReady, botEngineDiag } from './bot.js';
 
@@ -174,6 +175,10 @@ mountArena(app);
 // POST /api/events, rate-limited per visitor+IP. Powers the admin funnel/daily
 // traffic block in /api/admin/stats. Backend-agnostic via the store facade.
 mountAnalytics(app);
+
+// Shareable "beat the Computer" challenge links — the growth loop. PUBLIC
+// create/fetch/result (guests included), rate-limited. See server/challenges.js.
+mountChallenges(app);
 
 function requireStringField(body, name, { min = 1, max = 255 } = {}) {
   const value = body[name];

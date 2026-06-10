@@ -28,6 +28,11 @@ const ALLOWED_EVENTS = new Set([
   'puzzle_solve',
   'premium_view',
   'purchase',
+  // Growth loop (shareable "beat the Computer" challenges).
+  'challenge_create',
+  'challenge_view',
+  'challenge_accept',
+  'challenge_complete',
 ]);
 
 const VISITOR_ID_MAX = 64;

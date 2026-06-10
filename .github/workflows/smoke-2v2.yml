@@ -70,6 +70,12 @@ jobs:
       - name: Product analytics (events + funnel aggregation) test
         run: npm run test:analytics
 
+      - name: Challenge growth loop — server contract test
+        run: npm run test:challenges
+
+      - name: Challenge growth loop — client receive flow test
+        run: npm run test:challenge-ui
+
       - name: Ranked seasonal switch test
         run: npm run test:ranked-flag
 

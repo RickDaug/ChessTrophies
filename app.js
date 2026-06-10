@@ -1611,7 +1611,12 @@
       setSession({ userId: gu.id, guest: true });
       // Show the nav and prep lobby state, then optionally drop straight into a game.
       enterApp();
-      if (opts.playNow) {
+      if (opts.challenge) {
+        // Accepted a shared challenge: play that exact bot difficulty (not the ramp).
+        state._challenge = { id: opts.challenge.id, elo: opts.challenge.elo };
+        toast('Challenge accepted — beat the Computer! ⚔️', true);
+        startPracticeGame(opts.challenge.elo);
+      } else if (opts.playNow) {
         const firstGame = !(state.user.flags && state.user.flags.guestGames);
         const lvl = guestPracticeElo(($('#practice-elo') && $('#practice-elo').value) || 1200);
         toast(firstGame
@@ -2426,6 +2431,7 @@ function renderFriendsSummary() {
     }
     // Show the canonical site share URL (with the referral param when logged in),
     // matching what the share buttons actually send.
+    _shareChallenge = null; // normal "invite friends" — share the site referral, not a challenge
     $('#invite-link').textContent = buildShareUrl();
     // Reveal the native Share button only where the Web Share API exists.
     const nativeBtn = $('#btn-share-native');
@@ -2439,6 +2445,9 @@ function renderFriendsSummary() {
   // inline handlers; external share targets open via window.open (navigation, not
   // a frame, so frame-src 'none' is unaffected).
   const SHARE_MESSAGE = 'Play chess with me on ChessTrophies!';
+  // When the share modal is sharing a CHALLENGE (not the generic site referral),
+  // this holds { url, text }; cleared when the normal "invite friends" opens.
+  let _shareChallenge = null;
   function openShareWindow(href) {
     try {
       const w = window.open(href, '_blank', 'noopener,noreferrer');
@@ -2466,8 +2475,8 @@ function renderFriendsSummary() {
     }
   }
   async function handleShare(platform) {
-    const url = buildShareUrl();
-    const text = SHARE_MESSAGE;
+    const url = _shareChallenge ? _shareChallenge.url : buildShareUrl();
+    const text = _shareChallenge ? _shareChallenge.text : SHARE_MESSAGE;
     // Track first (fire-and-forget) so analytics fire regardless of what the
     // share target does.
     trackShare(platform);
@@ -2491,6 +2500,98 @@ function renderFriendsSummary() {
     });
   }
   $('#btn-invite-cancel').addEventListener('click', () => { closeModal('invite'); });
+
+  // ===========================================================================
+  // GROWTH LOOP — shareable "beat the Computer" challenge links
+  // ===========================================================================
+  // A player who beats the Computer can challenge a friend to beat the same
+  // difficulty. The link drops a brand-new visitor straight into that bot game
+  // as a guest (no signup), then loops them back to challenge someone else + a
+  // signup nudge. plays/beats tally social proof. Reuses the share modal.
+  function ctTrack(name, meta) { try { if (window.CT_Analytics) window.CT_Analytics.track(name, meta); } catch (e) {} }
+
+  async function createChallenge() {
+    const u = state.user || {};
+    const elo = (state.opponent && (state.opponent.aiElo || state.opponent.elo)) || 1200;
+    const moves = Math.ceil((state.history ? state.history.length : 0) / 2);
+    const body = {
+      challengerName: u.username || 'A player',
+      elo,
+      challengerId: (u.id && !u.isGuest) ? u.id : null,
+      meta: { result: 'won', moves },
+    };
+    const r = await api('/api/challenges', { method: 'POST', body: JSON.stringify(body) });
+    return r && r.id;
+  }
+  function challengeUrl(id) {
+    const base = location.origin + location.pathname;
+    let url = base + '?c=' + encodeURIComponent(id);
+    if (state.user && !state.user.isGuest && state.user.id) url += '&invitedBy=' + encodeURIComponent(state.user.id);
+    return url;
+  }
+  function openChallengeShare(url, text) {
+    _shareChallenge = { url: url, text: text };
+    const link = $('#invite-link'); if (link) link.textContent = url;
+    const nativeBtn = $('#btn-share-native'); if (nativeBtn) nativeBtn.style.display = (typeof navigator !== 'undefined' && navigator.share) ? '' : 'none';
+    openModal('invite');
+  }
+  async function createAndShareChallenge() {
+    try {
+      const id = await createChallenge();
+      if (!id) { toast('Could not create the challenge — try again.'); return; }
+      ctTrack('challenge_create', { elo: (state.opponent && (state.opponent.aiElo || state.opponent.elo)) || null });
+      const name = (state.user && state.user.username) ? state.user.username : null;
+      const text = (name ? name + ' challenges you' : 'I challenge you') + ' to beat the Computer on ChessTrophies! Can you do it?';
+      openChallengeShare(challengeUrl(id), text);
+    } catch (e) { toast('Could not create the challenge — try again.'); }
+  }
+
+  // Recipient side: when the app opens with ?c=<id>, show the challenge landing.
+  async function handleIncomingChallenge() {
+    let cid;
+    try { cid = new URLSearchParams(location.search).get('c'); } catch (e) { return; }
+    if (!cid) return;
+    let c = null;
+    try { c = await api('/api/challenges/' + encodeURIComponent(cid)); } catch (e) { return; }
+    if (!c || !c.elo) return;
+    state._pendingChallenge = c;
+    ctTrack('challenge_view', { elo: c.elo });
+    const lvl = (typeof aiNameForElo === 'function') ? aiNameForElo(c.elo) : 'Computer';
+    const t = $('#challenge-title'); if (t) t.textContent = (c.challengerName || 'A player') + ' challenges you!';
+    const body = $('#challenge-body'); if (body) body.textContent = 'Beat the Computer — ' + lvl + ' (ELO ' + c.elo + '). No sign-up needed.';
+    const proof = $('#challenge-proof');
+    if (proof) {
+      let txt = '';
+      if (c.plays > 0) txt = c.plays + ' ' + (c.plays === 1 ? 'player has' : 'players have') + ' tried · ' + c.beats + ' beat it';
+      if (c.meta && c.meta.moves) txt = (txt ? txt + ' · ' : '') + 'They won in ' + c.meta.moves + ' moves';
+      proof.textContent = txt;
+    }
+    openModal('challenge');
+  }
+  async function acceptChallenge() {
+    const c = state._pendingChallenge;
+    closeModal('challenge');
+    if (!c) return;
+    ctTrack('challenge_accept', { elo: c.elo });
+    if (!state.user) {
+      await startGuestSession(null, { challenge: c });   // creates a guest + starts the bot game
+    } else {
+      state._challenge = { id: c.id, elo: c.elo };
+      enterApp();
+      startPracticeGame(c.elo);
+    }
+  }
+  // Record a completed received-challenge attempt + tally it server-side.
+  function recordChallengeResult(beat) {
+    const ch = state._challenge;
+    if (!ch) return;
+    state._challenge = null;
+    try { api('/api/challenges/' + encodeURIComponent(ch.id) + '/result', { method: 'POST', body: JSON.stringify({ beat: !!beat }) }).catch(function () {}); } catch (e) {}
+    ctTrack('challenge_complete', { beat: !!beat });
+  }
+  { const b = $('#btn-result-challenge'); if (b) b.addEventListener('click', createAndShareChallenge); }
+  { const b = $('#btn-challenge-accept'); if (b) b.addEventListener('click', acceptChallenge); }
+  { const b = $('#btn-challenge-later'); if (b) b.addEventListener('click', () => { closeModal('challenge'); }); }
 
   $$('[data-go]').forEach(el => {
     el.addEventListener('click', () => showScreen(el.dataset.go));
@@ -4554,6 +4655,19 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // Analytics: the guest signup CTA is actually being shown.
       if (_showGuestCta) { try { window.CT_Analytics && window.CT_Analytics.track('signup_cta_view', { won: !!(myWon || _newTrophyCount > 0) }); } catch (e) {} }
     }
+    // GROWTH LOOP: if this was a received challenge, tally it server-side; then show
+    // the challenge button — "challenge a friend back" after completing one, or
+    // "challenge a friend to beat this" after a fresh win vs the Computer.
+    var _wasChallenge = !!state._challenge;
+    if (_wasChallenge) { try { recordChallengeResult(myWon && !isDraw); } catch (e) {} }
+    { var _chBtn = $('#btn-result-challenge');
+      if (_chBtn) {
+        var _vsAI = !!(state.opponent && state.opponent.isAI);
+        var _showChallenge = _wasChallenge || (_vsAI && myWon && !isDraw);
+        _chBtn.textContent = _wasChallenge ? '🔗 Challenge a friend back' : '🔗 Challenge a friend to beat this';
+        _chBtn.style.display = _showChallenge ? '' : 'none';
+      }
+    }
     // Checkmate moment: punctuate the mate on the board (flash + king topple)
     // BEFORE the modal slides up, so the player sees the kill on the board. The
     // loser is the side that was checkmated (the side to move when mate happened).
@@ -5452,6 +5566,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Privacy-light analytics: one 'land' event per page load (boot). Defensive +
     // optional — ct-analytics.js is a deferred module that may not have loaded yet.
     try { window.CT_Analytics && window.CT_Analytics.track('land'); } catch (e) {}
+    // Growth loop: if opened via a ?c=<id> challenge link, show the landing (over
+    // whatever boot screen settles). Fire-and-forget; never blocks boot.
+    try { handleIncomingChallenge(); } catch (e) {}
     // Fetch the server feature flags (rankedEnabled) once, up front. Fire-and-
     // forget: it defaults to FALSE on failure and re-paints the ranked UI itself
     // via applyRankedGate() when it resolves, so it never blocks boot.

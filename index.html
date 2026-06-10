@@ -1393,9 +1393,28 @@
     <!-- Guest-only CTA after a win/trophy: guest progress is sessionStorage-only and
          is lost when the tab closes. JS shows this only for a guest who just won. -->
     <button class="btn btn-block" id="btn-result-guest-signup" style="margin-top:10px;display:none">Create an account to keep your progress</button>
+    <!-- Growth loop: after a win vs the Computer, challenge a friend to beat it.
+         JS sets the label (🔗 Challenge a friend / Challenge a friend back) + shows it. -->
+    <button class="btn btn-block" id="btn-result-challenge" style="margin-top:10px;display:none;background:linear-gradient(135deg,#7dd4ff,#5aa9e6);border:none">🔗 Challenge a friend to beat this</button>
     <button class="btn btn-block btn-secondary" id="btn-result-review" style="margin-top:10px">Review game</button>
         <button class="btn btn-block btn-ghost" id="btn-result-block" style="margin-top:8px;color:var(--danger);display:none">Block opponent</button>
         <button class="btn btn-block" id="btn-result-close" style="margin-top:14px">Done</button>
+  </div>
+</div>
+
+<!-- Challenge landing: shown when a visitor opens a ?c=<id> share link. They can
+     play the same Computer difficulty as a guest (no signup), then loop back. -->
+<div class="modal-overlay" id="modal-challenge">
+  <div class="modal">
+    <div class="handle"></div>
+    <div style="text-align:center">
+      <div style="font-size:46px;line-height:1">♟️</div>
+      <h2 style="margin-top:8px" id="challenge-title">You've been challenged!</h2>
+      <p id="challenge-body" class="muted" style="margin:6px 0 4px">—</p>
+      <p id="challenge-proof" class="small" style="margin:0 0 16px;color:var(--accent)"></p>
+    </div>
+    <button class="btn btn-block" id="btn-challenge-accept">Accept the challenge ⚔️</button>
+    <button class="btn btn-block btn-ghost" id="btn-challenge-later" style="margin-top:8px">Maybe later</button>
   </div>
 </div>
 

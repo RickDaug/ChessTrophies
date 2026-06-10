@@ -400,6 +400,19 @@ CREATE TABLE IF NOT EXISTS analytics_events (
 CREATE INDEX IF NOT EXISTS idx_analytics_name_day ON analytics_events(name, day_key);
 CREATE INDEX IF NOT EXISTS idx_analytics_visitor ON analytics_events(visitor_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_day ON analytics_events(day_key);
+
+CREATE TABLE IF NOT EXISTS challenges (
+  id TEXT PRIMARY KEY,
+  challenger_name TEXT NOT NULL,
+  challenger_id TEXT,
+  kind TEXT NOT NULL DEFAULT 'beat_bot',
+  elo INTEGER NOT NULL DEFAULT 1200,
+  meta TEXT,
+  plays INTEGER NOT NULL DEFAULT 0,
+  beats INTEGER NOT NULL DEFAULT 0,
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_challenges_created ON challenges(created_at DESC);
 `);
 }
 
