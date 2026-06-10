@@ -184,6 +184,8 @@
     p.lastReviewed = Date.now();
     all[id] = p;
     persistProgress();
+    // Catch any Openings-family trophy this mastery gain just unlocked.
+    try { if (typeof window.CT_reconcileTrophies === 'function') window.CT_reconcileTrophies(); } catch (e) {}
     return p;
   }
 

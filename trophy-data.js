@@ -14,6 +14,7 @@
     { id: 'wins_t5',  family: 'Wins',     type: 'wins',     threshold: 50,   tier: 5, icon: '🎖️', name: 'Legendary',      desc: 'Win 50 ranked games.' },
     { id: 'wins_t6',  family: 'Wins',     type: 'wins',     threshold: 100,  tier: 6, icon: '👑', name: 'Master',         desc: 'Win 100 ranked games.' },
     { id: 'wins_t7',  family: 'Wins',     type: 'wins',     threshold: 250,  tier: 7, icon: '💠', name: 'Grandmaster',    desc: 'Win 250 ranked games.' },
+    { id: 'wins_t8',  family: 'Wins',     type: 'wins',     threshold: 500,  tier: 8, icon: '🏆', name: 'Immortal Victor', desc: 'Win 500 ranked games.' },
     // Streaks
     { id: 'streak_t1',family: 'Streak',   type: 'streak',   threshold: 3,    tier: 1, icon: '🔥', name: 'On Fire',        desc: 'Win 3 in a row.' , repeatable: true },
     { id: 'streak_t2',family: 'Streak',   type: 'streak',   threshold: 5,    tier: 2, icon: '⚡', name: 'Inferno',        desc: 'Win 5 in a row.' , repeatable: true },
@@ -36,24 +37,29 @@
     { id: 'fast_t2',  family: 'Fast Win', type: 'fast',     threshold: 20,   tier: 2, icon: '⚡', name: 'Thunder',        desc: 'Win in ≤20 moves.' , repeatable: true },
     { id: 'fast_t3',  family: 'Fast Win', type: 'fast',     threshold: 15,   tier: 3, icon: '🌪️', name: 'Blitz Master',  desc: 'Win in ≤15 moves.' , repeatable: true },
     { id: 'fast_t4',  family: 'Fast Win', type: 'fast',     threshold: 10,   tier: 4, icon: '💥', name: 'Brilliance',     desc: 'Win in ≤10 moves.' , repeatable: true },
+    { id: 'fast_t5',  family: 'Fast Win', type: 'fast',     threshold: 8,    tier: 5, icon: '🎆', name: 'Miniature',      desc: 'Win in ≤8 moves.' , repeatable: true },
     // Games played
     { id: 'games_t1', family: 'Veteran',  type: 'games',    threshold: 10,   tier: 1, icon: '🎯', name: 'Tested',         desc: 'Play 10 ranked games.' },
     { id: 'games_t2', family: 'Veteran',  type: 'games',    threshold: 50,   tier: 2, icon: '🏛️', name: 'Seasoned',       desc: 'Play 50 ranked games.' },
     { id: 'games_t3', family: 'Veteran',  type: 'games',    threshold: 100,  tier: 3, icon: '🗿', name: 'Hardened',       desc: 'Play 100 ranked games.' },
     { id: 'games_t4', family: 'Veteran',  type: 'games',    threshold: 250,  tier: 4, icon: '🌌', name: 'Eternal',        desc: 'Play 250 ranked games.' },
+    { id: 'games_t5', family: 'Veteran',  type: 'games',    threshold: 500,  tier: 5, icon: '🌠', name: 'Timeless',       desc: 'Play 500 ranked games.' },
     // Checkmates delivered
     { id: 'mate_t1',  family: 'Mates',    type: 'mate',     threshold: 1,    tier: 1, icon: '♛', name: 'Mate Maker',      desc: 'Win 1 game by checkmate.' },
     { id: 'mate_t2',  family: 'Mates',    type: 'mate',     threshold: 5,    tier: 2, icon: '♕', name: 'Executioner',     desc: 'Win 5 games by checkmate.' },
     { id: 'mate_t3',  family: 'Mates',    type: 'mate',     threshold: 25,   tier: 3, icon: '☠️', name: 'Reaper',         desc: 'Win 25 games by checkmate.' },
     { id: 'mate_t4',  family: 'Mates',    type: 'mate',     threshold: 100,  tier: 4, icon: '🔱', name: 'Mate Machine',    desc: 'Win 100 games by checkmate.' },
+    { id: 'mate_t5',  family: 'Mates',    type: 'mate',     threshold: 250,  tier: 5, icon: '⚰️', name: 'Grim Reaper',     desc: 'Win 250 games by checkmate.' },
     // Comebacks (won after being in check 3+ times)
     { id: 'come_t1',  family: 'Comeback', type: 'comeback', threshold: 1,    tier: 1, icon: '🛡️', name: 'Comeback Kid',   desc: 'Win after being checked 3+ times once.' },
     { id: 'come_t2',  family: 'Comeback', type: 'comeback', threshold: 5,    tier: 2, icon: '🛡️', name: 'Houdini',        desc: 'Pull off 5 dramatic comebacks.' },
     { id: 'come_t3',  family: 'Comeback', type: 'comeback', threshold: 10,   tier: 3, icon: '🦅', name: 'Phoenix',        desc: 'Pull off 10 dramatic comebacks.' },
+    { id: 'come_t4',  family: 'Comeback', type: 'comeback', threshold: 25,   tier: 4, icon: '🐉', name: 'Never Say Die',  desc: 'Pull off 25 dramatic comebacks.' },
     // Special: Community / Recruiter (rare)
     { id: 'recruit_t1', family: 'Community', type: 'invites',  threshold: 1,   tier: 1, icon: '👋', name: 'Welcoming Soul',  desc: 'Invite 1 friend who actually joins.' },
     { id: 'recruit_t2', family: 'Community', type: 'invites',  threshold: 3,   tier: 2, icon: '🤝', name: 'Connector',       desc: 'Invite 3 friends who actually join.' },
     { id: 'recruit_t3', family: 'Community', type: 'invites',  threshold: 10,  tier: 3, icon: '📨', name: 'Recruiter',       desc: 'Invite 10 friends who actually joined. Rare.' },
+    { id: 'recruit_t4', family: 'Community', type: 'invites',  threshold: 25,  tier: 4, icon: '📣', name: 'Evangelist',      desc: 'Invite 25 friends who actually joined. Very rare.' },
     // Hidden chess-feat trophies — shown as ??? until earned
     { id: 'hidden_underpromo',  family: 'Hidden Feats', type: 'flag', flag: 'underpromoWins',  threshold: 1, tier: 1, icon: '🐴', name: 'Underpromotion',   desc: 'Win by promoting to a piece other than a queen.', hidden: true , repeatable: true },
     { id: 'hidden_en_passant',  family: 'Hidden Feats', type: 'flag', flag: 'enPassants',      threshold: 3, tier: 1, icon: '🕊️', name: 'En Passant Sage',  desc: 'Make 3 en passant captures across your games.', hidden: true },
@@ -91,6 +97,31 @@
     { id: 'duo_maverick', family: 'Duo', type: 'duo', threshold: 20, tier: 2, icon: '🎸', name: 'Maverick', desc: 'Play 20 ranked 2v2 matches.' },
     { id: 'duo_2400', family: 'Duo', type: 'duo', threshold: 1, tier: 3, icon: '👑', name: 'Duo Royalty', desc: 'Reach 1600 2v2 rating.' },
     { id: 'duo_comeback', family: 'Duo', type: 'duo', threshold: 1, tier: 3, icon: '🔄', name: 'Clutch Comeback', desc: 'Win a 2v2 after being down a queen.' },
+    // ---------------------------------------------------------------------------
+    // ARENA family — cumulative arena-tournament championships. Evaluated by the
+    // 'arena' case in checkAchievementsFor against user.arenaWins (bumped
+    // server-side when you win an arena, mirrored locally via fetchMe).
+    { id: 'arena_t1', family: 'Arena', type: 'arena', threshold: 1,  tier: 2, icon: '🎪', name: 'Arena Debut',    desc: 'Win your first arena tournament.' },
+    { id: 'arena_t2', family: 'Arena', type: 'arena', threshold: 5,  tier: 4, icon: '🥇', name: 'Arena Regular',  desc: 'Win 5 arena tournaments.' },
+    { id: 'arena_t3', family: 'Arena', type: 'arena', threshold: 15, tier: 6, icon: '🏆', name: 'Arena Champion', desc: 'Win 15 arena tournaments.' },
+    { id: 'arena_t4', family: 'Arena', type: 'arena', threshold: 50, tier: 8, icon: '👑', name: 'Arena Legend',   desc: 'Win 50 arena tournaments.' },
+    // GAUNTLET family — rungs cleared on the Bot Gauntlet ladder. Evaluated by the
+    // 'gauntlet' case against (user.flags.gauntlet.beaten + 1) = rungs defeated.
+    { id: 'gauntlet_t1', family: 'Gauntlet', type: 'gauntlet', threshold: 1, tier: 1, icon: '🪜', name: 'First Rung',      desc: 'Beat your first Gauntlet challenger.' },
+    { id: 'gauntlet_t2', family: 'Gauntlet', type: 'gauntlet', threshold: 3, tier: 3, icon: '🧗', name: 'Climbing',        desc: 'Beat 3 Gauntlet challengers.' },
+    { id: 'gauntlet_t3', family: 'Gauntlet', type: 'gauntlet', threshold: 6, tier: 5, icon: '⛰️', name: 'Half the Ladder', desc: 'Beat 6 Gauntlet challengers.' },
+    { id: 'gauntlet_t4', family: 'Gauntlet', type: 'gauntlet', threshold: 9, tier: 7, icon: '🏔️', name: 'Gauntlet Slayer', desc: 'Beat every Gauntlet challenger.' },
+    // OPENINGS family — opening lines drilled to mastery in the Opening Trainer.
+    // Evaluated by the 'openings' case = count of openings with mastery ≥ 100.
+    { id: 'open_t1', family: 'Openings', type: 'openings', threshold: 1, tier: 1, icon: '📖', name: 'Book Move',      desc: 'Master your first opening in the trainer.' },
+    { id: 'open_t2', family: 'Openings', type: 'openings', threshold: 3, tier: 3, icon: '📚', name: 'Theory Buff',    desc: 'Master 3 openings in the trainer.' },
+    { id: 'open_t3', family: 'Openings', type: 'openings', threshold: 7, tier: 6, icon: '🧠', name: 'Opening Scholar', desc: 'Master all 7 trainer openings.' },
+    // PUZZLES family — tactics puzzles solved (any mode). Counter mirrored into
+    // user.flags.puzzlesSolved by CT_onPuzzleSolved; evaluated via the 'flag' case.
+    { id: 'puz_t1', family: 'Puzzles', type: 'flag', flag: 'puzzlesSolved', threshold: 1,   tier: 1, icon: '🧩', name: 'First Solve',    desc: 'Solve your first tactics puzzle.' },
+    { id: 'puz_t2', family: 'Puzzles', type: 'flag', flag: 'puzzlesSolved', threshold: 25,  tier: 3, icon: '🎯', name: 'Tactician',      desc: 'Solve 25 tactics puzzles.' },
+    { id: 'puz_t3', family: 'Puzzles', type: 'flag', flag: 'puzzlesSolved', threshold: 100, tier: 5, icon: '🦉', name: 'Sharp Eye',      desc: 'Solve 100 tactics puzzles.' },
+    { id: 'puz_t4', family: 'Puzzles', type: 'flag', flag: 'puzzlesSolved', threshold: 500, tier: 7, icon: '🔮', name: 'Puzzle Oracle',  desc: 'Solve 500 tactics puzzles.' },
     // ---------------------------------------------------------------------------
     // CHECKERS / DRAUGHTS family — scoped independently of chess.
     // INTEGRATION CONTRACT: the types below are evaluated by a LATER change to

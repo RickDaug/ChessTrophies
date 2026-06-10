@@ -28,6 +28,7 @@
     "test:checkers-ui": "node test/checkers-ui.mjs",
     "test:checkers-anim": "node test/checkers-anim.mjs",
     "test:trophies-repeat": "node test/trophies-repeat.mjs",
+    "test:trophy-overhaul": "node test/trophy-overhaul.mjs",
     "test:puzzles": "node test/puzzles.mjs",
     "test:a11y": "node test/a11y.mjs",
     "test:arena": "node test/arena.mjs",
