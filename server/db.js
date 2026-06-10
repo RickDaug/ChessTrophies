@@ -138,6 +138,11 @@ ensureColumn('users', 'token_version', 'INTEGER', '0');
 // Durable count of arena tournaments this user has won (crowned champion at the
 // bell). Incremented in arena finalize; shown on the profile + rankings.
 ensureColumn('users', 'arena_wins', 'INTEGER', '0');
+// Trophy leaderboard: a tier-weighted points score synced from the client (the
+// achievements/streak_trophies JSON arrays are also persisted via setProgress so
+// the count expression is real, not always-0). Client-authoritative, like the
+// trophy arrays have always been.
+ensureColumn('users', 'trophy_points', 'INTEGER', '0');
 // Tag game rows by type/variant so the existing `games` table can also record
 // checkers games. Existing rows default to chess (game_type='chess'), so the
 // historical data is unchanged. `variant` holds the checkers board size as a
@@ -868,19 +873,47 @@ export function getProgress(user) {
   return {
     lessonsCompleted: Array.isArray(p.lessonsCompleted) ? p.lessonsCompleted : [],
     puzzles: p.puzzles && typeof p.puzzles === 'object' ? p.puzzles : {},
+    showcase: Array.isArray(p.showcase) ? p.showcase : [],
   };
+}
+
+// Pinned trophy ids for the profile showcase: ≤5 short string ids.
+function sanitizeShowcase(arr, fallback) {
+  if (!Array.isArray(arr)) return Array.isArray(fallback) ? fallback : [];
+  return arr.filter(x => typeof x === 'string' && x.length <= 40).slice(0, 5);
 }
 
 // Persist progress back into the user's flags JSON, preserving other flags.
 export function setProgress(userId, progress) {
   const user = getUserById(userId);
   if (!user) throw new Error('User not found.');
+  const existing = getProgress(user);
   const flags = parseFlags(user);
   flags.progress = {
     lessonsCompleted: Array.isArray(progress.lessonsCompleted) ? progress.lessonsCompleted : [],
     puzzles: progress.puzzles && typeof progress.puzzles === 'object' ? progress.puzzles : {},
+    showcase: sanitizeShowcase(progress.showcase, existing.showcase),
   };
-  db.prepare('UPDATE users SET flags = ? WHERE id = ?').run(JSON.stringify(flags), userId);
+  // Trophy leaderboard fields (optional, client-authoritative). When present, also
+  // persist the achievements/streak_trophies arrays (so the count expr is real)
+  // and the tier-weighted points score. COALESCE leaves the columns untouched when
+  // a particular sync doesn't carry them.
+  const ach = Array.isArray(progress.achievements) ? progress.achievements.slice(0, 2000) : null;
+  const str = Array.isArray(progress.streakTrophies) ? progress.streakTrophies.slice(0, 2000) : null;
+  const tp = Number.isFinite(progress.trophyPoints) ? Math.max(0, Math.min(100000000, Math.floor(progress.trophyPoints))) : null;
+  if (ach != null || str != null || tp != null) {
+    db.prepare(`UPDATE users SET flags = ?,
+        achievements = COALESCE(?, achievements),
+        streak_trophies = COALESCE(?, streak_trophies),
+        trophy_points = COALESCE(?, trophy_points)
+      WHERE id = ?`).run(
+      JSON.stringify(flags),
+      ach != null ? JSON.stringify(ach) : null,
+      str != null ? JSON.stringify(str) : null,
+      tp, userId);
+  } else {
+    db.prepare('UPDATE users SET flags = ? WHERE id = ?').run(JSON.stringify(flags), userId);
+  }
   return flags.progress;
 }
 
@@ -918,7 +951,8 @@ export function topByMetric(metric, limit = 100) {
     elo: 'elo', wins: 'wins',
     streak: 'best_streak', best_streak: 'best_streak',
     invites_accepted: 'invites_accepted',
-    trophies: trophiesExpr,
+    // Trophies rank by the tier-weighted points score (count is the tiebreak).
+    trophies: 'trophy_points',
     // Checkers leaderboards (additive). Each sorts by the matching checkers Elo.
     checkers8: 'elo_checkers_8',
     checkers10: 'elo_checkers_10',
@@ -932,16 +966,18 @@ export function topByMetric(metric, limit = 100) {
     wins: 'wins > 0',
     streak: 'best_streak > 0', best_streak: 'best_streak > 0',
     invites_accepted: 'invites_accepted > 0',
-    trophies: `${trophiesExpr} > 0`,
+    trophies: `(trophy_points > 0 OR ${trophiesExpr} > 0)`,
     checkers8: 'checkers8_games > 0',
     checkers10: 'checkers10_games > 0',
   };
   const orderExpr = allowed[metric] || 'elo';
+  // Trophies get a count tiebreak before elo; other metrics keep the elo tiebreak.
+  const tiebreak = (metric === 'trophies') ? `${trophiesExpr} DESC, elo DESC` : 'elo DESC';
   const whereExpr = participation[metric] || participation.elo;
   return db.prepare(`SELECT id, username, region, elo, wins, losses, best_streak, is_premium,
                             elo_checkers_8, elo_checkers_10, checkers8_games, checkers10_games,
-                            ${trophiesExpr} AS trophies
-                     FROM users WHERE ${whereExpr} ORDER BY ${orderExpr} DESC, elo DESC LIMIT ?`).all(limit);
+                            ${trophiesExpr} AS trophies, trophy_points
+                     FROM users WHERE ${whereExpr} ORDER BY ${orderExpr} DESC, ${tiebreak} LIMIT ?`).all(limit);
 }
 
 // Admin user directory: list users with usernames + emails (and ratings/record)

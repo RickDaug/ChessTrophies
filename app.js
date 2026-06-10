@@ -647,6 +647,24 @@
         const ck = user.checkers || {};
         return ((ck.wins || 0) + (ck.losses || 0) + (ck.draws || 0)) >= a.threshold;
       }
+      // Arena tournament championships — user.arenaWins is bumped server-side when
+      // you win an arena and mirrored locally via fetchMe()/syncRemoteProfile.
+      case 'arena': return (user.arenaWins || 0) >= a.threshold;
+      // Bot Gauntlet — rungs cleared = highest beaten index + 1 (flag set by
+      // ct-gauntlet.js; -1 / absent means none beaten yet).
+      case 'gauntlet': {
+        const g = (user.flags && user.flags.gauntlet) || {};
+        const beaten = (typeof g.beaten === 'number') ? g.beaten : -1;
+        return (beaten + 1) >= a.threshold;
+      }
+      // Opening Trainer — count of openings drilled to full mastery (≥100%).
+      // Progress lives at user.flags.openings[id] = { mastery, ... } (openings.js).
+      case 'openings': {
+        const o = (user.flags && user.flags.openings) || {};
+        let mastered = 0;
+        for (const k in o) { if (o[k] && (o[k].mastery || 0) >= 100) mastered++; }
+        return mastered >= a.threshold;
+      }
     }
     return false;
   }
@@ -686,6 +704,52 @@
     }
     return newly;
   }
+  // Idempotent catch-up pass for ONE-TIME milestone trophies whose progress lives
+  // outside the chess game-end flow (arena championships, gauntlet rungs, opening
+  // mastery, puzzle solves). Safe to call as often as we like — checkAchievementsFor
+  // with no ctx never re-awards an already-earned milestone and skips repeatables.
+  // Persists + (if the trophy screen is open) repaints, and toasts anything new.
+  function reconcileMilestoneTrophies(opts) {
+    if (!state.user) return [];
+    const newly = checkAchievementsFor(state.user, {});
+    if (newly.length) {
+      try { const db = loadDB(); if (state.user && db.users && db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); } } catch (e) {}
+      try { if (window.CT_syncProgress) window.CT_syncProgress(); } catch (e) {}
+      if (!(opts && opts.silent)) {
+        for (const def of newly) {
+          try { toast(`🏆 Trophy unlocked: ${def.name}`, true); } catch (e) {}
+        }
+      }
+      try {
+        const scr = $('#screen-trophies');
+        if (scr && scr.classList.contains('active')) renderTrophies();
+        renderLobby && renderLobby();
+      } catch (e) {}
+    }
+    // Trophy-tied cosmetic unlocks ride on the same achievement state.
+    try { applyTrophyUnlocks(opts); } catch (e) {}
+    return newly;
+  }
+  window.CT_reconcileTrophies = reconcileMilestoneTrophies;
+  // Recompute which board/piece sets the user has unlocked via trophies and tell
+  // CT_Sets (piece-sets.js). Toasts each set the moment its trophy is earned
+  // (unless silent — e.g. the boot catch-up, where the sets are already "owned").
+  function applyTrophyUnlocks(opts) {
+    if (!state.user || !window.CT_Sets || !window.CT_Sets.setTrophyUnlocks) return [];
+    const earned = (state.user.achievements || [])
+      .filter(a => ((a.count != null) ? a.count : 1) > 0)
+      .map(a => a.id);
+    let newly = [];
+    try { newly = window.CT_Sets.setTrophyUnlocks(earned) || []; } catch (e) {}
+    if (newly.length && !(opts && opts.silent)) {
+      for (const slug of newly) {
+        const m = window.CT_Sets.get && window.CT_Sets.get(slug);
+        if (m) toast(`🎨 Board set unlocked: ${m.name} — equip it free in the Store!`, true);
+      }
+    }
+    return newly;
+  }
+  window.CT_applyTrophyUnlocks = applyTrophyUnlocks;
   function tierColor(tier) {
     return ['#cd7f32','#9aa0b3','#f5c451','#7dd4ff','#c084fc','#34d399','#fb7185','#ffffff'][Math.min((tier || 1) - 1, 7)];
   }
@@ -1673,6 +1737,12 @@
   // ---------------------------------------------------------------------------
   function renderLobby() {
   if (!state.user) return;
+    // Once per session, award any milestone trophies earned via arena/gauntlet/
+    // openings/puzzles before this overhaul shipped (idempotent, silent).
+    if (!state._trophyBootReconciled) {
+      state._trophyBootReconciled = true;
+      try { reconcileMilestoneTrophies({ silent: true }); } catch (e) {}
+    }
     const u = state.user;
     $('#lobby-avatar').innerHTML = getAvatarHTML(u, 40);
     $('#lobby-name').textContent = u.username;
@@ -1682,8 +1752,8 @@
     $('#stat-streak').textContent = u.currentStreak;
     const totalTrophies = u.streakTrophies.length + u.achievements.length;
     const _lts = $('#lobby-trophy-summary'); if (_lts) _lts.textContent =
-      totalTrophies === 0 ? 'No trophies yet — start a match' :
-      `${u.streakTrophies.length} streak ${u.streakTrophies.length === 1 ? 'trophy' : 'trophies'} · ${u.achievements.length} achievements`;
+      totalTrophies === 0 ? '🏆 No trophies yet — start a match' :
+      `🏆 ${u.achievements.length} trophies${u.streakTrophies.length ? ` · ${u.streakTrophies.length} streak ${u.streakTrophies.length === 1 ? 'trophy' : 'trophies'}` : ''} — view your case`;
     renderFriendsSummary();
     // Inject ad slot (renderAdSlot returns '' for premium users AND for users who
     // haven't finished a game yet). Hide the container whenever it's empty so it
@@ -1872,6 +1942,7 @@ function renderFriendsSummary() {
           '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(f.username) + '</div>' +
           '<div class="muted small">ELO ' + f.elo + ' \u00b7 ' + (f.wins||0) + 'W ' + (f.losses||0) + 'L</div></div>' +
           '<div class="friend-actions" style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
+            '<button type="button" class="pill fc-profile" data-fid="' + escapeHTML(String(f.id)) + '" title="View profile" style="cursor:pointer;background:#2a3142;color:var(--muted);border:1px solid var(--border);">👤</button>' +
             '<button type="button" class="pill gold fc-go-chess" data-fid="' + escapeHTML(String(f.id)) + '" title="Challenge to chess" style="cursor:pointer;border:none;">♟ Chess</button>' +
             '<button type="button" class="pill fc-go-checkers" data-fid="' + escapeHTML(String(f.id)) + '" title="Challenge to checkers" style="cursor:pointer;background:#2a3142;color:var(--accent,#ffd97a);border:1px solid var(--accent,#ffd97a);">⛀ Checkers</button>' +
           '</div></div>';
@@ -1884,6 +1955,9 @@ function renderFriendsSummary() {
     });
     // Explicit per-friend challenge buttons (clearer than the catch-all modal):
     // one starts a chess challenge, the other a checkers challenge directly.
+    $$('#friends-list .fc-profile').forEach(function(b){
+      b.addEventListener('click', function(e){ e.stopPropagation(); openUserProfile(b.dataset.fid); });
+    });
     $$('#friends-list .fc-go-chess').forEach(function(b){
       b.addEventListener('click', function(e){ e.stopPropagation(); startFriendChess(b.dataset.fid); });
     });
@@ -1930,6 +2004,7 @@ function renderFriendsSummary() {
           '<div style="flex:1;min-width:0;"><div style="font-weight:600;">' + escapeHTML(f.username) + '</div>' +
           '<div class="muted small">ELO ' + (f.elo || 1200) + ' · ' + (f.wins||0) + 'W ' + (f.losses||0) + 'L</div></div>' +
           '<div class="friend-actions" style="display:flex;gap:6px;align-items:center;flex-shrink:0;">' +
+            '<button type="button" class="pill fc-profile" data-fid="' + escapeHTML(String(f.id)) + '" title="View profile" style="cursor:pointer;background:#2a3142;color:var(--muted);border:1px solid var(--border);">👤</button>' +
             '<button type="button" class="pill gold fc-go-chess" data-fid="' + escapeHTML(String(f.id)) + '" title="Challenge to chess" style="cursor:pointer;border:none;">♟ Chess</button>' +
             '<button type="button" class="pill fc-go-checkers" data-fid="' + escapeHTML(String(f.id)) + '" title="Challenge to checkers" style="cursor:pointer;background:#2a3142;color:var(--accent,#ffd97a);border:1px solid var(--accent,#ffd97a);">⛀ Checkers</button>' +
           '</div></div>';
@@ -1942,6 +2017,9 @@ function renderFriendsSummary() {
     });
     // Explicit per-friend challenge buttons (clearer than the catch-all modal):
     // one starts a chess challenge, the other a checkers challenge directly.
+    $$('#friends-list .fc-profile').forEach(function(b){
+      b.addEventListener('click', function(e){ e.stopPropagation(); openUserProfile(b.dataset.fid); });
+    });
     $$('#friends-list .fc-go-chess').forEach(function(b){
       b.addEventListener('click', function(e){ e.stopPropagation(); startFriendChess(b.dataset.fid); });
     });
@@ -3140,8 +3218,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       window.CTNet.on('arenaChampion', (d) => {
         if (window.CT_Arena) window.CT_Arena.onChampion(d);
         try { ctCelebrate('big'); } catch (e) {}
-        // arena_wins bumped server-side — pull the fresh profile.
-        if (window.fetch) fetchMe().then((p) => syncRemoteProfile(p)).catch(() => {});
+        // arena_wins bumped server-side — pull the fresh profile, then award any
+        // newly-earned Arena-family trophies against the updated arenaWins.
+        if (window.fetch) fetchMe().then((p) => { syncRemoteProfile(p); reconcileMilestoneTrophies(); }).catch(() => {});
       });
       // Rematch (1v1) lifecycle
       window.CTNet.on('rematchOffered', handleRematchOffered);
@@ -3229,6 +3308,13 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     return {
       lessonsCompleted: (state.user && state.user.lessonsCompleted) || [],
       puzzles,
+      // Trophy leaderboard: push the earned trophies + the tier-weighted points so
+      // the server can rank this user. Server stores these verbatim (client-auth).
+      achievements: (state.user && state.user.achievements) || [],
+      streakTrophies: (state.user && state.user.streakTrophies) || [],
+      trophyPoints: userTrophyPoints(state.user),
+      // Pinned trophy ids for the profile showcase (≤5).
+      showcase: (state.user && state.user.showcase) || [],
     };
   }
 
@@ -3273,6 +3359,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         checkAchievementsFor(state.user);
         renderPlayStreak();
       }
+    }
+    // Profile trophy showcase: adopt the server's pinned list (multi-device) only
+    // when we don't have a local one yet, so a fresh device picks it up without
+    // clobbering an in-progress local edit.
+    if (state.user && Array.isArray(p.showcase) && p.showcase.length && !((state.user.showcase || []).length)) {
+      state.user.showcase = p.showcase.slice(0, 5);
+      const db = loadDB();
+      if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
     }
     // Refresh any visible rank/academy UI now that counts may have grown.
     try { if (window.CT_renderAcademy && document.getElementById('screen-academy').classList.contains('active')) window.CT_renderAcademy(); } catch (e) {}
@@ -4337,6 +4431,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
           if (gres.complete) { ctCelebrate('big'); setTimeout(() => ctCelebrate('normal'), 260); toast('🏆 Gauntlet complete! You beat every challenger.', true); }
           else { ctCelebrate('normal'); toast('Rung cleared! ' + gres.unlockedName + ' is now unlocked.', true); }
         }
+        // Award any Gauntlet-family trophies the new rung count unlocked.
+        reconcileMilestoneTrophies();
       } catch (e) {}
       state._gauntlet = null;
     }
@@ -4623,6 +4719,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       db2.users[me.id] = me;
       saveDB(db2);
       state.user = me;
+      // A trophy earned this game may unlock a free board set — announce it.
+      try { applyTrophyUnlocks(); } catch (e) {}
+      // Push trophies + points to the server so the trophy leaderboard updates.
+      try { if (window.CT_syncProgress) window.CT_syncProgress(); } catch (e) {}
     } else if (state.gameMode === 'friendly') {
       rewards.push(`<div class="card center muted">Friendly match — doesn't count against your record.</div>`);
     } else if (state.gameMode === 'unranked') {
@@ -4989,7 +5089,129 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     $('#prof-trophies-total').textContent = totalEarned;
     $('#prof-trophy-progress').textContent =
       `${u.achievements.length}/${ACHIEVEMENT_TIERS.length} achievement tiers · ${u.streakTrophies.length} streak ${u.streakTrophies.length === 1 ? 'trophy' : 'trophies'}`;
+    renderProfileShowcase();
   }
+
+  // Profile trophy showcase: up to 5 pinned trophies, shown as medallions. The
+  // pinned list (state.user.showcase) is local-authoritative and synced to the
+  // server (gatherLocalProgress) so it's durable + ready for a public profile.
+  function renderProfileShowcase() {
+    const wrap = $('#prof-showcase');
+    if (!wrap || !state.user) return;
+    const u = state.user;
+    const earnedDefs = ACHIEVEMENT_TIERS.filter(t => hasAchievement(u, t.id));
+    const earnedIds = earnedDefs.map(d => d.id);
+    // Keep only still-valid pinned ids (earned + in the catalog), max 5.
+    const pinned = (u.showcase || []).filter(id => earnedIds.includes(id)).slice(0, 5);
+    const canEdit = earnedDefs.length > 0;
+    const slots = pinned.map(id => {
+      const def = ACHIEVEMENT_TIERS.find(t => t.id === id);
+      return `<div class="showcase-item"><div class="icon">${trophyArtHTML(def, true)}</div><div class="showcase-name">${escapeHTML(def.name)}</div></div>`;
+    }).join('');
+    wrap.innerHTML = `
+      <div class="row between" style="margin-bottom:${pinned.length ? '10px' : '6px'}">
+        <div style="font-weight:700">🏆 Trophy showcase</div>
+        ${canEdit ? `<button class="btn btn-ghost small" id="btn-edit-showcase" style="padding:5px 12px">${pinned.length ? 'Edit' : 'Pin trophies'}</button>` : ''}
+      </div>
+      ${pinned.length
+        ? `<div class="showcase-row">${slots}</div>`
+        : `<div class="muted small">${canEdit ? 'Pin up to 5 favorite trophies to show them off here.' : 'Earn trophies to showcase them here.'}</div>`}`;
+    const b = $('#btn-edit-showcase');
+    if (b) b.addEventListener('click', openShowcaseEditor);
+  }
+
+  function openShowcaseEditor() {
+    const u = state.user;
+    if (!u) return;
+    const earnedDefs = ACHIEVEMENT_TIERS.filter(t => hasAchievement(u, t.id));
+    if (!earnedDefs.length) { toast('Earn a trophy first, then you can showcase it.'); return; }
+    const earnedIds = earnedDefs.map(d => d.id);
+    let sel = (u.showcase || []).filter(id => earnedIds.includes(id)).slice(0, 5);
+    const body = $('#showcase-edit-body');
+    function paint() {
+      body.innerHTML = `<div class="muted small" style="margin-bottom:8px">Tap to pin up to 5 (${sel.length}/5).</div>
+        <div class="showcase-grid">` + earnedDefs.map(d => {
+          const on = sel.includes(d.id);
+          return `<div class="showcase-pick ${on ? 'on' : ''}" data-id="${d.id}">
+            <div class="icon">${trophyArtHTML(d, true)}</div>
+            <div class="showcase-name">${escapeHTML(d.name)}</div>
+            ${on ? '<div class="pin-badge">📌</div>' : ''}
+          </div>`;
+        }).join('') + '</div>';
+    }
+    paint();
+    body.onclick = (e) => {
+      const el = e.target && e.target.closest ? e.target.closest('.showcase-pick[data-id]') : null;
+      if (!el) return;
+      const id = el.dataset.id;
+      const i = sel.indexOf(id);
+      if (i >= 0) sel.splice(i, 1);
+      else if (sel.length >= 5) { toast('You can pin up to 5 trophies.'); return; }
+      else sel.push(id);
+      paint();
+    };
+    const saveBtn = $('#btn-showcase-save');
+    saveBtn.onclick = () => {
+      u.showcase = sel.slice(0, 5);
+      try { const db = loadDB(); if (db.users[u.id]) { db.users[u.id] = u; saveDB(db); } } catch (e) {}
+      try { if (window.CT_syncProgress) window.CT_syncProgress(); } catch (e) {}
+      closeModal('showcase');
+      renderProfileShowcase();
+      toast('Showcase updated 🏆', true);
+    };
+    openModal('showcase');
+  }
+
+  // Public profile viewer — fetches a SAFE subset for any user (rankings/friends)
+  // and renders their stats + trophy showcase into a modal. Your own id routes to
+  // your editable profile screen instead.
+  async function openUserProfile(id) {
+    if (!id) return;
+    if (state.user && id === state.user.id) { showScreen('profile'); return; }
+    const body = $('#user-profile-body');
+    if (body) body.innerHTML = '<div class="card muted center">Loading…</div>';
+    openModal('user-profile');
+    let p = null;
+    try { p = await api('/api/users/' + encodeURIComponent(id) + '/profile'); } catch (e) {}
+    if (!body) return;
+    if (!p || !p.username) { body.innerHTML = '<div class="card muted center">Couldn\'t load this profile.</div>'; return; }
+    const games = (p.wins || 0) + (p.losses || 0) + (p.draws || 0);
+    const winrate = games ? Math.round((p.wins / games) * 100) + '%' : '—';
+    const showIds = (p.showcase || []).filter(sid => ACHIEVEMENT_TIERS.find(t => t.id === sid));
+    const showHTML = showIds.length
+      ? '<div class="showcase-row">' + showIds.map(sid => {
+          const def = ACHIEVEMENT_TIERS.find(t => t.id === sid);
+          return `<div class="showcase-item"><div class="icon">${trophyArtHTML(def, true)}</div><div class="showcase-name">${escapeHTML(def.name)}</div></div>`;
+        }).join('') + '</div>'
+      : '<div class="muted small">No showcase set yet.</div>';
+    const avatarHTML = (typeof getAvatarHTML === 'function')
+      ? getAvatarHTML({ avatarStock: p.avatarStock, avatarDataUrl: p.avatarDataUrl, username: p.username }, 72)
+      : '';
+    body.innerHTML = `
+      <div class="center">
+        <div style="width:72px;height:72px;margin:0 auto">${avatarHTML}</div>
+        <h2 style="margin-top:8px">${escapeHTML(p.username)}${p.isPremium ? ' <span class="pill gold small">⭐ Premium</span>' : ''}</h2>
+        <div class="muted small" style="margin-top:2px">${escapeHTML(p.region || '—')}</div>
+      </div>
+      <div class="stat-grid" style="margin-top:14px">
+        <div class="stat"><div class="v">${p.elo}</div><div class="l">ELO</div></div>
+        <div class="stat"><div class="v">${p.wins}</div><div class="l">Wins</div></div>
+        <div class="stat"><div class="v">${winrate}</div><div class="l">Win rate</div></div>
+      </div>
+      <div class="stat-grid" style="margin-top:8px">
+        <div class="stat"><div class="v">${p.bestStreak || 0}</div><div class="l">Best streak</div></div>
+        <div class="stat"><div class="v">${p.arenaWins || 0}</div><div class="l">🏆 Arena</div></div>
+        <div class="stat"><div class="v">${p.trophyCount || 0}</div><div class="l">Trophies</div></div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="row between" style="margin-bottom:${showIds.length ? '10px' : '6px'}">
+          <div style="font-weight:700">🏆 Trophy showcase</div>
+          <div class="muted small">${(p.trophyPoints || 0).toLocaleString()} pts</div>
+        </div>
+        ${showHTML}
+      </div>`;
+  }
+  window.CT_openUserProfile = openUserProfile;
 
   // ---------------------------------------------------------------------------
   // Rankings screen
@@ -5044,7 +5266,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   // Score a normalized player by the active metric.
   function rankScore(u, metric) {
     if (metric === 'wins') return u.wins || 0;
-    if (metric === 'trophies') return u.trophies || 0;
+    if (metric === 'trophies') return u.trophyPoints || u.trophies || 0;
     if (metric === 'streak') return u.bestStreak || 0;
     if (metric === 'checkers8') return u.eloCheckers8 || 1200;
     if (metric === 'checkers10') return u.eloCheckers10 || 1200;
@@ -5055,7 +5277,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     return {
       id: p.id, username: p.username || 'Player', region: p.region || '',
       elo: p.elo || 1200, wins: p.wins || 0, losses: p.losses || 0,
-      bestStreak: p.best_streak || 0, trophies: p.trophies || 0,
+      bestStreak: p.best_streak || 0, trophies: p.trophies || 0, trophyPoints: p.trophy_points || 0,
       eloCheckers8: p.elo_checkers_8 || 1200, eloCheckers10: p.elo_checkers_10 || 1200,
     };
   }
@@ -5067,6 +5289,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       elo: u.elo || 1200, wins: u.wins || 0, losses: u.losses || 0, draws: u.draws || 0,
       bestStreak: u.bestStreak || 0,
       trophies: ((u.streakTrophies && u.streakTrophies.length) || 0) + ((u.achievements && u.achievements.length) || 0),
+      trophyPoints: userTrophyPoints(u),
       eloCheckers8: ck.elo8 || 1200, eloCheckers10: ck.elo10 || 1200,
       checkersGames: (ck.wins || 0) + (ck.losses || 0) + (ck.draws || 0),
     };
@@ -5077,7 +5300,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   function participatedInMetric(u, metric) {
     if (metric === 'wins')     return (u.wins || 0) > 0;
     if (metric === 'streak')   return (u.bestStreak || 0) > 0;
-    if (metric === 'trophies') return (u.trophies || 0) > 0;
+    if (metric === 'trophies') return ((u.trophyPoints || 0) > 0) || ((u.trophies || 0) > 0);
     if (metric === 'checkers8' || metric === 'checkers10') return (u.checkersGames || 0) > 0;
     return ((u.wins || 0) + (u.losses || 0) + (u.draws || 0)) > 0; // elo
   }
@@ -5110,21 +5333,32 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       const top = i < 3 ? `top${i + 1}` : '';
       const meTag = u.id === me.id ? 'me' : '';
       const score = rankScore(u, currentRankMetric);
-      const scoreLabel = currentRankMetric === 'trophies' ? `${score}🏆` :
+      const scoreLabel = currentRankMetric === 'trophies' ? `${score} pts` :
                         currentRankMetric === 'wins' ? `${score}W` :
                         currentRankMetric === 'streak' ? `${score}🔥` :
                         score;
-      return `<div class="rank-row ${top} ${meTag}">
+      const metaExtra = currentRankMetric === 'trophies' ? ` · 🏆 ${u.trophies || 0}` : '';
+      // Server-backed rows carry a real user id → tap to view that player's profile.
+      const viewable = serverBacked && u.id ? ` data-view-user="${escapeHTML(String(u.id))}" style="cursor:pointer"` : '';
+      return `<div class="rank-row ${top} ${meTag}"${viewable}>
         <div class="rank-num">${i + 1}</div>
         <div class="avatar" style="width:32px;height:32px;font-size:13px">${escapeHTML((u.username[0] || '?').toUpperCase())}</div>
         <div class="rank-info">
           <div class="rank-name">${escapeHTML(u.username)}${u.id === me.id ? ' <span class="pill gold small">you</span>' : ''}</div>
-          <div class="rank-meta">${escapeHTML(u.region || '—')} · ELO ${u.elo} · ${u.wins}W ${u.losses}L</div>
+          <div class="rank-meta">${escapeHTML(u.region || '—')} · ELO ${u.elo} · ${u.wins}W ${u.losses}L${metaExtra}</div>
         </div>
         <div class="rank-elo">${scoreLabel}</div>
       </div>`;
     }).join('');
     wrap.innerHTML = summary + rows;
+    // Delegated tap → public profile viewer (bound once; survives re-renders).
+    if (!wrap.dataset.boundProfile) {
+      wrap.dataset.boundProfile = '1';
+      wrap.addEventListener('click', (e) => {
+        const row = e.target && e.target.closest ? e.target.closest('.rank-row[data-view-user]') : null;
+        if (row) openUserProfile(row.dataset.viewUser);
+      });
+    }
   }
 
   // Rankings are server-authoritative: a logged-in account pulls the real global
@@ -5429,23 +5663,83 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // trophy grids fill in one frame later.
     requestAnimationFrame(_renderTrophiesNow);
   }
+  // Display order for achievement families (left→right, top→bottom). Anything not
+  // listed sorts to the end (before Hidden/Oops, which stay last by design).
+  const TROPHY_FAMILY_ORDER = ['Wins', 'Rating', 'Streak', 'Mates', 'Fast Win', 'Veteran',
+    'Comeback', 'Duo', 'Arena', 'Gauntlet', 'Openings', 'Puzzles', 'Checkers',
+    'Community', 'Hidden Feats', 'Oops'];
+  // SVG medallion for a trophy def (trophy-extras.js), falling back to the legacy
+  // cup if the art module hasn't loaded.
+  function trophyArtHTML(def, got) {
+    if (window.CT_trophyArt) return window.CT_trophyArt(def, got);
+    return trophyIconHTML(def.tier, got, def.icon);
+  }
+  // Current cumulative progress toward a trophy's threshold, or null when the
+  // trophy isn't a count-up milestone (single-game feats, duo, rating bands).
+  function trophyCurrent(u, a) {
+    switch (a.type) {
+      case 'wins':     return u.wins || 0;
+      case 'streak':   return u.bestStreak || u.currentStreak || 0;
+      case 'games':    return (u.wins || 0) + (u.losses || 0) + (u.draws || 0);
+      case 'mate':     return u.mateWins || 0;
+      case 'comeback': return u.comebackWins || 0;
+      case 'invites':  return u.invitesAccepted || 0;
+      case 'arena':    return u.arenaWins || 0;
+      case 'gauntlet': { const g = (u.flags && u.flags.gauntlet) || {}; return ((typeof g.beaten === 'number' ? g.beaten : -1) + 1); }
+      case 'openings': { const o = (u.flags && u.flags.openings) || {}; let n = 0; for (const k in o) { if (o[k] && (o[k].mastery || 0) >= 100) n++; } return n; }
+      case 'flag':     return (u.flags && (u.flags[a.flag] || 0)) || 0;
+      case 'checkers_games': { const ck = u.checkers || {}; return (ck.wins || 0) + (ck.losses || 0) + (ck.draws || 0); }
+    }
+    return null; // fast / duo / elo / checkers_elo: no clean 0-based bar
+  }
+  // Trophy "score": rarer/harder trophies are worth more. Hidden + embarrassing
+  // feats carry a small flat bonus on top of their tier.
+  function trophyPoints(def) {
+    return (def.tier || 1) * 10 + (def.hidden ? 20 : 0) + (def.embarrassing ? 5 : 0);
+  }
+  // Total tier-weighted trophy points a user has earned (the trophy-leaderboard
+  // score). Catalog trophies only, so it matches the trophy-case hero's number.
+  function userTrophyPoints(user) {
+    if (!user) return 0;
+    let pts = 0;
+    for (const t of ACHIEVEMENT_TIERS) { if (hasAchievement(user, t.id)) pts += trophyPoints(t); }
+    return pts;
+  }
+
   function _renderTrophiesNow() {
     if (!state.user) return;
+    // Catch up any milestone trophies earned outside the chess flow (arena,
+    // gauntlet, openings, puzzles) before painting — silent so we don't toast
+    // on every screen open; the screen itself is the reveal.
+    try { reconcileMilestoneTrophies({ silent: true }); } catch (e) {}
     const u = state.user;
+    const filter = state._trophyFilter || 'all';
+
+    // ---- Streak trophies (bespoke 7-win cards) ----
     const sWrap = $('#streak-trophies');
-    if (u.streakTrophies.length === 0) {
-      sWrap.innerHTML = `<div class="card muted center" style="grid-column:1/-1">No streak trophies yet. Win 7 ranked games in a row to unlock your first.</div>`;
-    } else {
-      sWrap.innerHTML = u.streakTrophies.map(t => `
+    const showStreak = (filter === 'all' || filter === 'unlocked');
+    const sHead = $('#streak-head'), sBlurb = $('#streak-blurb');
+    if (sHead) sHead.style.display = showStreak ? '' : 'none';
+    if (sBlurb) sBlurb.style.display = showStreak ? '' : 'none';
+    if (sWrap) sWrap.style.display = showStreak ? '' : 'none';
+    if (showStreak && sWrap) {
+      if (u.streakTrophies.length === 0) {
+        sWrap.innerHTML = filter === 'unlocked'
+          ? `<div class="card muted center" style="grid-column:1/-1">No streak trophies yet.</div>`
+          : `<div class="card muted center" style="grid-column:1/-1">No streak trophies yet. Win 7 ranked games in a row to unlock your first.</div>`;
+      } else {
+        sWrap.innerHTML = u.streakTrophies.map(t => {
+          const art = trophyArtHTML({ family: 'Streak', tier: Math.min(8, t.streakNumber || 1) }, true);
+          return `
         <div class="trophy streak" data-trophy-id="${t.id}">
-          <div class="icon">🏆</div>
+          <div class="icon">${art}</div>
           <div class="name">Streak #${t.streakNumber}</div>
           <div class="desc">${t.victims.length} consecutive wins · tap to see opponents</div>
-        </div>
-      `).join('');
+        </div>`;
+        }).join('');
+      }
     }
-    // Delegated detail click (bound ONCE) — survives the innerHTML rebuild above
-    // and avoids binding a listener per trophy card on every render.
+    // Delegated detail click (bound ONCE) — survives the innerHTML rebuild above.
     if (sWrap && !sWrap.dataset.boundDetail) {
       sWrap.dataset.boundDetail = '1';
       sWrap.addEventListener('click', (e) => {
@@ -5455,48 +5749,63 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         if (t) showTrophyDetail(t);
       });
     }
-    const aWrap = $('#achievement-trophies');
+
+    // ---- Achievement families ----
     const families = {};
     for (const a of ACHIEVEMENT_TIERS) {
-      if (!families[a.family]) families[a.family] = [];
-      families[a.family].push(a);
+      (families[a.family] = families[a.family] || []).push(a);
     }
+    const orderIdx = (fam) => { const i = TROPHY_FAMILY_ORDER.indexOf(fam); return i === -1 ? 50 : i; };
+    const familyOrder = Object.keys(families).sort((a, b) => orderIdx(a) - orderIdx(b));
+
+    // A tier is visible under the current filter.
+    const matches = (t, got) => {
+      if (filter === 'all') return true;
+      if (filter === 'unlocked') return got;
+      if (filter === 'locked') return !got;
+      if (filter === 'close') {
+        if (got) return false;
+        const cur = trophyCurrent(u, t);
+        return cur != null && t.threshold > 0 && (cur / t.threshold) >= 0.5;
+      }
+      return true;
+    };
+
     let html = '';
-    // Order: regular families first, then Hidden, then Oops
-    const familyOrder = Object.keys(families).sort((a, b) => {
-      const order = { 'Hidden Feats': 100, 'Oops': 200, 'Community': 50 };
-      return (order[a] || 1) - (order[b] || 1);
-    });
+    let totalAll = 0, ownedAll = 0, ptsEarned = 0, ptsTotal = 0;
     for (const fam of familyOrder) {
       const tiers = families[fam].sort((a, b) => a.tier - b.tier);
       const owned = tiers.filter(t => hasAchievement(u, t.id));
+      totalAll += tiers.length; ownedAll += owned.length;
+      for (const t of tiers) { ptsTotal += trophyPoints(t); if (hasAchievement(u, t.id)) ptsEarned += trophyPoints(t); }
+
+      const visible = tiers.filter(t => matches(t, hasAchievement(u, t.id)));
+      if (!visible.length) continue;
+
       const isHiddenFamily = tiers.some(t => t.hidden);
       const isEmbarrassingFamily = tiers.some(t => t.embarrassing);
       const nextLocked = tiers.find(t => !hasAchievement(u, t.id));
-      const top = owned[owned.length - 1];
-      const headerIcon = top ? top.icon : (isHiddenFamily ? '❓' : (isEmbarrassingFamily ? '😬' : (tiers[0] ? tiers[0].icon : '🏅')));
-      const progress = owned.length;
-      const total = tiers.length;
       const famLabel = isHiddenFamily ? 'Hidden Feats 🤫' : (isEmbarrassingFamily ? 'Embarrassing Moments' : fam);
+      const pct = Math.round((owned.length / tiers.length) * 100);
       const subText = isHiddenFamily
-        ? (owned.length ? `Discovered ${owned.length} of ${total} — keep playing` : 'Locked — discovered by accomplishing rare feats')
+        ? (owned.length ? `Discovered ${owned.length} of ${tiers.length}` : 'Discovered by rare feats')
         : isEmbarrassingFamily
-          ? (owned.length ? `${owned.length} of ${total} embarrassments` : 'Worn with a wink — we all have these days')
-          : (nextLocked ? `Next: ${escapeHTML(nextLocked.name)}` : 'Maxed');
-      html += `<div style="grid-column:1/-1;margin-top:14px">
-        <div class="row between" style="margin:4px 4px 6px">
-          <div style="font-weight:700">${headerIcon} ${famLabel} <span class="muted small">${progress}/${total}</span></div>
+          ? (owned.length ? `${owned.length} of ${tiers.length}` : 'Worn with a wink')
+          : (nextLocked ? `Next: ${escapeHTML(nextLocked.name)}` : '✓ Maxed');
+      html += `<div class="fam-head" style="grid-column:1/-1;margin-top:14px">
+        <div class="row between" style="margin:4px 4px 2px">
+          <div style="font-weight:700">${famLabel} <span class="muted small">${owned.length}/${tiers.length}</span></div>
           <div class="muted small">${subText}</div>
         </div>
+        <div class="bar" style="margin:0 4px 2px"><i style="width:${pct}%"></i></div>
       </div>`;
-      for (const t of tiers) {
+
+      for (const t of visible) {
         const got = hasAchievement(u, t.id);
         const cnt = achievementCount(u, t.id);
         const color = tierColor(t.tier);
         const isOops = t.embarrassing;
         const isHidden = t.hidden && !got;
-        // Repeatable trophies (streaks, single-game feats) show how many times
-        // they've been earned. One-time milestones stay at 1 and show no badge.
         const countBadge = (got && cnt > 1)
           ? ` <span class="pill" title="Earned ${cnt} times" style="background:${color}33;color:${color};font-weight:800">×${cnt}</span>`
           : '';
@@ -5505,21 +5814,119 @@ $('#btn-mm-cancel').addEventListener('click', () => {
               ? 'border-color:var(--danger);background:linear-gradient(160deg, rgba(248,113,113,.18), var(--panel))'
               : `border-color:${color}55;background:linear-gradient(160deg, ${color}18, var(--panel))`)
           : '';
-        const displayIcon = trophyIconHTML(t.tier, got, isHidden ? '' : t.icon);
+        const displayIcon = trophyArtHTML(t, got);
         const displayName = isHidden ? '???' : escapeHTML(t.name);
         const displayDesc = isHidden ? 'Complete this hidden feat to reveal it.' : escapeHTML(t.desc);
         const pillStyle = isOops && got
           ? 'background:rgba(248,113,113,.2);color:var(--danger)'
           : `background:${color}22;color:${color}`;
         const pillLabel = isOops ? '😬' : (isHidden ? 'Hidden' : '');
-        html += `<div class="trophy ${got ? '' : 'locked'}" style="${cardStyle}">
+        // Progress toward the next locked count-up tier.
+        let progHTML = '';
+        if (!got && !isHidden) {
+          const cur = trophyCurrent(u, t);
+          if (cur != null && t.threshold > 0) {
+            const pc = Math.max(0, Math.min(100, Math.round((cur / t.threshold) * 100)));
+            progHTML = `<div class="trophy-prog"><i style="width:${pc}%"></i></div><div class="next">${cur} / ${t.threshold}</div>`;
+          }
+        }
+        html += `<div class="trophy ${got ? '' : 'locked'}" data-ach-id="${t.id}" style="${cardStyle}">
           <div class="icon">${displayIcon}</div>
           <div class="name">${displayName} ${pillLabel ? `<span class="pill" style="${pillStyle}">${pillLabel}</span>` : ""}${countBadge}</div>
           <div class="desc">${displayDesc}</div>
+          ${progHTML}
         </div>`;
       }
     }
-    aWrap.innerHTML = html;
+    const aWrap = $('#achievement-trophies');
+    aWrap.innerHTML = html || `<div class="card muted center" style="grid-column:1/-1">Nothing here under this filter yet.</div>`;
+    // Delegated click → achievement detail (bound once).
+    if (aWrap && !aWrap.dataset.boundDetail) {
+      aWrap.dataset.boundDetail = '1';
+      aWrap.addEventListener('click', (e) => {
+        const el = e.target && e.target.closest ? e.target.closest('.trophy[data-ach-id]') : null;
+        if (!el) return;
+        const def = ACHIEVEMENT_TIERS.find(x => x.id === el.dataset.achId);
+        if (def) showAchievementDetail(def);
+      });
+    }
+
+    // ---- Completeness hero ----
+    const streakCount = u.streakTrophies.length;
+    const heroPct = totalAll ? Math.round((ownedAll / totalAll) * 100) : 0;
+    const hero = $('#trophy-hero');
+    if (hero) {
+      hero.innerHTML = `
+        <div class="trophy-ring" style="--p:${heroPct}"><div><span class="pct">${heroPct}%</span><span class="pct-sub">complete</span></div></div>
+        <div class="stats">
+          <div class="big">${ownedAll} <span class="muted" style="font-size:14px">/ ${totalAll} trophies</span></div>
+          <div class="small" style="margin-top:2px"><span class="pts">${ptsEarned.toLocaleString()}</span> <span class="muted">/ ${ptsTotal.toLocaleString()} trophy points</span></div>
+          <div class="muted small" style="margin-top:2px">${streakCount} streak ${streakCount === 1 ? 'trophy' : 'trophies'} earned</div>
+        </div>`;
+    }
+    // ---- Filter chips ----
+    const fbar = $('#trophy-filters');
+    if (fbar) {
+      const chips = [['all', 'All'], ['unlocked', 'Unlocked'], ['locked', 'Locked'], ['close', 'Almost there']];
+      fbar.innerHTML = chips.map(([k, label]) =>
+        `<button class="tchip ${filter === k ? 'active' : ''}" data-filter="${k}">${label}</button>`).join('');
+      if (!fbar.dataset.bound) {
+        fbar.dataset.bound = '1';
+        fbar.addEventListener('click', (e) => {
+          const b = e.target && e.target.closest ? e.target.closest('.tchip[data-filter]') : null;
+          if (!b) return;
+          state._trophyFilter = b.dataset.filter;
+          _renderTrophiesNow();
+        });
+      }
+    }
+  }
+  // Detail view for a tiered achievement (reuses the streak-trophy modal shell).
+  function showAchievementDetail(def) {
+    const u = state.user; if (!u) return;
+    const got = hasAchievement(u, def.id);
+    const isHidden = def.hidden && !got;
+    const cnt = achievementCount(u, def.id);
+    const color = tierColor(def.tier);
+    const e = achievementEntry(u, def.id);
+    const name = isHidden ? '???' : def.name;
+    const desc = isHidden ? 'Complete this hidden feat to reveal it.' : def.desc;
+    const cur = trophyCurrent(u, def);
+    let progHTML = '';
+    if (!got && !isHidden && cur != null && def.threshold > 0) {
+      const pc = Math.max(0, Math.min(100, Math.round((cur / def.threshold) * 100)));
+      progHTML = `<div class="trophy-prog" style="margin-top:14px"><i style="width:${pc}%"></i></div><div class="muted small center" style="margin-top:6px">${cur} / ${def.threshold}</div>`;
+    }
+    let metaLine = '';
+    if (got) {
+      const when = e && (e.firstAt || e.awardedAt);
+      metaLine = `<div class="muted small center" style="margin-top:6px">Earned${when ? ' ' + new Date(when).toLocaleDateString() : ''}${cnt > 1 ? ` · earned ×${cnt}` : ''}</div>`;
+    }
+    // Cosmetic reward: some trophies unlock a free board set.
+    let rewardLine = '';
+    try {
+      const reward = window.CT_Sets && window.CT_Sets.unlockForAchievement && window.CT_Sets.unlockForAchievement(def.id);
+      if (reward) {
+        rewardLine = got
+          ? `<div class="card center" style="margin-top:12px;border-color:${color}66;background:linear-gradient(160deg, ${color}1a, var(--panel))">🎨 Unlocks the <b>${escapeHTML(reward.name)}</b> board set — <span data-open-store="1" style="color:var(--accent);cursor:pointer;text-decoration:underline">equip it free</span></div>`
+          : `<div class="card center muted" style="margin-top:12px">🎨 Reward: unlocks the <b>${escapeHTML(reward.name)}</b> board set (free)</div>`;
+      }
+    } catch (e2) {}
+    const body = $('#trophy-detail-body');
+    body.innerHTML = `
+      <div class="center">
+        <div class="icon" style="width:96px;height:96px;margin:0 auto">${trophyArtHTML(def, got)}</div>
+        <h2 style="margin-top:8px">${escapeHTML(name)}</h2>
+        ${got ? `<div class="center" style="margin-top:4px"><span class="pill" style="background:${color}22;color:${color}">${escapeHTML(def.family)} · Tier ${def.tier}</span></div>` : ''}
+        <div class="muted" style="margin-top:8px">${escapeHTML(desc)}</div>
+        ${metaLine}
+        ${progHTML}
+      </div>
+      ${rewardLine}
+      ${got && !def.embarrassing ? `<button class="btn btn-block" id="btn-share-ach" style="margin-top:16px">Share trophy card</button>` : ''}`;
+    const sb = document.getElementById('btn-share-ach');
+    if (sb) sb.addEventListener('click', () => { if (window.CT_shareTrophyCard) window.CT_shareTrophyCard(def); });
+    openModal('trophy-detail');
   }
   function showTrophyDetail(trophy) {
     const body = $('#trophy-detail-body');
@@ -5549,6 +5956,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     openModal('trophy-detail');
   }
   $('#btn-trophy-close').addEventListener('click', () => closeModal('trophy-detail'));
+  { const _sc = $('#btn-showcase-close'); if (_sc) _sc.addEventListener('click', () => closeModal('showcase')); }
+  { const _up = $('#btn-user-profile-close'); if (_up) _up.addEventListener('click', () => closeModal('user-profile')); }
 
   function escapeHTML(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -5577,6 +5986,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // Themed sets are a premium-only perk — enforce on EVERY sync (even when the
       // flag didn't change) so a lapsed/cancelled member loses access (reverts to
       // Classic) rather than keeping a set persisted in localStorage.
+      try { applyTrophyUnlocks({ silent: true }); } catch (e) {}
       try { if (window.CT_Sets && window.CT_Sets.enforcePremium) window.CT_Sets.enforcePremium(r.isPremium); } catch (e) {}
       if (state.user.isPremium === r.isPremium) return;
       state.user.isPremium = r.isPremium;
@@ -5594,8 +6004,11 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     showScreen('lobby');
     // Native AdMob banner: shown for free users, suppressed for premium. No-op on web.
     try { if (window.CT_Ads) window.CT_Ads.refresh(!!(state.user && state.user.isPremium)); } catch (e) {}
-    // Enforce the premium-only themed-set gate immediately from cached state
-    // (syncPremiumFromStripe re-enforces against Stripe's live status right after).
+    // Populate trophy-unlocked sets first, then enforce the premium-only gate from
+    // cached state (syncPremiumFromStripe re-enforces against Stripe right after).
+    // Order matters: enforcePremium must see the unlocked list so it won't strip a
+    // trophy-earned set from a non-subscriber.
+    try { applyTrophyUnlocks({ silent: true }); } catch (e) {}
     try { if (window.CT_Sets && window.CT_Sets.enforcePremium) window.CT_Sets.enforcePremium(!!(state.user && state.user.isPremium)); } catch (e) {}
     // Reconcile premium from Stripe (self-healing; best-effort, async).
     syncPremiumFromStripe();
@@ -5793,6 +6206,12 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   window.CT_onPuzzleSolved = function (puzzleId, meta) {
     try {
       try { window.CT_Analytics && window.CT_Analytics.track('puzzle_solve', { puzzleId: puzzleId }); } catch (e) {}
+      // Count solves for the Puzzles trophy family (flag: puzzlesSolved), then let
+      // recordDailyPlay's checkAchievementsFor catch any newly-earned tier.
+      if (state.user) {
+        state.user.flags = state.user.flags || {};
+        state.user.flags.puzzlesSolved = (state.user.flags.puzzlesSolved || 0) + 1;
+      }
       recordDailyPlay();
       ctCelebrate('normal');
       toast('Puzzle solved 🔥 daily streak updated', true);
