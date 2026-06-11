@@ -19,12 +19,8 @@ jobs:
     name: Pure-logic + real-backend suite
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Quarantine two engine-strength tests owned by another workstream that are
-    # currently failing (they had no script and never ran in CI before). Remove
-    # entries here once those tests are green.
     env:
       CT_SKIP_BROWSER: '1'
-      CT_EXCLUDE: 'chess960-ai-castle.mjs,elo-strength.mjs'
     steps:
       - uses: actions/checkout@v6
 
@@ -50,9 +46,6 @@ jobs:
     name: Full suite incl. browser/build
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Quarantine the same known-broken engine-strength tests as the logic job.
-    env:
-      CT_EXCLUDE: 'chess960-ai-castle.mjs,elo-strength.mjs'
     steps:
       - uses: actions/checkout@v6
 
