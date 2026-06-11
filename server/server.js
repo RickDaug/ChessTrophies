@@ -1043,30 +1043,43 @@ app.get('/api/admin/stats', async (req, res, next) => {
     } catch (e) { stats.gamesByHour = new Array(24).fill(0); }
 
     // --- Retention cohorts (weekly) -----------------------------------------
-    // For each of the last 8 signup-weeks: cohort size, how many "returned"
-    // (came back >=1 day after signup) and how many are "active" now (seen in the
-    // last 7 days). A pragmatic retention read from users(created_at,last_seen).
+    // For each of the last 8 signup-weeks: cohort size, classic D1/D7/D30
+    // retention (% of the cohort still around >= N days after signup), plus how
+    // many are "active" now (seen in the last 7 days). The dN denominator is the
+    // ELIGIBLE cohort (members who've had >= N days to come back), so young
+    // cohorts aren't penalised — dN is null (—) until the cohort is old enough.
+    // Pragmatic read from users(created_at, last_seen) with no activity log:
+    // last_seen-created_at >= N*DAY ⇒ still around at >= day N.
     try {
       const rows = await store.all('SELECT created_at, last_seen FROM users WHERE created_at > ?', [now - 9 * 7 * DAY]);
+      const mkB = () => ({ size: 0, returned: 0, active: 0, e1: 0, r1: 0, e7: 0, r7: 0, e30: 0, r30: 0 });
       const buckets = {};
       for (const r of (rows || [])) {
         const ca = Number(r.created_at) || 0, ls = Number(r.last_seen) || 0;
         if (!ca) continue;
         const wi = Math.floor((now - ca) / (7 * DAY));
         if (wi < 0 || wi > 7) continue;
-        const b = buckets[wi] || (buckets[wi] = { size: 0, returned: 0, active: 0 });
+        const b = buckets[wi] || (buckets[wi] = mkB());
+        const age = now - ca;
+        const ret = ls > 0 ? ls - ca : -1; // how long after signup they were last seen
         b.size++;
-        if (ls - ca >= DAY) b.returned++;
+        if (ret >= DAY) b.returned++;
         if (ls > now - 7 * DAY) b.active++;
+        if (age >= DAY)      { b.e1++;  if (ret >= DAY)      b.r1++; }
+        if (age >= 7 * DAY)  { b.e7++;  if (ret >= 7 * DAY)  b.r7++; }
+        if (age >= 30 * DAY) { b.e30++; if (ret >= 30 * DAY) b.r30++; }
       }
+      const pct = (rN, eN) => (eN ? Math.round(rN / eN * 100) : null);
       const retention = [];
       for (let wi = 7; wi >= 0; wi--) {
-        const b = buckets[wi] || { size: 0, returned: 0, active: 0 };
+        const b = buckets[wi] || mkB();
         retention.push({
           week: new Date(now - wi * 7 * DAY).toISOString().slice(0, 10),
           size: b.size, returned: b.returned, active: b.active,
           pctReturned: b.size ? Math.round(b.returned / b.size * 100) : 0,
           pctActive: b.size ? Math.round(b.active / b.size * 100) : 0,
+          d1: pct(b.r1, b.e1), d7: pct(b.r7, b.e7), d30: pct(b.r30, b.e30),
+          eligible7: b.e7,
         });
       }
       stats.retention = retention;

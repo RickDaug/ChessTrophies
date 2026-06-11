@@ -55,7 +55,13 @@ async function main() {
     const last = stats.retention[stats.retention.length - 1]; // current week
     assert(last && last.size >= 3, `current-week cohort should have >=3 signups, got ${last && last.size}`);
     assert(typeof last.pctReturned === 'number' && typeof last.pctActive === 'number' && typeof last.returned === 'number' && typeof last.active === 'number', 'cohort should carry returned/active/pct fields');
-    log(`retention: 8-week cohorts, current week size=${last.size} ✓`);
+    // D1/D7/D30 retention fields present; a brand-new cohort is too young -> null.
+    assert('d1' in last && 'd7' in last && 'd30' in last, 'cohort should carry d1/d7/d30 fields');
+    assert(last.d7 === null, `a fresh cohort should have null D7 (too young), got ${last.d7}`);
+    for (const r of stats.retention) {
+      for (const k of ['d1', 'd7', 'd30']) assert(r[k] === null || typeof r[k] === 'number', `${k} must be null or a number, got ${r[k]}`);
+    }
+    log(`retention: 8-week cohorts + D1/D7/D30 (young cohort D7=null), size=${last.size} ✓`);
 
     // 2) User-detail endpoint.
     const noKey = await fetch(`${BASE}/api/admin/user/${id}`);

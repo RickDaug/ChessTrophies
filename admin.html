@@ -251,6 +251,7 @@
   .cohortbar { display:inline-block; width:90px; max-width:42vw; height:7px; border-radius:4px; background:var(--panel2,#0e1626); overflow:hidden; vertical-align:middle; margin-right:8px; }
   .cohortbar > i { display:block; height:100%; border-radius:4px; }
   .cohortbar > i.g { background:var(--green); } .cohortbar > i.b { background:var(--blue); }
+  .cohortbar > i.hi { background:var(--green); } .cohortbar > i.mid { background:var(--accent); } .cohortbar > i.lo { background:#ff7676; }
   .cpct { font-variant-numeric:tabular-nums; font-weight:700; font-size:12px; }
   /* Sortable headers + clickable user rows */
   th.sortable { cursor:pointer; user-select:none; } th.sortable:hover { color:var(--text); }
@@ -392,8 +393,8 @@
     <div class="row2">
       <div class="panel">
         <div class="hrow">
-          <div><h3>📈 Weekly retention cohorts</h3><p class="h3sub">By signup week · returned = came back ≥1 day later · active = seen in last 7 days</p></div>
-          <div class="legend"><span><i style="background:var(--green)"></i> Returned</span><span><i style="background:var(--blue)"></i> Active now</span></div>
+          <div><h3>📈 Weekly retention cohorts</h3><p class="h3sub">By signup week · D1/D7/D30 = % still active that many days after signup (— = cohort too young) · Active now = seen in last 7 days</p></div>
+          <div class="legend"><span><i style="background:var(--green)"></i> Retention</span><span><i style="background:var(--blue)"></i> Active now</span></div>
         </div>
         <div id="retention"></div>
       </div>
@@ -1469,12 +1470,19 @@
     var host = $('retention'); if (!host) return;
     var rows = ((s && s.retention) || []).filter(function (r) { return r.size > 0; });
     if (!rows.length) { host.innerHTML = '<div class="chart-empty">No signups yet</div>'; return; }
-    host.innerHTML = '<table class="stand cohort"><thead><tr><th>Cohort week</th><th class="num">Signups</th><th>Returned</th><th>Active now</th></tr></thead><tbody>' +
+    // A retention cell: a bar + % (color-graded), or "—" when the cohort is too
+    // young to have an N-day number yet (eligible denominator is 0 → null).
+    function cell(v) {
+      if (v == null) return '<td class="muted" title="cohort too young for this metric">—</td>';
+      var cls = v >= 40 ? 'hi' : (v >= 15 ? 'mid' : 'lo');
+      return '<td><span class="cohortbar"><i class="' + cls + '" style="width:' + v + '%"></i></span><span class="cpct">' + v + '%</span></td>';
+    }
+    host.innerHTML = '<table class="stand cohort"><thead><tr><th>Cohort week</th><th class="num">Signups</th><th>D1</th><th>D7</th><th>D30</th><th>Active now</th></tr></thead><tbody>' +
       rows.map(function (r) {
         return '<tr><td class="nm">' + esc(r.week) + '</td>' +
           '<td class="num">' + num(r.size) + '</td>' +
-          '<td><span class="cohortbar"><i class="g" style="width:' + r.pctReturned + '%"></i></span><span class="cpct">' + r.pctReturned + '%</span></td>' +
-          '<td><span class="cohortbar"><i class="b" style="width:' + r.pctActive + '%"></i></span><span class="cpct">' + r.pctActive + '%</span></td></tr>';
+          cell(r.d1) + cell(r.d7) + cell(r.d30) +
+          '<td><span class="cohortbar"><i class="b" style="width:' + (r.pctActive || 0) + '%"></i></span><span class="cpct">' + (r.pctActive || 0) + '%</span></td></tr>';
       }).join('') + '</tbody></table>';
   }
 
