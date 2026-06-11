@@ -239,6 +239,42 @@
   ::-webkit-scrollbar { width:9px; height:9px; }
   ::-webkit-scrollbar-thumb { background:var(--border2); border-radius:6px; }
   ::-webkit-scrollbar-track { background:transparent; }
+
+  /* KPI sparklines + trend chips */
+  .kpi .spark { display:flex; align-items:center; gap:8px; margin-top:8px; }
+  .kpi .sparksvg { width:96px; height:22px; color:var(--_c); opacity:.85; }
+  .kpi .tchip { font-size:11px; font-weight:800; padding:1px 6px; border-radius:6px; }
+  .kpi .tchip.up { color:var(--green); background:rgba(84,224,154,.13); }
+  .kpi .tchip.dn { color:#ff7676; background:rgba(255,118,118,.13); }
+  /* Retention cohort bars */
+  .cohort td { vertical-align:middle; }
+  .cohortbar { display:inline-block; width:90px; max-width:42vw; height:7px; border-radius:4px; background:var(--panel2,#0e1626); overflow:hidden; vertical-align:middle; margin-right:8px; }
+  .cohortbar > i { display:block; height:100%; border-radius:4px; }
+  .cohortbar > i.g { background:var(--green); } .cohortbar > i.b { background:var(--blue); }
+  .cpct { font-variant-numeric:tabular-nums; font-weight:700; font-size:12px; }
+  /* Sortable headers + clickable user rows */
+  th.sortable { cursor:pointer; user-select:none; } th.sortable:hover { color:var(--text); }
+  .urow { cursor:pointer; } .urow:hover td { background:rgba(245,196,81,.06); }
+  /* User drill-down modal */
+  .umodal { position:fixed; inset:0; background:rgba(4,8,16,.72); display:none; align-items:flex-start; justify-content:center; z-index:60; padding:40px 14px; overflow:auto; }
+  .umodal.show { display:flex; }
+  .umodal-card { position:relative; width:min(640px,100%); background:var(--panel); border:1px solid var(--border2); border-radius:16px; padding:20px; box-shadow:var(--shadow); }
+  .umodal-x { position:absolute; top:12px; right:12px; background:transparent; border:none; color:var(--muted); font-size:16px; cursor:pointer; }
+  .um-head .um-name { font-size:20px; font-weight:800; }
+  .um-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; margin:14px 0; }
+  .um-stat { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:9px 11px; }
+  .um-stat .um-lbl { font-size:10px; text-transform:uppercase; letter-spacing:.05em; color:var(--faint); }
+  .um-stat .um-val { font-size:15px; font-weight:700; margin-top:3px; }
+  .um-h4 { margin:8px 0 6px; font-size:13px; color:var(--muted); }
+  /* Mobile polish */
+  @media (max-width:640px){
+    .kpi .sparksvg { width:72px; }
+    .um-grid { grid-template-columns:repeat(2,1fr); }
+    .umodal { padding:16px 10px; }
+    .cohortbar { width:64px; }
+    .tbl-wrap { -webkit-overflow-scrolling:touch; }
+    .tbl-wrap::after { content:'← scroll →'; display:block; text-align:center; color:var(--faint); font-size:10px; padding:6px 0 2px; }
+  }
 </style>
 </head>
 <body>
@@ -349,6 +385,17 @@
           </div>
         </div>
         <div id="dailyChart"></div>
+      </div>
+    </div>
+
+    <!-- Retention cohorts -->
+    <div class="row2">
+      <div class="panel">
+        <div class="hrow">
+          <div><h3>📈 Weekly retention cohorts</h3><p class="h3sub">By signup week · returned = came back ≥1 day later · active = seen in last 7 days</p></div>
+          <div class="legend"><span><i style="background:var(--green)"></i> Returned</span><span><i style="background:var(--blue)"></i> Active now</span></div>
+        </div>
+        <div id="retention"></div>
       </div>
     </div>
 
@@ -536,8 +583,8 @@
         <thead>
           <tr>
             <th>#</th><th>Username</th><th>Email</th>
-            <th>ELO</th><th>Ck 8×8</th><th>Ck 10×10</th>
-            <th>Games</th><th>Last seen</th><th>Joined</th><th>Verified</th><th>Premium</th>
+            <th class="sortable" data-sort="elo">ELO</th><th class="sortable" data-sort="checkers8">Ck 8×8</th><th class="sortable" data-sort="checkers10">Ck 10×10</th>
+            <th class="sortable" data-sort="games">Games</th><th class="sortable" data-sort="recent">Last seen</th><th class="sortable" data-sort="joined">Joined</th><th>Verified</th><th>Premium</th>
           </tr>
         </thead>
         <tbody id="usersBody"><tr><td colspan="11" class="faint" style="padding:16px 12px;">Loading users…</td></tr></tbody>
@@ -547,6 +594,14 @@
 </div>
 
 <div class="tooltip" id="tip"></div>
+
+<!-- User drill-down modal -->
+<div class="umodal" id="umodal">
+  <div class="umodal-card">
+    <button class="umodal-x" id="umodalX" aria-label="Close">✕</button>
+    <div id="umodalBody"></div>
+  </div>
+</div>
 
 <script>
 (function () {
@@ -652,9 +707,11 @@
     var subs = pick(r.activeSubscribers, s.activeSubscribers);
     var arpu = pick(r.arpuCents);
 
+    var ser = s.series || {};
     var cards = [
       { ic:'💰', label:'Revenue · all-time', val: allTime != null ? money(allTime, cur) : '–',
         c:'var(--green)', b:'rgba(84,224,154,.14)', g:'rgba(84,224,154,.12)',
+        spark: sparkVals(r.dailyCents),
         sub: r.source ? null : (s.revenueMonthCents != null ? 'this month ' + moneyCompact(s.revenueMonthCents, cur) : null) },
       { ic:'🔁', label:'MRR', val: mrr != null ? money(mrr, cur) : '–',
         c:'var(--teal)', b:'rgba(79,214,200,.14)', g:'rgba(79,214,200,.12)',
@@ -667,12 +724,14 @@
         sub: (s.verifiedUsers != null) ? num(s.verifiedUsers) + ' verified' : null },
       { ic:'👥', label:'Total users', val: num(s.totalUsers),
         c:'var(--blue)', b:'rgba(90,166,255,.14)', g:'rgba(90,166,255,.12)',
+        spark: sparkVals(ser.signupsDaily, 'count'),
         delta: deltaText(s.newUsers24h, s.newUsers7d) },
       { ic:'🟢', label:'Online now', val: num(s.onlineNow),
         c:'var(--green)', b:'rgba(84,224,154,.14)', g:'rgba(84,224,154,.12)',
         sub: (s.activeUsers24h != null) ? num(s.activeUsers24h) + ' active · 24h' : null },
       { ic:'♟', label:'Games total', val: num(s.gamesTotal),
         c:'var(--pink)', b:'rgba(255,134,194,.14)', g:'rgba(255,134,194,.12)',
+        spark: sparkVals(ser.gamesDaily, 'count'),
         sub: (s.games24h != null) ? '+' + num(s.games24h) + ' · 24h' : null }
     ];
 
@@ -680,11 +739,41 @@
       var subHtml = '';
       if (c.delta) subHtml = '<div class="sub">' + c.delta + '</div>';
       else if (c.sub) subHtml = '<div class="sub"><span class="delta dim">' + esc(c.sub) + '</span></div>';
+      var sparkHtml = '';
+      if (c.spark && c.spark.length > 1) {
+        var tp = trendPct(c.spark);
+        var chip = (tp == null) ? '' : '<span class="tchip ' + (tp >= 0 ? 'up' : 'dn') + '">' + (tp >= 0 ? '▲' : '▼') + ' ' + Math.abs(tp) + '%</span>';
+        sparkHtml = '<div class="spark">' + sparkSvg(c.spark) + chip + '</div>';
+      }
       return '<div class="kpi" style="--_c:' + c.c + ';--_b:' + c.b + ';--_g:' + c.g + '">' +
         '<div class="top"><span class="label">' + esc(c.label) + '</span>' +
         '<span class="ic">' + c.ic + '</span></div>' +
-        '<div class="val">' + c.val + '</div>' + subHtml + '</div>';
+        '<div class="val">' + c.val + '</div>' + subHtml + sparkHtml + '</div>';
     }).join('');
+  }
+  // KPI sparkline helpers.
+  function sparkVals(arr, key) {
+    if (!Array.isArray(arr)) return [];
+    return arr.map(function (x) { return key ? (Number(x[key]) || 0) : (Number(x) || 0); });
+  }
+  function sparkSvg(vals) {
+    if (!vals || vals.length < 2) return '';
+    var W = 120, H = 30, pad = 2;
+    var max = Math.max.apply(null, vals), min = Math.min.apply(null, vals); var span = (max - min) || 1;
+    var pts = vals.map(function (v, i) {
+      var x = pad + i / (vals.length - 1) * (W - 2 * pad);
+      var y = pad + (1 - (v - min) / span) * (H - 2 * pad);
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    });
+    return '<svg class="sparksvg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none"><polyline points="' + pts.join(' ') + '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+  }
+  function trendPct(vals) {
+    if (!vals || vals.length < 4) return null;
+    var mid = Math.floor(vals.length / 2); var a = 0, b = 0;
+    for (var i = 0; i < mid; i++) a += vals[i];
+    for (var j = mid; j < vals.length; j++) b += vals[j];
+    if (a <= 0) return b > 0 ? 100 : null;
+    return Math.round((b - a) / a * 100);
   }
   function deltaText(d24, d7) {
     var parts = [];
@@ -1376,11 +1465,61 @@
     if (sub) sub.textContent = 'Games started · by UTC hour · last ' + ((s && s.windowDays) || currentDays) + ' days';
   }
 
+  function renderRetention(s) {
+    var host = $('retention'); if (!host) return;
+    var rows = ((s && s.retention) || []).filter(function (r) { return r.size > 0; });
+    if (!rows.length) { host.innerHTML = '<div class="chart-empty">No signups yet</div>'; return; }
+    host.innerHTML = '<table class="stand cohort"><thead><tr><th>Cohort week</th><th class="num">Signups</th><th>Returned</th><th>Active now</th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        return '<tr><td class="nm">' + esc(r.week) + '</td>' +
+          '<td class="num">' + num(r.size) + '</td>' +
+          '<td><span class="cohortbar"><i class="g" style="width:' + r.pctReturned + '%"></i></span><span class="cpct">' + r.pctReturned + '%</span></td>' +
+          '<td><span class="cohortbar"><i class="b" style="width:' + r.pctActive + '%"></i></span><span class="cpct">' + r.pctActive + '%</span></td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+
+  // ----- User drill-down modal -----
+  function umStat(label, val) { return '<div class="um-stat"><div class="um-lbl">' + esc(label) + '</div><div class="um-val">' + val + '</div></div>'; }
+  function closeUserModal() { var m = $('umodal'); if (m) m.classList.remove('show'); }
+  async function openUserModal(uid) {
+    if (!uid) return;
+    var body = $('umodalBody'); if (!body) return;
+    body.innerHTML = '<div class="chart-empty">Loading…</div>';
+    $('umodal').classList.add('show');
+    try {
+      var res = await fetch('/api/admin/user/' + encodeURIComponent(uid) + '?key=' + encodeURIComponent(getKey()), { headers: headers() });
+      if (!res.ok) { body.innerHTML = '<div class="chart-empty">Could not load user (HTTP ' + res.status + ')</div>'; return; }
+      var u = await res.json();
+      var games = u.recentGames || [];
+      body.innerHTML =
+        '<div class="um-head"><div class="um-name">' + esc(u.username) + (u.isPremium ? ' <span class="pill">PREMIUM</span>' : '') + '</div>' +
+        '<div class="muted">' + esc(u.email || '') + '</div></div>' +
+        '<div class="um-grid">' +
+          umStat('ELO', num(u.elo)) +
+          umStat('W·L·D', num(u.wins) + '·' + num(u.losses) + '·' + num(u.draws)) +
+          umStat('Best streak', num(u.bestStreak)) +
+          umStat('Location', (u.geoCountry ? flagOf(u.geoCountry) + ' ' + esc(u.geoCountry) : '—') + (u.geoRegion ? ' / ' + esc(u.geoRegion) : '')) +
+          umStat('Trophies', num(u.trophyCount) + ' · ' + num(u.trophyPoints) + 'pts') +
+          umStat('Arena titles', num(u.arenaWins)) +
+          umStat('Checkers 8/10', num(u.eloCheckers8) + ' / ' + num(u.eloCheckers10)) +
+          umStat('Verified', u.emailVerified ? '<span class="yes">✓</span>' : '—') +
+          umStat('Joined', esc(fmtDateShort(u.createdAt))) +
+          umStat('Last seen', esc(u.lastSeen ? (ago(u.lastSeen) || 'never') : 'never')) +
+        '</div>' +
+        '<h4 class="um-h4">Recent games</h4>' +
+        (games.length
+          ? '<table class="stand"><thead><tr><th>Mode</th><th>Type</th><th>Result</th><th>When</th></tr></thead><tbody>' +
+            games.map(function (g) { return '<tr><td>' + esc(g.mode) + '</td><td>' + esc(g.type) + (g.variant ? (' ' + esc(g.variant)) : '') + '</td><td>' + esc(g.result || '—') + '</td><td class="muted">' + esc(fmtDateShort(g.at)) + '</td></tr>'; }).join('') + '</tbody></table>'
+          : '<div class="chart-empty">No games recorded</div>');
+    } catch (e) { body.innerHTML = '<div class="chart-empty">Error: ' + esc(e && e.message ? e.message : e) + '</div>'; }
+  }
+
   function renderAll(s) {
     lastStats = s || {};
     renderKpis(lastStats);
     renderToday(lastStats);
     renderFunnel(lastStats);
+    renderRetention(lastStats);
     renderGeo(lastStats);
     renderGameTypes(lastStats);
     renderGamesByHour(lastStats);
@@ -1449,7 +1588,7 @@
       u = u || {};
       var ls = toDate(u.lastSeen);
       var lsTxt = ls ? (ago(u.lastSeen) || ls.toLocaleString()) : 'never';
-      return '<tr>' +
+      return '<tr class="urow" data-uid="' + esc(u.id || '') + '">' +
         '<td class="num faint">' + (i + 1) + '</td>' +
         '<td class="uname">' + esc(u.username) + '</td>' +
         '<td class="muted">' + esc(u.email) + '</td>' +
@@ -1555,6 +1694,22 @@
     if (!getKey()) { return; }
     window.location.href = exportUrl(b.getAttribute('data-export'));
   });
+
+  // Click a sortable column header → set the sort + reload; click a user row →
+  // open the drill-down modal.
+  document.addEventListener('click', function (e) {
+    var th = e.target && e.target.closest ? e.target.closest('th.sortable[data-sort]') : null;
+    if (th) { var sv = th.getAttribute('data-sort'); if (sortEl && sv) { sortEl.value = sv; } loadUsers(); return; }
+    var row = e.target && e.target.closest ? e.target.closest('.urow[data-uid]') : null;
+    if (row) { openUserModal(row.getAttribute('data-uid')); return; }
+  });
+  // User-detail modal close (button, backdrop, Escape).
+  (function () {
+    var m = $('umodal'); var x = $('umodalX');
+    if (x) x.addEventListener('click', closeUserModal);
+    if (m) m.addEventListener('click', function (e) { if (e.target === m) closeUserModal(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeUserModal(); });
+  })();
 
   $('usersRefresh').addEventListener('click', loadUsers);
   $('copyEmails').addEventListener('click', copyEmails);

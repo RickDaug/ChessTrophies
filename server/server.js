@@ -1042,9 +1042,71 @@ app.get('/api/admin/stats', async (req, res, next) => {
       stats.gamesByHour = hours;
     } catch (e) { stats.gamesByHour = new Array(24).fill(0); }
 
+    // --- Retention cohorts (weekly) -----------------------------------------
+    // For each of the last 8 signup-weeks: cohort size, how many "returned"
+    // (came back >=1 day after signup) and how many are "active" now (seen in the
+    // last 7 days). A pragmatic retention read from users(created_at,last_seen).
+    try {
+      const rows = await store.all('SELECT created_at, last_seen FROM users WHERE created_at > ?', [now - 9 * 7 * DAY]);
+      const buckets = {};
+      for (const r of (rows || [])) {
+        const ca = Number(r.created_at) || 0, ls = Number(r.last_seen) || 0;
+        if (!ca) continue;
+        const wi = Math.floor((now - ca) / (7 * DAY));
+        if (wi < 0 || wi > 7) continue;
+        const b = buckets[wi] || (buckets[wi] = { size: 0, returned: 0, active: 0 });
+        b.size++;
+        if (ls - ca >= DAY) b.returned++;
+        if (ls > now - 7 * DAY) b.active++;
+      }
+      const retention = [];
+      for (let wi = 7; wi >= 0; wi--) {
+        const b = buckets[wi] || { size: 0, returned: 0, active: 0 };
+        retention.push({
+          week: new Date(now - wi * 7 * DAY).toISOString().slice(0, 10),
+          size: b.size, returned: b.returned, active: b.active,
+          pctReturned: b.size ? Math.round(b.returned / b.size * 100) : 0,
+          pctActive: b.size ? Math.round(b.active / b.size * 100) : 0,
+        });
+      }
+      stats.retention = retention;
+    } catch (e) { stats.retention = []; }
+
     stats.windowDays = days;
     res.json(stats);
   } catch (e) { next(e); }
+});
+
+// Per-user detail for the admin drill-down modal (ADMIN_KEY-gated). Returns a
+// profile snapshot + recent games. No password hash / tokens.
+app.get('/api/admin/user/:id', async (req, res, next) => {
+  try {
+    const provided = req.get('x-admin-key') || req.query.key || '';
+    if (!process.env.ADMIN_KEY || provided !== process.env.ADMIN_KEY) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const id = String(req.params.id || '');
+    const u = await store.get('SELECT * FROM users WHERE id = ?', [id]);
+    if (!u) { return res.status(404).json({ error: 'User not found.' }); }
+    let achievements = [];
+    try { const a = JSON.parse(u.achievements || '[]'); if (Array.isArray(a)) achievements = a; } catch (e) {}
+    const games = await store.all(
+      'SELECT id, mode, game_type, variant, result, created_at FROM games WHERE white_id = ? OR black_id = ? ORDER BY created_at DESC LIMIT 12',
+      [id, id]
+    );
+    res.json({
+      id: u.id, username: u.username, email: u.email, region: u.region || '',
+      geoCountry: u.geo_country || '', geoRegion: u.geo_region || '',
+      elo: u.elo, eloCheckers8: u.elo_checkers_8, eloCheckers10: u.elo_checkers_10,
+      wins: u.wins, losses: u.losses, draws: u.draws,
+      bestStreak: u.best_streak, currentStreak: u.current_streak,
+      arenaWins: u.arena_wins || 0, trophyPoints: u.trophy_points || 0, trophyCount: achievements.length,
+      invitesAccepted: u.invites_accepted || 0,
+      isPremium: !!u.is_premium, emailVerified: !!u.email_verified,
+      createdAt: u.created_at, lastSeen: u.last_seen,
+      recentGames: (games || []).map(g => ({ id: g.id, mode: g.mode, type: g.game_type || 'chess', variant: g.variant || '', result: g.result || '', at: g.created_at })),
+    });
+  } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 
 // Raw-data CSV export (ADMIN_KEY-gated) for offline analysis in a spreadsheet / BI
