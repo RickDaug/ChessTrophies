@@ -837,6 +837,8 @@ export function getProgress(user) {
     lessonsCompleted: Array.isArray(p.lessonsCompleted) ? p.lessonsCompleted : [],
     puzzles: p.puzzles && typeof p.puzzles === 'object' ? p.puzzles : {},
     showcase: Array.isArray(p.showcase) ? p.showcase : [],
+    themeBoard: typeof p.themeBoard === 'string' ? p.themeBoard : 'walnut',
+    themePieces: typeof p.themePieces === 'string' ? p.themePieces : 'classic',
   };
 }
 
@@ -854,6 +856,8 @@ export async function setProgress(userId, progress) {
     lessonsCompleted: Array.isArray(progress.lessonsCompleted) ? progress.lessonsCompleted : [],
     puzzles: progress.puzzles && typeof progress.puzzles === 'object' ? progress.puzzles : {},
     showcase: sanitizeShowcase(progress.showcase, existing.showcase),
+    themeBoard: typeof progress.themeBoard === 'string' ? progress.themeBoard.slice(0, 32) : existing.themeBoard,
+    themePieces: typeof progress.themePieces === 'string' ? progress.themePieces.slice(0, 32) : existing.themePieces,
   };
   // Trophy leaderboard fields (optional, client-authoritative) — mirrors db.js.
   const ach = Array.isArray(progress.achievements) ? progress.achievements.slice(0, 2000) : null;

@@ -807,6 +807,7 @@
         db.users[u.id] = u;
         CT.saveDB(db);
         applyThemes(u.themeBoard, u.themePieces);
+        if (window.CT_syncProgress) window.CT_syncProgress(); // follow the account across devices
         renderSettings();
       });
     });
@@ -818,6 +819,7 @@
         db.users[u.id] = u;
         CT.saveDB(db);
         applyThemes(u.themeBoard, u.themePieces);
+        if (window.CT_syncProgress) window.CT_syncProgress(); // follow the account across devices
         renderSettings();
       });
     });
