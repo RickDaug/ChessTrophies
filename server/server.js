@@ -751,7 +751,17 @@ app.post('/api/progress', requireAuth, async (req, res, next) => {
       if (!Number.isFinite(body.trophyPoints)) throw new Error('trophyPoints must be a number.');
       trophyPoints = body.trophyPoints;
     }
-    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles, showcase, achievements, streakTrophies, trophyPoints });
+    // Appearance theme (board/piece) — short identifier strings, follow the account.
+    let themeBoard, themePieces;
+    if (body.themeBoard !== undefined) {
+      if (typeof body.themeBoard !== 'string') throw new Error('themeBoard must be a string.');
+      themeBoard = body.themeBoard.slice(0, 32);
+    }
+    if (body.themePieces !== undefined) {
+      if (typeof body.themePieces !== 'string') throw new Error('themePieces must be a string.');
+      themePieces = body.themePieces.slice(0, 32);
+    }
+    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles, showcase, achievements, streakTrophies, trophyPoints, themeBoard, themePieces });
     res.json(result);
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });

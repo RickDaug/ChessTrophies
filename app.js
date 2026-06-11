@@ -3257,6 +3257,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       trophyPoints: userTrophyPoints(state.user),
       // Pinned trophy ids for the profile showcase (≤5).
       showcase: (state.user && state.user.showcase) || [],
+      // Board/piece appearance theme — follows the account across devices.
+      themeBoard: (state.user && state.user.themeBoard) || 'walnut',
+      themePieces: (state.user && state.user.themePieces) || 'classic',
     };
   }
 
@@ -3309,6 +3312,21 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       state.user.showcase = p.showcase.slice(0, 5);
       const db = loadDB();
       if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
+    }
+    // Appearance theme: adopt the account's server-stored board/piece choice (set
+    // on another device). The login GET carries the latest saved value; a POST
+    // echoes what we just sent (a no-op). Apply live so the board updates at once.
+    if (state.user && (typeof p.themeBoard === 'string' || typeof p.themePieces === 'string')) {
+      const nb = (typeof p.themeBoard === 'string' && p.themeBoard) ? p.themeBoard : state.user.themeBoard;
+      const np = (typeof p.themePieces === 'string' && p.themePieces) ? p.themePieces : state.user.themePieces;
+      if (nb !== state.user.themeBoard || np !== state.user.themePieces) {
+        state.user.themeBoard = nb;
+        state.user.themePieces = np;
+        const db = loadDB();
+        if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
+        try { if (window.CT_applyThemes) window.CT_applyThemes(nb, np); } catch (e) {}
+        try { if (window.CT_renderSettings && document.getElementById('screen-settings').classList.contains('active')) window.CT_renderSettings(); } catch (e) {}
+      }
     }
     // Refresh any visible rank/academy UI now that counts may have grown.
     try { if (window.CT_renderAcademy && document.getElementById('screen-academy').classList.contains('active')) window.CT_renderAcademy(); } catch (e) {}
