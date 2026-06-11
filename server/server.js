@@ -136,8 +136,13 @@ function rankedEnabled() {
   return true; // default ON
 }
 
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many auth attempts. Please try again later.' } });
-const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Please slow down.' } });
+// Escape hatch for load testing ONLY: when LOAD_TEST_NO_RATELIMIT=1 the auth/api
+// limiters become no-ops so a harness can sign up many synthetic users from one
+// IP. Off by default — never set this in production.
+const RL_DISABLED = process.env.LOAD_TEST_NO_RATELIMIT === '1';
+if (RL_DISABLED) console.warn('[ratelimit] DISABLED via LOAD_TEST_NO_RATELIMIT — do NOT use in production');
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many auth attempts. Please try again later.' } });
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many requests. Please slow down.' } });
 
 app.disable('x-powered-by');
 // Behind Railway's (single) reverse proxy: trust the first hop so req.ip and the
