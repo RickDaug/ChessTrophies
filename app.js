@@ -1552,9 +1552,10 @@
 
   // Continue as guest -------------------------------------------------
   // Asks the server for a goofy display name unique among active guests. The
-  // guest session lives ONLY in sessionStorage, so it is gone when the tab
-  // closes. Nothing about a guest is written to the local account DB or the
-  // server DB -- no progress, stats, or trophies persist.
+  // guest is PERSISTED to localStorage (the same local db.users the boot
+  // restore reads), so the guest survives a refresh / tab-close / next visit
+  // with trophies + daily streak intact. Nothing is written to the server DB --
+  // creating an account is what carries progress across devices.
   function makeGuestUser(username) {
     return {
       id: 'guest:' + username,
@@ -1735,6 +1736,24 @@
     if (window.CT_Leagues && window.CT_Leagues.renderLobbyCard) window.CT_Leagues.renderLobbyCard();
     // Keep the (possibly hidden) checkers stat row in sync with state.user.checkers.
     if (typeof renderCheckersLobbyStats === 'function') renderCheckersLobbyStats();
+    // "More ways to play" group: hide its toggle entirely when none of the
+    // secondary feature cards inside it are currently visible (e.g. a brand-new
+    // user before arena/season/etc. unlock), so we never show an empty group.
+    // Each card self-hides via display:none, so we just count visible children.
+    try {
+      const moreList = $('#lobby-more-list');
+      const moreToggle = $('#lobby-more-toggle');
+      if (moreList && moreToggle) {
+        const anyVisible = Array.prototype.some.call(moreList.children, function (c) {
+          return c.nodeType === 1 && c.style.display !== 'none';
+        });
+        moreToggle.style.display = anyVisible ? '' : 'none';
+        if (!anyVisible) {
+          moreList.classList.remove('open');
+          moreToggle.setAttribute('aria-expanded', 'false');
+        }
+      }
+    } catch (e) {}
   }
 
   // Soft email-verification nudge: shown only for server-logged-in users whose
@@ -2635,6 +2654,20 @@ function renderFriendsSummary() {
   $$('#bottom-nav .nav-item').forEach(n => {
     n.addEventListener('click', () => showScreen(n.dataset.nav));
   });
+
+  // Lobby "More ways to play" collapsible (secondary feature cards). CSP-safe:
+  // bound here once via addEventListener (no inline onclick). The list is
+  // collapsed by default so the Play action is the lobby's single focal point.
+  {
+    const moreToggle = $('#lobby-more-toggle');
+    const moreList = $('#lobby-more-list');
+    if (moreToggle && moreList) {
+      moreToggle.addEventListener('click', () => {
+        const open = moreList.classList.toggle('open');
+        moreToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Matchmaking
@@ -3561,12 +3594,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   }
 
   function aiNameForElo(elo) {
-    if (elo >= 2500) return 'Grandmaster';
-    if (elo >= 2300) return 'International Master';
-    if (elo >= 2100) return 'Expert';
-    if (elo >= 1800) return 'Strong';
-    if (elo >= 1500) return 'Intermediate';
-    if (elo >= 1200) return 'Club';
+    // Honest labels: this is a depth-limited built-in engine, not a titled
+    // player. Don't advertise FIDE titles (GM/IM) the engine can't back up
+    // (see README — "not a grandmaster"). "Master" is the strongest label.
+    if (elo >= 2200) return 'Master';
+    if (elo >= 1900) return 'Expert';
+    if (elo >= 1600) return 'Strong';
+    if (elo >= 1300) return 'Intermediate';
+    if (elo >= 1000) return 'Club';
     return 'Beginner';
   }
 
