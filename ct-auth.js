@@ -33,8 +33,12 @@
         if (typeof u.mateWins !== 'number') u.mateWins = 0;
         if (typeof u.comebackWins !== 'number') u.comebackWins = 0;
         if (!Array.isArray(u.lessonsCompleted)) u.lessonsCompleted = [];
-        if (typeof u.themeBoard !== 'string') u.themeBoard = 'forest';
+        if (typeof u.themeBoard !== 'string') u.themeBoard = 'walnut';
         if (typeof u.themePieces !== 'string') u.themePieces = 'classic';
+        // One-time makeover rollout: the OLD silent default 'forest' becomes the
+        // new default 'walnut' so existing users see the redesigned board/pieces.
+        // Fully reversible — 'forest' (and every other palette) stays in Settings.
+        if (u.themeBoard === 'forest' && !u._boardMigratedWalnut) { u.themeBoard = 'walnut'; u._boardMigratedWalnut = true; }
         if (!u.flags || typeof u.flags !== 'object') u.flags = {};
         const defaultFlags = ['underpromoWins','enPassants','queensideCastles','bareBonesWins','smotheredGiven','marathonWins','lightningWins','phoenixRises','pawnPromotions','bongcloudWins','fastLosses','sameOppLossStreak','drySpellTriggered','resignStreak','mateLossStreak','loseStreak','veryQuickLosses','pawnsOnlyLosses','doormatTriggered','coldStreakTriggered'];
         for (const k of defaultFlags) if (typeof u.flags[k] !== 'number') u.flags[k] = 0;
@@ -197,7 +201,7 @@
       streakTrophies: existing.streakTrophies || [],
       achievements: existing.achievements || [],
       flags: existing.flags || {},
-      themeBoard: existing.themeBoard || 'forest',
+      themeBoard: existing.themeBoard || 'walnut',
       themePieces: existing.themePieces || 'classic',
       createdAt: existing.createdAt || Date.now(),
     });
@@ -245,7 +249,7 @@
       mateWins: 0,
       comebackWins: 0,
       lessonsCompleted: [],
-      themeBoard: 'forest',
+      themeBoard: 'walnut',
       themePieces: 'classic',
       isPremium: false,    // ads hidden when true (set via Upgrade flow)
       premiumSince: null,

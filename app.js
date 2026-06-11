@@ -1565,7 +1565,7 @@
       isPremium: false, isGuest: true,
       friends: [], streakVictims: [], streakTrophies: [],
       achievements: [], flags: {},
-      themeBoard: 'forest', themePieces: 'classic',
+      themeBoard: 'walnut', themePieces: 'classic',
       createdAt: Date.now()
     };
   }
