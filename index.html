@@ -107,8 +107,10 @@
     --accent-2: #e1a92a;
     --success: #4ade80;
     --danger: #f87171;
-    --light-sq: #eedfc6;
-    --dark-sq:  #6e8c6b;
+    --light-sq: #e8d2a8;   /* Walnut board (classic wood) */
+    --dark-sq:  #9c6b43;
+    --board-light: #e8d2a8;
+    --board-dark:  #9c6b43;
     --highlight: rgba(245, 196, 81, 0.45);
     --move-dot: rgba(245, 196, 81, 0.85);
     --check: rgba(248, 113, 113, 0.65);
@@ -549,8 +551,8 @@
     .rv-graph-cursor { stroke: #e7ecf5; stroke-width: .6; opacity: .6; }
     .rv-graph rect { cursor: pointer; }
     .rv-sq { display: flex; align-items: center; justify-content: center; }
-    .rv-sq.light { background: var(--board-light, #eedfc6); }
-    .rv-sq.dark { background: var(--board-dark, #6e8c6b); }
+    .rv-sq.light { background: var(--board-light, #e8d2a8); }
+    .rv-sq.dark { background: var(--board-dark, #9c6b43); }
     .rv-piece { width: 88%; height: 88%; }
     .rv-piece svg { width: 100%; height: 100%; display: block; }
     .rv-caption { text-align: center; font-size: 13px; color: var(--muted); margin: 8px 0; min-height: 16px; }
