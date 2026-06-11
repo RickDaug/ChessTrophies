@@ -63,6 +63,12 @@ async function main() {
     }
     log(`retention: 8-week cohorts + D1/D7/D30 (young cohort D7=null), size=${last.size} ✓`);
 
+    // Interval retention CURVES (cohort triangle from the activity log).
+    assert(stats.retentionCurves && Array.isArray(stats.retentionCurves.cohorts), 'retentionCurves.cohorts should be an array');
+    const cc = stats.retentionCurves.cohorts.find(c => c.size >= 3);
+    assert(cc && Array.isArray(cc.curve) && cc.curve[0] === 100, `this-week cohort curve[0] should be 100, got ${cc && JSON.stringify(cc.curve)}`);
+    log('retention curves: endpoint returns the cohort triangle (week 0 = 100%) ✓');
+
     // 2) User-detail endpoint.
     const noKey = await fetch(`${BASE}/api/admin/user/${id}`);
     assert(noKey.status === 403, `user-detail without key should 403, got ${noKey.status}`);

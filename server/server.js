@@ -46,6 +46,7 @@ import { mountPuzzles } from './puzzles.js';
 import { mountArena, startArenaScheduler, logArenaStatus, liveArena, arenaEnabled, recentChampions } from './arena.js';
 import { mountAnalytics, analyticsStats, logAnalyticsStatus } from './analytics.js';
 import { geoFromReq } from './geo.js';
+import { retentionCurves } from './cohorts.js';
 import { mountChallenges } from './challenges.js';
 import { mountLeagues } from './leagues.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount, seasonInfo, previousSeasonId } from './game.js';
@@ -1084,6 +1085,26 @@ app.get('/api/admin/stats', async (req, res, next) => {
       }
       stats.retention = retention;
     } catch (e) { stats.retention = []; }
+
+    // --- True interval retention CURVES (per-user activity log) --------------
+    // The cohort retention triangle: % of each signup-week cohort active in week
+    // 0,1,2,… after signup, derived from analytics_events (events keyed by
+    // user_id = "this user did something that day"). Pure engine in cohorts.js.
+    try {
+      const COHORT_WEEKS = 8;
+      const cohortCutMs = now - COHORT_WEEKS * 7 * DAY;
+      const cohortCutDay = new Date(cohortCutMs).toISOString().slice(0, 10);
+      const uRows = await store.all('SELECT id, created_at FROM users WHERE created_at > ?', [cohortCutMs]);
+      const evRows = await store.all(
+        "SELECT DISTINCT user_id, day_key FROM analytics_events WHERE user_id IS NOT NULL AND user_id <> '' AND day_key >= ?",
+        [cohortCutDay]
+      );
+      stats.retentionCurves = retentionCurves({
+        now, weeks: COHORT_WEEKS,
+        users: (uRows || []).map(r => ({ id: r.id, createdAt: Number(r.created_at) })),
+        events: (evRows || []).map(r => ({ userId: r.user_id, dayKey: r.day_key })),
+      });
+    } catch (e) { stats.retentionCurves = { cohorts: [], maxWeeks: 0 }; }
 
     stats.windowDays = days;
     res.json(stats);
