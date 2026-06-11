@@ -20,6 +20,7 @@
     "test:admin": "node test/admin.mjs",
     "test:admin-geo": "node test/admin-geo.mjs",
     "test:admin-tier3": "node test/admin-tier3.mjs",
+    "test:cohorts": "node test/cohorts.mjs",
     "test:billing": "node test/billing.mjs",
     "test:store": "node test/store.mjs",
     "test:ranked-flag": "node test/ranked-flag.mjs",
