@@ -69,11 +69,14 @@ async function main() {
     assert(a.today.signups === 1, `today.signups should be 1, got ${a.today.signups}`);
     log(`today: visitors=3 plays=2 signups=1 ✓`);
 
-    assert(Array.isArray(a.daily) && a.daily.length === 14, `daily should be a 14-day series, got ${a.daily && a.daily.length}`);
+    // The daily series now scales with the window (default 30 days, capped 60),
+    // so the date-range presets render a matching chart length.
+    assert(Array.isArray(a.daily) && a.daily.length === 30, `daily should be a 30-day series (default window), got ${a.daily && a.daily.length}`);
+    assert(a.windowDays === 30, `default windowDays should be 30, got ${a.windowDays}`);
     const todayKey = new Date().toISOString().slice(0, 10);
     const todayRow = a.daily.find(d => d.date === todayKey);
     assert(todayRow && todayRow.visitors === 3, `today's daily row should show 3 visitors, got ${JSON.stringify(todayRow)}`);
-    log('daily: 14-day series, today populated ✓');
+    log('daily: 30-day series (scales with window), today populated ✓');
 
     const land = (a.topEvents || []).find(e => e.name === 'land');
     assert(land && land.count === 3, `topEvents should include land:3, got ${JSON.stringify(land)}`);

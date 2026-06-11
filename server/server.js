@@ -45,6 +45,7 @@ import { mountPush, logPushStatus, sendPushToUser } from './push.js';
 import { mountPuzzles } from './puzzles.js';
 import { mountArena, startArenaScheduler, logArenaStatus, liveArena, arenaEnabled, recentChampions } from './arena.js';
 import { mountAnalytics, analyticsStats, logAnalyticsStatus } from './analytics.js';
+import { geoFromReq } from './geo.js';
 import { mountChallenges } from './challenges.js';
 import { mountLeagues } from './leagues.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount, seasonInfo, previousSeasonId } from './game.js';
@@ -202,7 +203,11 @@ app.post('/api/auth/signup', authLimiter, async (req, res, next) => {
     const password = requireStringField(body, 'password', { min: 6, max: 128 });
     const region = typeof body.region === 'string' ? body.region.trim().slice(0, 64) : '';
     const invitedBy = typeof body.invitedBy === 'string' && body.invitedBy.trim() ? body.invitedBy.trim().slice(0, 64) : null;
-    const { token, verification } = await signup({ email, username, password, region, invitedBy });
+    // Derive coarse signup geo (country + region/state) from the IP — stored on
+    // the user so the dashboard can show where registered players are from. The
+    // raw IP is never stored.
+    const geo = geoFromReq(req);
+    const { token, verification } = await signup({ email, username, password, region, invitedBy, geo });
     // Email the 6-digit code (best-effort; no-op when RESEND isn't configured).
     let emailVerificationSent = false;
     if (verification) emailVerificationSent = await sendVerifyEmail(verification.email, verification.code);
@@ -807,6 +812,9 @@ app.get('/api/admin/stats', async (req, res, next) => {
     }
     const now = Date.now();
     const DAY = 86400000;
+    // Rolling window (days) for the windowed blocks (analytics funnel/geo/sources,
+    // games-by-hour). Presets on the dashboard pass ?days=7|30|90|365.
+    const days = Math.max(1, Math.min(365, parseInt(req.query.days, 10) || 30));
     const n = async (sql, p = []) => { const r = await store.get(sql, p); return r ? Number(r.n) : 0; };
     const stats = {
       totalUsers:     await n('SELECT COUNT(*) AS n FROM users'),
@@ -980,7 +988,7 @@ app.get('/api/admin/stats', async (req, res, next) => {
     // error), but we double-wrap here so a missing analytics_events table can
     // never 500 the whole admin dashboard.
     try {
-      stats.analytics = await analyticsStats();
+      stats.analytics = await analyticsStats(days);
     } catch (e) {
       stats.analytics = {
         funnel: [
@@ -997,8 +1005,77 @@ app.get('/api/admin/stats', async (req, res, next) => {
       };
     }
 
+    // --- Registered-player geography (derived from signup IP) ---------------
+    // Where our ACCOUNTS are from (vs. the analytics block which is visitor
+    // traffic). Self-reported `region` free-text is surfaced separately.
+    try {
+      const cRows = await store.all("SELECT geo_country AS c, COUNT(*) AS n FROM users WHERE geo_country IS NOT NULL AND geo_country <> '' GROUP BY geo_country ORDER BY n DESC LIMIT 20");
+      const sRows = await store.all("SELECT geo_region AS r, COUNT(*) AS n FROM users WHERE geo_country = 'US' AND geo_region IS NOT NULL AND geo_region <> '' GROUP BY geo_region ORDER BY n DESC LIMIT 20");
+      stats.userGeo = {
+        topCountries: (cRows || []).map(r => ({ country: String(r.c), users: Number(r.n) || 0 })),
+        topStates: (sRows || []).map(r => ({ region: String(r.r), users: Number(r.n) || 0 })),
+        located: await n("SELECT COUNT(*) AS n FROM users WHERE geo_country IS NOT NULL AND geo_country <> ''"),
+      };
+    } catch (e) { stats.userGeo = { topCountries: [], topStates: [], located: 0 }; }
+
+    // --- Self-reported region (free-text at signup) -------------------------
+    try {
+      const rRows = await store.all("SELECT region AS r, COUNT(*) AS n FROM users WHERE region IS NOT NULL AND region <> '' GROUP BY region ORDER BY n DESC LIMIT 15");
+      stats.regions = (rRows || []).map(r => ({ region: String(r.r), users: Number(r.n) || 0 }));
+    } catch (e) { stats.regions = []; }
+
+    // --- Game-type split (chess vs checkers, + checkers board sizes) --------
+    try {
+      stats.gameTypes = {
+        chess:      await n("SELECT COUNT(*) AS n FROM games WHERE game_type = 'chess' OR game_type IS NULL OR game_type = ''"),
+        checkers:   await n("SELECT COUNT(*) AS n FROM games WHERE game_type = 'checkers'"),
+        checkers8:  await n("SELECT COUNT(*) AS n FROM games WHERE game_type = 'checkers' AND variant = '8'"),
+        checkers10: await n("SELECT COUNT(*) AS n FROM games WHERE game_type = 'checkers' AND variant = '10'"),
+      };
+    } catch (e) { stats.gameTypes = { chess: 0, checkers: 0, checkers8: 0, checkers10: 0 }; }
+
+    // --- Games by UTC hour (when do people play?) over the window -----------
+    try {
+      const rows = await store.all('SELECT created_at FROM games WHERE created_at > ?', [now - days * DAY]);
+      const hours = new Array(24).fill(0);
+      for (const r of (rows || [])) { const h = new Date(Number(r.created_at)).getUTCHours(); if (h >= 0 && h < 24) hours[h]++; }
+      stats.gamesByHour = hours;
+    } catch (e) { stats.gamesByHour = new Array(24).fill(0); }
+
+    stats.windowDays = days;
     res.json(stats);
   } catch (e) { next(e); }
+});
+
+// Raw-data CSV export (ADMIN_KEY-gated) for offline analysis in a spreadsheet / BI
+// tool. type = events | users | games. Bounded row cap; no raw IPs or PGNs.
+app.get('/api/admin/export', async (req, res, next) => {
+  try {
+    const provided = req.get('x-admin-key') || req.query.key || '';
+    if (!process.env.ADMIN_KEY || provided !== process.env.ADMIN_KEY) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const type = String(req.query.type || 'events');
+    const days = Math.max(1, Math.min(3650, parseInt(req.query.days, 10) || 90));
+    const cutMs = Date.now() - days * 86400000;
+    const cutDay = new Date(cutMs).toISOString().slice(0, 10);
+    const esc = (v) => { const s = (v == null) ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    let cols, rows;
+    if (type === 'users') {
+      cols = ['id', 'username', 'region', 'geo_country', 'geo_region', 'elo', 'wins', 'losses', 'draws', 'is_premium', 'email_verified', 'created_at', 'last_seen'];
+      rows = await store.all(`SELECT ${cols.join(', ')} FROM users ORDER BY created_at DESC LIMIT 100000`);
+    } else if (type === 'games') {
+      cols = ['id', 'mode', 'game_type', 'variant', 'result', 'white_elo_before', 'black_elo_before', 'white_elo_delta', 'black_elo_delta', 'created_at', 'ended_at'];
+      rows = await store.all(`SELECT ${cols.join(', ')} FROM games WHERE created_at > ? ORDER BY created_at DESC LIMIT 100000`, [cutMs]);
+    } else { // events
+      cols = ['id', 'name', 'visitor_id', 'user_id', 'country', 'region', 'day_key', 'created_at'];
+      rows = await store.all(`SELECT ${cols.join(', ')} FROM analytics_events WHERE day_key >= ? ORDER BY id DESC LIMIT 200000`, [cutDay]);
+    }
+    const body = (rows || []).map(r => cols.map(c => esc(r[c])).join(',')).join('\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="ct-${type}-${cutDay}.csv"`);
+    res.send(cols.join(',') + '\n' + body + '\n');
+  } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 
 // Build a dense [{date:'YYYY-MM-DD', count}] series of row creations per UTC day

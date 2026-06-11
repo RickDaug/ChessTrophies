@@ -59,6 +59,15 @@
   button.ghost { background:transparent; color:var(--muted); border:1px solid var(--border); font-weight:600; }
   button.ghost:hover { color:var(--text); border-color:var(--border2); }
   button.ghost.on { color:var(--green); border-color:rgba(84,224,154,.5); background:rgba(84,224,154,.08); }
+  /* Date-range presets */
+  .rangewrap { display:inline-flex; background:var(--panel2,#0e1626); border:1px solid var(--border); border-radius:9px; padding:2px; gap:2px; }
+  .rbtn { background:transparent; border:none; color:var(--muted); font-weight:700; font-size:12px; padding:6px 11px; border-radius:7px; cursor:pointer; }
+  .rbtn:hover { color:var(--text); }
+  .rbtn.active { background:var(--accent); color:#10131c; }
+  .expbtns { display:flex; gap:8px; flex-wrap:wrap; }
+  .flag { font-size:15px; line-height:1; }
+  /* Subtle table striping for scannability */
+  .stand tbody tr:nth-child(even) td { background:rgba(255,255,255,.018); }
   .upd { color:var(--faint); font-size:12px; display:flex; flex-direction:column; line-height:1.5; }
   .upd b { color:var(--muted); font-weight:600; }
   .dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--green); margin-right:6px; box-shadow:0 0 8px rgba(84,224,154,.8); vertical-align:middle; }
@@ -247,6 +256,12 @@
     <div class="spacer"></div>
     <div class="controls" id="topControls" style="display:none;">
       <input id="key" class="key" type="password" placeholder="Admin key" autocomplete="off">
+      <div class="rangewrap" id="rangeWrap">
+        <button class="rbtn" data-days="7">7d</button>
+        <button class="rbtn active" data-days="30">30d</button>
+        <button class="rbtn" data-days="90">90d</button>
+        <button class="rbtn" data-days="365">1y</button>
+      </div>
       <button id="refresh">↻ Refresh</button>
       <button id="auto" class="ghost">⏱ Auto: off</button>
       <div class="upd" id="upd"></div>
@@ -334,6 +349,68 @@
           </div>
         </div>
         <div id="dailyChart"></div>
+      </div>
+    </div>
+
+    <!-- Geography (derived from IP at ingest; the raw IP is never stored) -->
+    <div class="sec-head">
+      <h2>🌍 Geography</h2>
+      <div class="line"></div>
+    </div>
+    <div class="row2 c2">
+      <div class="panel">
+        <h3>🌐 Visitors by country</h3>
+        <p class="h3sub" id="geoCountriesSub">Distinct visitors · derived from IP</p>
+        <div id="geoCountries"></div>
+      </div>
+      <div class="panel">
+        <h3>🇺🇸 Visitors by US state</h3>
+        <p class="h3sub">Distinct US visitors</p>
+        <div id="geoStates"></div>
+      </div>
+    </div>
+    <div class="row2 c2">
+      <div class="panel">
+        <h3>👤 Registered players by country</h3>
+        <p class="h3sub" id="userGeoSub">Accounts · by signup location</p>
+        <div id="userGeoCountries"></div>
+      </div>
+      <div class="panel">
+        <h3>🗺️ Registered players by US state</h3>
+        <p class="h3sub">US accounts</p>
+        <div id="userGeoStates"></div>
+      </div>
+    </div>
+
+    <!-- Game mix + activity hours + raw export -->
+    <div class="sec-head">
+      <h2>🎮 Game mix &amp; raw data</h2>
+      <div class="line"></div>
+    </div>
+    <div class="row2 c2">
+      <div class="panel">
+        <h3>♟ Game mix</h3>
+        <p class="h3sub">Chess vs checkers (human games)</p>
+        <div id="gameTypes"></div>
+      </div>
+      <div class="panel">
+        <div class="hrow">
+          <div><h3>🕑 Activity by hour</h3><p class="h3sub" id="hoursSub">Games started · by UTC hour</p></div>
+          <div class="legend"><span><i style="background:var(--teal)"></i> Games</span></div>
+        </div>
+        <div id="gamesByHour"></div>
+      </div>
+    </div>
+    <div class="row2">
+      <div class="panel">
+        <div class="hrow">
+          <div><h3>⬇ Raw data export</h3><p class="h3sub">Download CSV for spreadsheet / BI analysis (no IPs, no PGNs)</p></div>
+          <div class="expbtns">
+            <button class="ghost" data-export="events">Events CSV</button>
+            <button class="ghost" data-export="users">Users CSV</button>
+            <button class="ghost" data-export="games">Games CSV</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -513,9 +590,11 @@
     if (fromUrl) { try { localStorage.setItem(KEY_STORE, fromUrl); } catch (e) {} }
   })();
 
+  var currentDays = 30; // rolling window for windowed blocks; set by the range buttons
   function getKey() { return (keyEl.value || '').trim(); }
   function headers() { return { 'x-admin-key': getKey() }; }
-  function statsUrl() { return '/api/admin/stats?key=' + encodeURIComponent(getKey()); }
+  function statsUrl() { return '/api/admin/stats?key=' + encodeURIComponent(getKey()) + '&days=' + currentDays; }
+  function exportUrl(type) { return '/api/admin/export?type=' + encodeURIComponent(type) + '&days=' + currentDays + '&key=' + encodeURIComponent(getKey()); }
   function usersUrl(params) { return '/api/admin/users?' + params.toString() + '&key=' + encodeURIComponent(getKey()); }
 
   // ----- formatters -----
@@ -1240,11 +1319,71 @@
   // ===================================================================
   //  STATS FETCH
   // ===================================================================
+  // ----- Geography + game-mix renderers -----
+  // ISO-2 country code -> flag emoji (regional indicator pair). Falls back to a
+  // white flag for unknown/invalid codes.
+  function flagOf(cc) {
+    try {
+      cc = String(cc || '').toUpperCase();
+      if (!/^[A-Z]{2}$/.test(cc)) return '🏳️';
+      return cc.replace(/./g, function (c) { return String.fromCodePoint(127397 + c.charCodeAt(0)); });
+    } catch (e) { return '🏳️'; }
+  }
+  // Horizontal ranked-bar list (reuses the .shares-row styling). getLabel may
+  // return HTML; getVal returns the numeric value.
+  function rankBars(host, items, getLabel, getVal, emptyMsg) {
+    if (!host) return;
+    var arr = (items || []).slice().filter(function (x) { return getVal(x) > 0; });
+    if (!arr.length) { host.innerHTML = '<div class="chart-empty">' + esc(emptyMsg || 'No data yet') + '</div>'; return; }
+    arr.sort(function (a, b) { return getVal(b) - getVal(a); });
+    var max = getVal(arr[0]) || 1;
+    host.innerHTML = arr.slice(0, 12).map(function (x, i) {
+      var v = getVal(x); var pct = max > 0 ? Math.round(v / max * 100) : 0;
+      return '<div class="shares-row' + (i === 0 ? ' top' : '') + '">' +
+        '<span class="pf">' + getLabel(x) + '</span>' +
+        '<span class="barfill"><i style="width:' + pct + '%"></i></span>' +
+        '<span class="cnt">' + v.toLocaleString() + '</span></div>';
+    }).join('');
+  }
+  function renderGeo(s) {
+    var a = (s && s.analytics && s.analytics.geo) || {};
+    var win = (s && s.windowDays) || currentDays;
+    var sub = $('geoCountriesSub');
+    if (sub) sub.textContent = 'Distinct visitors · last ' + win + ' days · ' + ((a.located || 0).toLocaleString()) + ' located';
+    rankBars($('geoCountries'), a.topCountries, function (x) { return '<span class="flag">' + flagOf(x.country) + '</span> ' + esc(x.country); }, function (x) { return x.visitors || 0; }, 'No located visitors yet');
+    rankBars($('geoStates'), a.topStates, function (x) { return esc(x.region); }, function (x) { return x.visitors || 0; }, 'No US visitors yet');
+    var u = (s && s.userGeo) || {};
+    var usub = $('userGeoSub');
+    if (usub) usub.textContent = 'Accounts · ' + ((u.located || 0).toLocaleString()) + ' with a known location';
+    rankBars($('userGeoCountries'), u.topCountries, function (x) { return '<span class="flag">' + flagOf(x.country) + '</span> ' + esc(x.country); }, function (x) { return x.users || 0; }, 'No located players yet');
+    rankBars($('userGeoStates'), u.topStates, function (x) { return esc(x.region); }, function (x) { return x.users || 0; }, 'No US players yet');
+  }
+  function renderGameTypes(s) {
+    var g = (s && s.gameTypes) || { chess: 0, checkers8: 0, checkers10: 0 };
+    var items = [
+      { label: '♟ Chess', value: g.chess || 0 },
+      { label: '⛀ Checkers 8×8', value: g.checkers8 || 0 },
+      { label: '⛁ Checkers 10×10', value: g.checkers10 || 0 }
+    ];
+    rankBars($('gameTypes'), items, function (x) { return x.label; }, function (x) { return x.value; }, 'No human games yet');
+  }
+  function renderGamesByHour(s) {
+    var h = (s && s.gamesByHour) || [];
+    var data = [];
+    for (var i = 0; i < 24; i++) data.push({ label: (i < 10 ? '0' : '') + i, value: Number(h[i]) || 0 });
+    barChart($('gamesByHour'), data, {});
+    var sub = $('hoursSub');
+    if (sub) sub.textContent = 'Games started · by UTC hour · last ' + ((s && s.windowDays) || currentDays) + ' days';
+  }
+
   function renderAll(s) {
     lastStats = s || {};
     renderKpis(lastStats);
     renderToday(lastStats);
     renderFunnel(lastStats);
+    renderGeo(lastStats);
+    renderGameTypes(lastStats);
+    renderGamesByHour(lastStats);
     renderDailyActivity(lastStats);
     renderTopEvents(lastStats);
     renderSources(lastStats);
@@ -1394,6 +1533,27 @@
   autoBtn.addEventListener('click', function () {
     if (timer) { clearInterval(timer); timer = null; autoBtn.textContent = '⏱ Auto: off'; autoBtn.classList.remove('on'); }
     else { timer = setInterval(loadAll, 30000); autoBtn.textContent = '⏱ Auto: 30s'; autoBtn.classList.add('on'); loadAll(); }
+  });
+
+  // Date-range presets: re-fetch the windowed stats with the chosen day count.
+  (function () {
+    var wrap = $('rangeWrap');
+    if (!wrap) return;
+    wrap.addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('.rbtn[data-days]') : null;
+      if (!b) return;
+      currentDays = parseInt(b.getAttribute('data-days'), 10) || 30;
+      var all = wrap.querySelectorAll('.rbtn');
+      for (var i = 0; i < all.length; i++) all[i].classList.toggle('active', all[i] === b);
+      loadStats();
+    });
+  })();
+  // Raw-data CSV export buttons → trigger a download (key passed in the URL).
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('[data-export]') : null;
+    if (!b) return;
+    if (!getKey()) { return; }
+    window.location.href = exportUrl(b.getAttribute('data-export'));
   });
 
   $('usersRefresh').addEventListener('click', loadUsers);

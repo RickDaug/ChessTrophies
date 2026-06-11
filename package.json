@@ -18,6 +18,7 @@
     "test:session": "node test/session.mjs",
     "test:streak": "node test/streak.mjs",
     "test:admin": "node test/admin.mjs",
+    "test:admin-geo": "node test/admin-geo.mjs",
     "test:billing": "node test/billing.mjs",
     "test:store": "node test/store.mjs",
     "test:ranked-flag": "node test/ranked-flag.mjs",

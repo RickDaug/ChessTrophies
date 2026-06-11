@@ -31,7 +31,7 @@ function normalizeString(value, field, { min = 1, max = 255 } = {}) {
   return trimmed;
 }
 
-export async function signup({ email, username, password, region, invitedBy }) {
+export async function signup({ email, username, password, region, invitedBy, geo }) {
   const lowEmail = normalizeString(email, 'email', { min: 3, max: 254 }).toLowerCase();
   const safeUsername = normalizeString(username, 'username', { min: 3, max: 20 });
   const safePassword = normalizeString(password, 'password', { min: 6, max: 128 });
@@ -43,6 +43,11 @@ export async function signup({ email, username, password, region, invitedBy }) {
   const pw_hash = await bcrypt.hash(safePassword, 12);
   const id = 'u_' + crypto.randomBytes(8).toString('hex');
   await store.createUser({ id, email: lowEmail, username: safeUsername, region: safeRegion, pw_hash, invited_by: safeInvitedBy });
+  // Store derived signup geo (country + region/state code) if available. Best-
+  // effort: a geo failure must never block account creation.
+  if (geo && (geo.country || geo.region)) {
+    try { await store.run('UPDATE users SET geo_country = ?, geo_region = ? WHERE id = ?', [geo.country || '', geo.region || '', id]); } catch (e) {}
+  }
   if (safeInvitedBy && (await store.getUserById(safeInvitedBy))) {
     await store.run('UPDATE users SET invites_accepted = invites_accepted + 1 WHERE id = ?', [safeInvitedBy]);
   }
