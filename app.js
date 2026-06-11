@@ -15,146 +15,88 @@
     // Premium themed Store set override: if a set is equipped and provides this
     // piece, use its themed SVG. Falls through to the built-in Staunton below.
     try { var _themed = (window.CT_Sets && window.CT_Sets.pieceSVG) ? window.CT_Sets.pieceSVG(type, color) : null; if (_themed) return _themed; } catch (e) {}
-    const theme = (window.CT_PIECE_THEME) || { lightFill:'#f6f3eb', lightStroke:'#262d44', lightAccent:'#3b425a', darkFill:'#1a2236', darkStroke:'#e9ecf5', darkAccent:'#cdd3e6' };
-    const fill   = color === 'w' ? theme.lightFill   : theme.darkFill;
-    const stroke = color === 'w' ? theme.lightStroke : theme.darkStroke;
-    const accent = color === 'w' ? theme.lightAccent : theme.darkAccent;
-    // Subtle highlight color for 3D-ish effect
-    const hi = color === 'w' ? '#ffffff' : (theme.darkAccent || '#9aa3c1');
-    const sh = color === 'w' ? '#d8d1bf' : '#0c121e'; // shadow
+    // Default "Classic" Staunton palette (warm ivory / charcoal). A theme override
+    // via window.CT_PIECE_THEME still wins; the piece geometry below is shared.
+    const theme = (window.CT_PIECE_THEME) || { lightFill:'#f4eee2', lightStroke:'#3b3733', lightAccent:'#c8a44d', darkFill:'#33373e', darkStroke:'#cdd3e0', darkAccent:'#c8a44d' };
+    const f  = color === 'w' ? theme.lightFill   : theme.darkFill;
+    const s  = color === 'w' ? theme.lightStroke : theme.darkStroke;
+    const a  = color === 'w' ? theme.lightAccent : theme.darkAccent;
+    const hi = color === 'w' ? '#ffffff' : '#697080'; // upper highlight
+    const sh = color === 'w' ? '#cdbfa6' : '#14171d'; // engraved-line shade
 
-    const svgOpen = `<svg viewBox="0 0 45 45" xmlns="http://www.w3.org/2000/svg">`;
-    const svgClose = '</svg>';
-    const main = (paths) => `<g fill="${fill}" stroke="${stroke}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round">${paths}</g>`;
+    const open = '<svg viewBox="0 0 45 45" xmlns="http://www.w3.org/2000/svg">';
+    const close = '</svg>';
+    // Turned Staunton base: a soft contact shadow, a flared base, and a foot ring.
+    // Shared by every piece so the whole set sits on a consistent pedestal.
+    const base = `
+      <ellipse cx="22.5" cy="42" rx="13.5" ry="2.4" fill="rgba(0,0,0,.22)" stroke="none"/>
+      <path d="M11 41.2 C 11 37.6 13.6 35.8 16.2 35.4 L 28.8 35.4 C 31.4 35.8 34 37.6 34 41.2 Z" fill="${f}" stroke="${s}" stroke-width="1.4" stroke-linejoin="round"/>
+      <rect x="9.4" y="39.8" width="26.2" height="3.4" rx="1.7" fill="${f}" stroke="${s}" stroke-width="1.4"/>`;
+    const G = (inner, sw) => `<g fill="${f}" stroke="${s}" stroke-width="${sw || 1.5}" stroke-linejoin="round" stroke-linecap="round">${inner}</g>`;
 
-    // Common base for most pieces: 3-tier stand
-    const baseStand = `
-      <path d="M11.5 35.5 L33.5 35.5 L33.5 37.5 L11.5 37.5 Z" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>
-      <path d="M9 38 L36 38 L36 40 L9 40 Z" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>
-      <path d="M7 40.5 L38 40.5 L38 43 L7 43 Z" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>
-    `;
-
+    let body = '';
     switch (type) {
-      case 'p': // PAWN — Staunton-style sphere head on tapered body
-        return svgOpen + `
-          <g stroke="${stroke}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" fill="${fill}">
-            <!-- Head sphere -->
-            <circle cx="22.5" cy="12" r="5.5"/>
-            <!-- Neck collar -->
-            <path d="M18.5 17 Q18 18 17.5 19 L27.5 19 Q27 18 26.5 17 Z"/>
-            <!-- Body vase shape -->
-            <path d="M17 20 C 15.5 24, 14 28, 13.5 33 L 31.5 33 C 31 28, 29.5 24, 28 20 Z"/>
-            <!-- Collar ring -->
-            <ellipse cx="22.5" cy="33.2" rx="9.5" ry="1.4"/>
-          </g>
-          ${baseStand}
-        ` + svgClose;
-
-      case 'r': // ROOK — Crenellated tower with classic banding
-        return svgOpen + `
-          <g stroke="${stroke}" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" fill="${fill}">
-            <!-- Crenellations (battlements) -->
-            <path d="M9 11 L9 14 L12 14 L12 12 L15.5 12 L15.5 14 L18.5 14 L18.5 12 L22 12 L22 14 L23 14 L23 12 L26.5 12 L26.5 14 L29.5 14 L29.5 12 L33 12 L33 14 L36 14 L36 11 Z"/>
-            <!-- Upper tower section -->
-            <path d="M11 14.5 L34 14.5 L34 17.5 L11 17.5 Z"/>
-            <!-- Body (slightly tapered) -->
-            <path d="M12.5 18 L32.5 18 L31 31 L14 31 Z"/>
-            <!-- Decorative middle band -->
-            <path d="M12 24 L33 24 L33 26 L12 26 Z" fill="${accent}" opacity="0.3"/>
-            <!-- Lower platform -->
-            <path d="M11 31.5 L34 31.5 L34 34.5 L11 34.5 Z"/>
-          </g>
-          ${baseStand}
-        ` + svgClose;
-
-      case 'n': // KNIGHT — Stylized horse head with eye and mane
-        return svgOpen + `
-          <g stroke="${stroke}" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" fill="${fill}">
-            <!-- Main horse-head silhouette -->
-            <path d="M22 9
-                     C 25 9, 28 10, 30 12
-                     C 33 15, 34 19, 33.5 23
-                     C 33 26, 32 29, 31 32
-                     L 32 35 L 13 35 L 14 32
-                     C 12 29, 11.5 26, 12.5 24
-                     C 13 22.5, 14 21.5, 15 21
-                     L 13 19
-                     C 12 17, 13 14, 15 13
-                     L 19 11
-                     C 20 9.5, 21 9, 22 9 Z"/>
-            <!-- Mane -->
-            <path d="M22 11 C 24 11, 26 12, 27 14 L 25 18 L 22 16 L 20 17 L 18 14 C 19 12, 20 11, 22 11 Z" fill="${stroke}" opacity="0.25" stroke="none"/>
-            <!-- Forelock notch -->
-            <path d="M14 14 L 16 13 L 17.5 15 L 16 17 Z" fill="${fill}" stroke="${stroke}" stroke-width="1.2"/>
-            <!-- Eye -->
-            <circle cx="20" cy="17.5" r="1.2" fill="${stroke}" stroke="none"/>
-            <circle cx="19.7" cy="17.3" r="0.35" fill="${hi}" stroke="none"/>
-            <!-- Nostril -->
-            <ellipse cx="14.5" cy="20" rx="0.7" ry="0.5" fill="${stroke}" stroke="none"/>
-          </g>
-          ${baseStand}
-        ` + svgClose;
-
-      case 'b': // BISHOP — Pointed mitre with cross slit, bulbous middle
-        return svgOpen + `
-          <g stroke="${stroke}" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" fill="${fill}">
-            <!-- Pointed mitre top (with tip) -->
-            <circle cx="22.5" cy="8" r="2.2"/>
-            <!-- Mitre body (pointed cone) -->
-            <path d="M19.5 10 C 17 14, 14 19, 14 24 C 14 27, 16 29, 18 30 L 27 30 C 29 29, 31 27, 31 24 C 31 19, 28 14, 25.5 10 Z"/>
-            <!-- Cross slit on mitre -->
-            <path d="M22.5 13 L 22.5 18 M 20 15.5 L 25 15.5" stroke="${stroke}" stroke-width="1.6" stroke-linecap="round" fill="none"/>
-            <!-- Collar -->
-            <ellipse cx="22.5" cy="30.5" rx="9" ry="1.5"/>
-            <!-- Below-collar section -->
-            <path d="M14 31 L 31 31 L 30 33.5 L 15 33.5 Z"/>
-          </g>
-          ${baseStand}
-        ` + svgClose;
-
-      case 'q': // QUEEN — 5-point crown with pearls and bulbous body
-        return svgOpen + `
-          <g stroke="${stroke}" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" fill="${fill}">
-            <!-- Crown pearls (5 orbs) -->
-            <circle cx="8" cy="11" r="1.8"/>
-            <circle cx="14.5" cy="8" r="1.8"/>
-            <circle cx="22.5" cy="6.5" r="2"/>
-            <circle cx="30.5" cy="8" r="1.8"/>
-            <circle cx="37" cy="11" r="1.8"/>
-            <!-- Crown spikes connecting orbs to body -->
-            <path d="M 9 13 L 13 21 L 16 11 L 20 22 L 22.5 9 L 25 22 L 29 11 L 32 21 L 36 13 L 35 27 L 10 27 Z"/>
-            <!-- Decorative band -->
-            <path d="M11 26 L 34 26 L 34 28 L 11 28 Z" fill="${accent}" opacity="0.25"/>
-            <!-- Body curve -->
-            <path d="M11 28.5 L 34 28.5 L 33 32 L 12 32 Z"/>
-            <!-- Collar ring -->
-            <ellipse cx="22.5" cy="32.3" rx="11" ry="1.3"/>
-          </g>
-          ${baseStand}
-        ` + svgClose;
-
-      case 'k': // KING — Crown with cross and royal body
-        return svgOpen + `
-          <g stroke="${stroke}" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" fill="${fill}">
-            <!-- Cross on top -->
-            <path d="M22.5 4 L 22.5 11 M 19 7 L 26 7" stroke="${stroke}" stroke-width="2.4" stroke-linecap="round" fill="none"/>
-            <!-- Crown band -->
-            <path d="M15 12 L 18 12 L 18 14 L 27 14 L 27 12 L 30 12 L 30 17 L 15 17 Z"/>
-            <!-- Crown jewel (center) -->
-            <circle cx="22.5" cy="14.5" r="1.4" fill="${accent}" stroke="${stroke}" stroke-width="0.8"/>
-            <!-- Body -->
-            <path d="M12 17.5 C 13 22, 13 26, 14 30 L 31 30 C 32 26, 32 22, 33 17.5 Z"/>
-            <!-- Decorative middle band -->
-            <path d="M13 23 L 32 23 L 32 25 L 13 25 Z" fill="${accent}" opacity="0.3"/>
-            <!-- Collar ring -->
-            <ellipse cx="22.5" cy="30.3" rx="10.5" ry="1.4"/>
-            <!-- Below collar -->
-            <path d="M13 31 L 32 31 L 31 33.5 L 14 33.5 Z"/>
-          </g>
-          ${baseStand}
-        ` + svgClose;
+      case 'p': // PAWN — spherical head, flared body
+        body = G(`
+          <circle cx="22.5" cy="11.2" r="4.7"/>
+          <path d="M18.4 15.6 C 19.8 17.4 25.2 17.4 26.6 15.6 L 25.4 19.4 L 19.6 19.4 Z"/>
+          <path d="M19.4 19.4 C 16.6 24 15.4 30 15.2 34.6 L 29.8 34.6 C 29.6 30 28.4 24 25.6 19.4 Z"/>
+        `) + `<ellipse cx="20.6" cy="9.6" rx="1.5" ry="2" fill="${hi}" opacity=".4" stroke="none"/>`;
+        break;
+      case 'r': // ROOK — crenellated tower
+        body = G(`
+          <path d="M11 9.5 L11 13 L14.5 13 L14.5 10.8 L18.8 10.8 L18.8 13 L26.2 13 L26.2 10.8 L30.5 10.8 L30.5 13 L34 13 L34 9.5 Z"/>
+          <path d="M13 13.5 L32 13.5 L32 16.5 L13 16.5 Z"/>
+          <path d="M14 17 C 14 24 13 29 12.5 33.5 L 32.5 33.5 C 32 29 31 24 31 17 Z"/>
+          <path d="M12.8 33.8 L32.2 33.8 L32.2 35.4 L12.8 35.4 Z"/>
+        `) + `<path d="M14 22 L31 22" stroke="${sh}" stroke-width="1" opacity=".5" fill="none"/>
+              <ellipse cx="18" cy="20" rx="1.4" ry="6" fill="${hi}" opacity=".22" stroke="none"/>`;
+        break;
+      case 'n': // KNIGHT — horse-head profile (muzzle, ears, mane, eye)
+        body = G(`
+          <path d="M13 20.2 C 12.4 18.5 13.4 16.9 15 16.3 L 16.6 15.4 C 17.6 12.9 19.2 10.9 21.6 10 C 23.1 9.5 24.2 10 24.7 11.6 L 27.2 11 L 29.8 13 L 28.6 14.6 L 31.7 14 C 33.2 16.6 34 20 33.1 24 C 32.5 27.6 31.6 31.1 31.6 34.6 L 14 34.6 C 14 31 15.6 28.4 18.1 26.9 C 20.1 25.7 21.1 24.4 20.6 22.6 C 18.6 24.1 16 24.6 14.5 23.6 C 13 22.6 12.8 21.4 13 20.2 Z"/>
+        `) + `
+          <circle cx="20.2" cy="16.6" r="1.2" fill="${s}" stroke="none"/>
+          <circle cx="19.85" cy="16.3" r="0.38" fill="${hi}" stroke="none"/>
+          <path d="M13.2 19.6 L 15.4 19" stroke="${s}" stroke-width="1" stroke-linecap="round" fill="none"/>
+          <circle cx="13.5" cy="21.2" r="0.45" fill="${s}" stroke="none"/>
+          <path d="M27 14 C 29 16.2 30 19.4 29.6 23 C 29.3 26 28.7 29 28.7 32" stroke="${sh}" stroke-width="1" opacity=".45" fill="none"/>`;
+        break;
+      case 'b': // BISHOP — mitre with cross slit
+        body = G(`
+          <circle cx="22.5" cy="8" r="2.3"/>
+          <path d="M19 10.5 C 16 15 14 20 14 24.5 C 14 27.5 16.5 29.8 18.5 30.5 L 26.5 30.5 C 28.5 29.8 31 27.5 31 24.5 C 31 20 29 15 26 10.5 Z"/>
+          <path d="M14 31 L 31 31 L 30 34 L 15 34 Z"/>
+        `) + `
+          <path d="M22.5 13.5 L 22.5 19 M 19.8 16 L 25.2 16" stroke="${s}" stroke-width="1.6" stroke-linecap="round" fill="none"/>
+          <ellipse cx="19.5" cy="20" rx="1.6" ry="5.5" fill="${hi}" opacity=".25" stroke="none"/>`;
+        break;
+      case 'q': // QUEEN — 5 pearls over a spiked crown
+        body = G(`
+          <path d="M7.5 12.5 L 11.5 24 L 14.5 11 L 18.5 24.5 L 22.5 9.5 L 26.5 24.5 L 30.5 11 L 33.5 24 L 37.5 12.5 L 35.5 31 L 9.5 31 Z"/>
+          <path d="M10 31.5 L 35 31.5 L 33.5 35 L 11.5 35 Z"/>
+        `) + `
+          <circle cx="7.5" cy="11" r="2.2" fill="${f}" stroke="${s}" stroke-width="1.4"/>
+          <circle cx="14.5" cy="9" r="2.2" fill="${f}" stroke="${s}" stroke-width="1.4"/>
+          <circle cx="22.5" cy="7.5" r="2.4" fill="${f}" stroke="${s}" stroke-width="1.4"/>
+          <circle cx="30.5" cy="9" r="2.2" fill="${f}" stroke="${s}" stroke-width="1.4"/>
+          <circle cx="37.5" cy="11" r="2.2" fill="${f}" stroke="${s}" stroke-width="1.4"/>
+          <path d="M11 28 L 34 28" stroke="${a}" stroke-width="1.6" opacity=".5" fill="none"/>`;
+        break;
+      case 'k': // KING — crown band, cross, jewel
+        body = `
+          <path d="M22.5 4 L 22.5 11 M 19.2 7 L 25.8 7" stroke="${s}" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+          ${G(`
+            <path d="M14.5 12.5 L 17.5 12.5 L 17.5 14.5 L 27.5 14.5 L 27.5 12.5 L 30.5 12.5 L 30.5 18 L 14.5 18 Z"/>
+            <path d="M12.5 18.5 C 13 24 13 29 13.5 34 L 31.5 34 C 32 29 32 24 32.5 18.5 Z"/>
+            <path d="M13.3 34.3 L 31.7 34.3 L 31.7 35.4 L 13.3 35.4 Z"/>
+          `)}
+          <circle cx="22.5" cy="15.4" r="1.5" fill="${a}" stroke="${s}" stroke-width="0.8"/>
+          <path d="M13.5 24 L 31.5 24" stroke="${a}" stroke-width="1.6" opacity=".5" fill="none"/>
+          <ellipse cx="17.5" cy="22" rx="1.6" ry="6" fill="${hi}" opacity=".2" stroke="none"/>`;
+        break;
     }
-    return '';
+    return body ? (open + body + base + close) : '';
   }
 
   // ---------------------------------------------------------------------------
