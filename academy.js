@@ -13,17 +13,18 @@
 
   // -------------------- THEMES --------------------
   const BOARD_THEMES = {
-    forest:    { light: '#eedfc6', dark: '#6e8c6b', label: 'Forest' },
-    ocean:     { light: '#dde7ef', dark: '#4a6c8a', label: 'Ocean' },
-    wood:      { light: '#e8c89c', dark: '#a26136', label: 'Wood' },
-    rose:      { light: '#f1d7d2', dark: '#a87080', label: 'Rose' },
-    midnight:  { light: '#3a4565', dark: '#1a2236', label: 'Midnight' },
-    coral:     { light: '#fde3c6', dark: '#cd6155', label: 'Coral' },
-    mint:      { light: '#e6f1e7', dark: '#6db58a', label: 'Mint' },
-    slate:     { light: '#cfd6df', dark: '#5b6477', label: 'Slate' },
+    walnut:     { light: '#e8d2a8', dark: '#9c6b43', label: 'Walnut' },
+    forest:     { light: '#eedfc6', dark: '#6e8c6b', label: 'Forest' },
+    tournament: { light: '#edd6b0', dark: '#b07b4f', label: 'Tournament' },
+    ocean:      { light: '#dde7ef', dark: '#4a6c8a', label: 'Ocean' },
+    slate:      { light: '#dde3ea', dark: '#7d93ac', label: 'Slate' },
+    midnight:   { light: '#3a4565', dark: '#1a2236', label: 'Midnight' },
+    mint:       { light: '#e6f1e7', dark: '#6db58a', label: 'Mint' },
+    rose:       { light: '#f1d7d2', dark: '#a87080', label: 'Rose' },
+    coral:      { light: '#fde3c6', dark: '#cd6155', label: 'Coral' },
   };
   const PIECE_THEMES = {
-    classic: { lightFill:'#f6f3eb', lightStroke:'#262d44', lightAccent:'#3b425a', darkFill:'#1a2236', darkStroke:'#e9ecf5', darkAccent:'#cdd3e6', label:'Classic' },
+    classic: { lightFill:'#f4eee2', lightStroke:'#3b3733', lightAccent:'#c8a44d', darkFill:'#33373e', darkStroke:'#cdd3e0', darkAccent:'#c8a44d', label:'Classic' },
     bold:    { lightFill:'#ffffff', lightStroke:'#0a0d18', lightAccent:'#1a2236', darkFill:'#0d111c', darkStroke:'#ffffff', darkAccent:'#e1e5f2', label:'Bold' },
     royal:   { lightFill:'#fef3c7', lightStroke:'#5b21b6', lightAccent:'#7c3aed', darkFill:'#5b21b6', darkStroke:'#fef3c7', darkAccent:'#fcd34d', label:'Royal' },
     sunset:  { lightFill:'#fff7ed', lightStroke:'#9a3412', lightAccent:'#c2410c', darkFill:'#7c2d12', darkStroke:'#fed7aa', darkAccent:'#fb923c', label:'Sunset' },
@@ -31,7 +32,7 @@
   };
 
   function applyThemes(boardKey, piecesKey) {
-    const b = BOARD_THEMES[boardKey] || BOARD_THEMES.forest;
+    const b = BOARD_THEMES[boardKey] || BOARD_THEMES.walnut;
     const p = PIECE_THEMES[piecesKey] || PIECE_THEMES.classic;
     document.documentElement.style.setProperty('--light-sq', b.light);
     document.documentElement.style.setProperty('--dark-sq', b.dark);
@@ -843,7 +844,7 @@
   function init() {
     const tryStart = () => {
       const u = CT.user;
-      if (u) applyThemes(u.themeBoard || 'forest', u.themePieces || 'classic');
+      if (u) applyThemes(u.themeBoard || 'walnut', u.themePieces || 'classic');
     };
     tryStart();
 
