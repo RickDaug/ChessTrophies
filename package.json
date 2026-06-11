@@ -4,7 +4,8 @@
   "description": "A modern, mobile-friendly chess platform with player profiles, skill-based matchmaking, a chess AI for practice, ELO rankings, and a trophy system that records the names of every opponent you defeat during a winning streak.",
   "main": "academy.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node scripts/test-all.mjs",
+    "test:all": "node scripts/test-all.mjs",
     "build:dist": "node scripts/build.mjs",
     "test:build": "node test/build-smoke.mjs",
     "smoke:2v2": "node test/smoke-2v2.mjs",
@@ -49,7 +50,18 @@
     "test:challenges": "node test/challenges.mjs",
     "test:challenge-ui": "node test/challenge-ui.mjs",
     "test:leagues": "node test/leagues.mjs",
-    "test:new-features-ui": "node test/new-features-ui.mjs"
+    "test:new-features-ui": "node test/new-features-ui.mjs",
+    "test:reconnect": "node test/reconnect.mjs",
+    "test:progress-sync-http": "node test/progress-sync-http.mjs",
+    "test:csp": "node test/csp.mjs",
+    "test:drag-check": "node test/drag-check.mjs",
+    "test:elo-strength": "node test/elo-strength.mjs",
+    "test:endgame": "node test/endgame.mjs",
+    "test:push": "node test/push.mjs",
+    "test:season": "node test/season.mjs",
+    "test:victim": "node test/victim.mjs",
+    "test:chess960-ai-castle": "node test/chess960-ai-castle.mjs",
+    "test:chess960-castle": "node test/chess960-castle.mjs"
   },
   "repository": {
     "type": "git",
