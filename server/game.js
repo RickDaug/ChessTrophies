@@ -453,6 +453,16 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
         if (socket.data.authFails >= 5) { socket.emit('auth_err', { error: 'Too many attempts' }); socket.disconnect(true); }
         return;
       }
+      // Token revocation (mirror requireAuth in auth.js): a password reset/change
+      // bumps token_version, invalidating every JWT minted before it. Legacy tokens
+      // (no `tv`) and users with no bump both default to 0, so nothing is mass-logged
+      // out — only tokens older than a reset/change are rejected here too.
+      if ((payload.tv || 0) !== (user.token_version || 0)) {
+        socket.data.authFails += 1;
+        socket.emit('auth_err', { error: 'Session expired' });
+        if (socket.data.authFails >= 5) { socket.emit('auth_err', { error: 'Too many attempts' }); socket.disconnect(true); }
+        return;
+      }
       socket.data.authFails = 0;
       socket.data.userId = user.id;
       userSocket.set(user.id, socket.id);

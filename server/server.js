@@ -4,6 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import http from 'http';
+import crypto from 'crypto';
 import { Server as IO } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { Redis } from 'ioredis';
@@ -53,6 +54,19 @@ import { attachSocketHandlers, notifyUser, getOnlineUserCount, seasonInfo, previ
 import { botEngineReady, botEngineDiag } from './bot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Constant-time admin-key check. Fail-closed when ADMIN_KEY is unset, and use
+// crypto.timingSafeEqual (mirroring auth.js's email-code compare) so a wrong key
+// can't be recovered byte-by-byte via response timing. timingSafeEqual throws on
+// unequal-length buffers, so we gate on length first.
+function adminKeyOk(provided) {
+  const expected = process.env.ADMIN_KEY;
+  if (!expected) return false; // fail closed: no key configured → forbidden
+  const a = Buffer.from(String(provided), 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 const app = express();
 const httpServer = http.createServer(app);
 
@@ -808,7 +822,7 @@ app.post('/api/share/track', async (req, res, next) => {
 app.get('/api/admin/stats', async (req, res, next) => {
   try {
     const provided = req.get('x-admin-key') || req.query.key || '';
-    if (!process.env.ADMIN_KEY || provided !== process.env.ADMIN_KEY) {
+    if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const now = Date.now();
@@ -1116,7 +1130,7 @@ app.get('/api/admin/stats', async (req, res, next) => {
 app.get('/api/admin/user/:id', async (req, res, next) => {
   try {
     const provided = req.get('x-admin-key') || req.query.key || '';
-    if (!process.env.ADMIN_KEY || provided !== process.env.ADMIN_KEY) {
+    if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const id = String(req.params.id || '');
@@ -1148,7 +1162,7 @@ app.get('/api/admin/user/:id', async (req, res, next) => {
 app.get('/api/admin/export', async (req, res, next) => {
   try {
     const provided = req.get('x-admin-key') || req.query.key || '';
-    if (!process.env.ADMIN_KEY || provided !== process.env.ADMIN_KEY) {
+    if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const type = String(req.query.type || 'events');
@@ -1206,7 +1220,7 @@ async function dailyCountSeries(table, days) {
 app.get('/api/admin/users', async (req, res, next) => {
   try {
     const provided = req.get('x-admin-key') || req.query.key || '';
-    if (!process.env.ADMIN_KEY || provided !== process.env.ADMIN_KEY) {
+    if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const sort = typeof req.query.sort === 'string' ? req.query.sort : 'elo';
