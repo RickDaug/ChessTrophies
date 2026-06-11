@@ -13,6 +13,7 @@
 //
 // botMove(fen, targetElo) -> Promise<{from,to[,promotion]}|null>. NEVER throws.
 import os from 'node:os';
+import fs from 'node:fs';
 import { Worker } from 'node:worker_threads';
 import { loadEngine, computeMove } from './engine-load.js';
 
@@ -30,10 +31,26 @@ export function botEngineReady() { return !!(_eng.CT_AI && _eng.ChessCtor); }
 // --- worker pool -----------------------------------------------------------
 const WORKER_URL = new URL('./bot-worker.js', import.meta.url);
 
+// How many CPUs this process can ACTUALLY use. os.cpus() reports the HOST cores,
+// which over-counts inside a container (Railway, Docker) and would make us spawn
+// compute-bound workers that thrash a small vCPU allocation. Prefer the cgroup
+// CPU quota when present; fall back to os.cpus() off-container (dev).
+function detectCpuLimit() {
+  try { // cgroup v2: "<quota> <period>" or "max <period>"
+    const p = fs.readFileSync('/sys/fs/cgroup/cpu.max', 'utf8').trim().split(/\s+/);
+    if (p.length === 2 && p[0] !== 'max') { const q = +p[0], per = +p[1]; if (q > 0 && per > 0) return Math.max(0.5, q / per); }
+  } catch {}
+  try { // cgroup v1
+    const q = parseInt(fs.readFileSync('/sys/fs/cgroup/cpu/cpu.cfs_quota_us', 'utf8'), 10);
+    const per = parseInt(fs.readFileSync('/sys/fs/cgroup/cpu/cpu.cfs_period_us', 'utf8'), 10);
+    if (q > 0 && per > 0) return Math.max(0.5, q / per);
+  } catch {}
+  return (os.cpus() || []).length || 2;
+}
 function defaultPoolSize() {
-  const cores = (os.cpus() || []).length || 2;
-  // Leave a core for the main loop; cap so we don't oversubscribe a small box.
-  return Math.max(1, Math.min(3, cores - 1));
+  const cpus = detectCpuLimit();
+  if (cpus <= 1.25) return 1;                              // ~1 vCPU: one worker (still off the main loop)
+  return Math.max(1, Math.min(4, Math.floor(cpus) - 1));   // leave a core for the event loop; cap at 4
 }
 const _envN = parseInt(process.env.BOT_WORKER_THREADS ?? '', 10);   // 0 disables workers (forces in-process)
 const POOL_SIZE = Number.isFinite(_envN) && _envN >= 0 ? _envN : defaultPoolSize();
@@ -106,7 +123,12 @@ function pump() {
   }
 }
 
-if (_wantWorkers) for (let i = 0; i < POOL_SIZE; i++) spawnWorker();
+if (_wantWorkers) {
+  console.log(`[bot] engine ready — search pool: ${POOL_SIZE} worker(s) (detected ~${detectCpuLimit().toFixed(1)} cpu; override with BOT_WORKER_THREADS)`);
+  for (let i = 0; i < POOL_SIZE; i++) spawnWorker();
+} else if (botEngineReady()) {
+  console.log('[bot] engine ready — workers disabled (BOT_WORKER_THREADS=0): searches run in-process');
+}
 
 // The pool can serve now or shortly: there's a slot that's either still warming
 // up (not yet ready) or known-good (ready & engineOk).
