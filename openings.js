@@ -78,7 +78,7 @@
     {
       id: 'sicilian-open',
       name: 'Sicilian Defense — Open',
-      eco: 'B50',
+      eco: 'B90',
       userColor: 'b',
       desc: 'Black fights for the center asymmetrically and plays for the win.',
       line: ['e4', 'c5', 'Nf3', 'd6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'a6', 'Be2', 'e5'],
