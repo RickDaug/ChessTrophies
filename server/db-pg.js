@@ -131,6 +131,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT NOT NULL DEF
 ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS arena_wins INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS trophy_points INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS geo_country TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS geo_region TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS friendships (
   user_id TEXT NOT NULL,
@@ -398,9 +400,12 @@ CREATE TABLE IF NOT EXISTS analytics_events (
   created_at BIGINT NOT NULL,
   meta TEXT
 );
+ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS country TEXT;
+ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS region TEXT;
 CREATE INDEX IF NOT EXISTS idx_analytics_name_day ON analytics_events(name, day_key);
 CREATE INDEX IF NOT EXISTS idx_analytics_visitor ON analytics_events(visitor_id);
 CREATE INDEX IF NOT EXISTS idx_analytics_day ON analytics_events(day_key);
+CREATE INDEX IF NOT EXISTS idx_analytics_country ON analytics_events(country);
 
 CREATE TABLE IF NOT EXISTS challenges (
   id TEXT PRIMARY KEY,

@@ -4,7 +4,10 @@
 // names) keyed by a client-generated `visitorId` (not a tracking cookie, not PII)
 // so the admin dashboard can show a basic acquisition funnel and daily traffic.
 // No IPs, emails, or free-form strings are persisted — `meta` is an optional tiny
-// JSON blob the caller may attach (capped hard). Guests fire events too, so the
+// JSON blob the caller may attach (capped hard). We DO derive a coarse country +
+// region (e.g. US state) from the IP for aggregate geo stats, but store only those
+// codes — the raw IP is used for rate-limiting then discarded. Guests fire events
+// too, so the
 // ingest endpoint is PUBLIC (no auth); an in-memory token bucket per visitor+IP
 // keeps an attacker from flooding the table.
 //
@@ -14,6 +17,7 @@
 // 'YYYY-MM-DD' strings). Nothing here throws to the client.
 
 import * as store from './store.js';
+import { geoFromIp } from './geo.js';
 
 // The ONLY event names we accept. Anything else is rejected with 400 so the
 // table can't be polluted with arbitrary names. Order is irrelevant here; the
@@ -113,10 +117,14 @@ export function mountAnalytics(app) {
         } catch (e) { meta = null; }
       }
 
+      // Derive coarse geo (country + region/state) from the IP we already have.
+      // Privacy-safe: only the derived strings are stored, the IP is discarded.
+      const geo = geoFromIp(ip);
+
       await store.run(
-        `INSERT INTO analytics_events (name, visitor_id, user_id, day_key, created_at, meta)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [name, visitorId, userId, dayKeyOf(now), now, meta]
+        `INSERT INTO analytics_events (name, visitor_id, user_id, day_key, created_at, meta, country, region)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [name, visitorId, userId, dayKeyOf(now), now, meta, geo.country, geo.region]
       );
       return res.json({ ok: true });
     } catch (e) {
@@ -147,6 +155,8 @@ function emptyStats() {
     returning: { visitorsToday: 0, returningToday: 0 },
     topEvents: [],
     sources: { topReferrers: [], topCampaigns: [], direct: 0 },
+    geo: { topCountries: [], topStates: [], located: 0 },
+    windowDays: 30,
   };
 }
 
@@ -210,13 +220,42 @@ async function sourcesStats(cut30) {
   }
 }
 
-// Compute the stats.analytics shape. Failure-isolated: any error returns the
-// zeroed shape rather than throwing into the admin route. Portable SQL via the
-// store facade (works on SQLite + Postgres).
-export async function analyticsStats() {
+// Geographic distribution (derived country + US state) over the window. Distinct
+// visitors per country, and per US state. Failure-isolated → empty on error.
+async function geoStats(cut) {
   try {
+    const countryRows = await store.all(
+      "SELECT country, COUNT(DISTINCT visitor_id) AS visitors FROM analytics_events WHERE day_key >= ? AND country IS NOT NULL AND country <> '' GROUP BY country ORDER BY visitors DESC LIMIT 20",
+      [cut]
+    );
+    const stateRows = await store.all(
+      "SELECT region, COUNT(DISTINCT visitor_id) AS visitors FROM analytics_events WHERE day_key >= ? AND country = 'US' AND region IS NOT NULL AND region <> '' GROUP BY region ORDER BY visitors DESC LIMIT 20",
+      [cut]
+    );
+    const locatedRow = await store.get(
+      "SELECT COUNT(DISTINCT visitor_id) AS n FROM analytics_events WHERE day_key >= ? AND country IS NOT NULL AND country <> ''",
+      [cut]
+    );
+    return {
+      topCountries: (countryRows || []).map(r => ({ country: String(r.country), visitors: Number(r.visitors) || 0 })),
+      topStates: (stateRows || []).map(r => ({ region: String(r.region), visitors: Number(r.visitors) || 0 })),
+      located: locatedRow ? Number(locatedRow.n) || 0 : 0,
+    };
+  } catch (e) {
+    console.error('[analytics] geoStats failed:', e && e.message ? e.message : e);
+    return { topCountries: [], topStates: [], located: 0 };
+  }
+}
+
+// Compute the stats.analytics shape. `days` controls the rolling window for the
+// funnel / topEvents / sources / geo (and the daily chart length). Failure-
+// isolated: any error returns the zeroed shape rather than throwing into the
+// admin route. Portable SQL via the store facade (works on SQLite + Postgres).
+export async function analyticsStats(days = 30) {
+  try {
+    const win = Math.max(1, Math.min(365, Number(days) || 30));
     const today = dayKeyOf(Date.now());
-    const cut30 = cutoffDayKey(30);
+    const cut30 = cutoffDayKey(win);
 
     const num = async (sql, p = []) => { const r = await store.get(sql, p); return r ? Number(r.n) || 0 : 0; };
 
@@ -237,9 +276,11 @@ export async function analyticsStats() {
       signups:  await num("SELECT COUNT(*) AS n FROM analytics_events WHERE name = 'signup' AND day_key = ?", [today]),
     };
 
-    // Daily traffic (last 14 days, oldest->newest), zero-filled. We build the
-    // date list in JS and left-join the per-day aggregates we read in one pass.
-    const cut14 = cutoffDayKey(13); // include today => 14 days total
+    // Daily traffic (the window, capped at 60 days for chart sanity),
+    // oldest->newest, zero-filled. We build the date list in JS and left-join the
+    // per-day aggregates we read in one pass.
+    const dailyLen = Math.min(win, 60);
+    const cut14 = cutoffDayKey(dailyLen - 1); // include today
     const dayRows = await store.all(
       `SELECT day_key,
               COUNT(DISTINCT visitor_id) AS visitors,
@@ -254,7 +295,7 @@ export async function analyticsStats() {
       byDay.set(String(r.day_key), { visitors: Number(r.visitors) || 0, plays: Number(r.plays) || 0 });
     }
     const daily = [];
-    for (let i = 13; i >= 0; i--) {
+    for (let i = dailyLen - 1; i >= 0; i--) {
       const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
       const agg = byDay.get(d) || { visitors: 0, plays: 0 };
       daily.push({ date: d, visitors: agg.visitors, plays: agg.plays });
@@ -282,9 +323,11 @@ export async function analyticsStats() {
     );
     const topEvents = (topRows || []).map(r => ({ name: String(r.name), count: Number(r.count) || 0 }));
 
-    // Traffic-source attribution (last 30 days). Self-isolating — defaults to
+    // Traffic-source attribution over the window. Self-isolating — defaults to
     // empty arrays on error so it can never break the rest of the block.
     const sources = await sourcesStats(cut30);
+    // Geographic distribution (country + US state) over the window.
+    const geo = await geoStats(cut30);
 
     return {
       funnel,
@@ -293,6 +336,8 @@ export async function analyticsStats() {
       returning: { visitorsToday, returningToday },
       topEvents,
       sources,
+      geo,
+      windowDays: win,
     };
   } catch (e) {
     console.error('[analytics] analyticsStats failed:', e && e.message ? e.message : e);

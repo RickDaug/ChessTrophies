@@ -143,6 +143,10 @@ ensureColumn('users', 'arena_wins', 'INTEGER', '0');
 // the count expression is real, not always-0). Client-authoritative, like the
 // trophy arrays have always been.
 ensureColumn('users', 'trophy_points', 'INTEGER', '0');
+// Derived geo (country ISO-2 + region/state code) from the signup IP. Privacy-
+// safe: only the coarse derived strings are stored, never the raw IP.
+ensureColumn('users', 'geo_country', 'TEXT', "''");
+ensureColumn('users', 'geo_region', 'TEXT', "''");
 // Tag game rows by type/variant so the existing `games` table can also record
 // checkers games. Existing rows default to chess (game_type='chess'), so the
 // historical data is unchanged. `variant` holds the checkers board size as a
@@ -577,7 +581,9 @@ CREATE TABLE IF NOT EXISTS analytics_events (
   user_id TEXT,
   day_key TEXT NOT NULL,
   created_at INTEGER NOT NULL,
-  meta TEXT
+  meta TEXT,
+  country TEXT,
+  region TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_analytics_name_day ON analytics_events(name, day_key);
 CREATE INDEX IF NOT EXISTS idx_analytics_visitor ON analytics_events(visitor_id);
@@ -616,6 +622,12 @@ CREATE TABLE IF NOT EXISTS league_members (
 );
 CREATE INDEX IF NOT EXISTS idx_league_members_user ON league_members(user_id);
 `);
+
+// Derived geo on analytics events (country ISO-2 + region/state code). Added via
+// ALTER for existing DBs; the index is created only after the columns exist.
+ensureColumn('analytics_events', 'country', 'TEXT', "''");
+ensureColumn('analytics_events', 'region', 'TEXT', "''");
+db.exec('CREATE INDEX IF NOT EXISTS idx_analytics_country ON analytics_events(country)');
 
 // Idempotently increment a user's season row for one finished ranked game.
 // result is 'win' | 'loss' | 'draw'. points: +3 win / +1 draw / 0 loss.
