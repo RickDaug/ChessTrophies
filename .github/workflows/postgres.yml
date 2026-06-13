@@ -1,0 +1,75 @@
+name: Postgres backend
+
+# Audit finding QA-M1: the whole suite runs SQLite (db.js); db-pg.js — the pending
+# scale cutover — is hand-mirrored and NOTHING co-tests it, so dialect drift
+# (e.g. json_array_length vs jsonb_array_length) would only surface in production.
+#
+# This job stands a real Postgres up as a service container and runs the
+# backend-parameterized smoke (test/pg-smoke.mjs) with DB_BACKEND=postgres against
+# it — exercising db-pg.js's actual SQL (server boot + schema init, auth, the
+# /api/progress JSON round-trip, and the trophies leaderboard array-length query).
+# It also runs the static parity guard (test/db-parity.mjs).
+#
+# NOTE: this is intentionally a SEPARATE workflow, not part of the blocking
+# full-suite — a failure here is an early-warning of PG drift to FIX BEFORE the
+# cutover, and shouldn't gate unrelated SQLite work.
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  postgres-smoke:
+    name: Postgres smoke (db-pg.js)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chesstrophies_test
+        ports:
+          - 5432:5432
+        # Wait until Postgres is accepting connections before the steps run.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DB_BACKEND: postgres
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/chesstrophies_test
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+
+      - name: Install client/test deps
+        run: npm ci
+
+      - name: Install server deps
+        working-directory: server
+        run: npm ci
+
+      # Static drift guard first — fast, no DB needed; catches schema/export
+      # divergence between db.js and db-pg.js before we even hit Postgres.
+      - name: db.js <-> db-pg.js parity (static)
+        run: node test/db-parity.mjs
+
+      # The real integration: boot the server on Postgres + drive the
+      # dialect-sensitive flows. The server's store.init() creates the schema on
+      # the fresh database at boot.
+      - name: Postgres smoke (boot + auth + progress sync + leaderboard)
+        run: node test/pg-smoke.mjs

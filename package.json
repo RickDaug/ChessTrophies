@@ -48,6 +48,8 @@
     "test:guest-funnel": "node test/guest-funnel.mjs",
     "test:analytics": "node test/analytics.mjs",
     "test:client-errors": "node test/client-errors.mjs",
+    "test:db-parity": "node test/db-parity.mjs",
+    "test:pg-smoke": "node test/pg-smoke.mjs",
     "test:challenges": "node test/challenges.mjs",
     "test:challenge-ui": "node test/challenge-ui.mjs",
     "test:leagues": "node test/leagues.mjs",
