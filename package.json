@@ -52,6 +52,7 @@
     "test:pg-smoke": "node test/pg-smoke.mjs",
     "test:auth-recovery": "node test/auth-recovery.mjs",
     "test:account-deletion": "node test/account-deletion.mjs",
+    "test:flag-fall": "node test/flag-fall.mjs",
     "test:challenges": "node test/challenges.mjs",
     "test:challenge-ui": "node test/challenge-ui.mjs",
     "test:leagues": "node test/leagues.mjs",

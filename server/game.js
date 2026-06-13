@@ -12,6 +12,7 @@ import * as scaleTeam from './scale-team.js';
 import { botMove, botEngineReady } from './bot.js';
 import { sendPushToUser } from './push.js';
 import { recordArenaResult, liveArena, joinArena, arenaEnabled, ARENA_BOT_WAIT_MS } from './arena.js';
+import { winnerCanMateOnTimeout } from './timeout-rules.js';
 
 // --- RANKED bot-backfill (cold-start: no humans online) --------------------
 // When a player waits in the ranked 1v1 queue past this window with no human
@@ -272,37 +273,16 @@ function clockSnapshotForMove(clock) {
   return { w: clock.w, b: clock.b, running: clock.running, serverNow: Date.now() };
 }
 
-// Timeout-scoring nicety: a side that flags loses, UNLESS the side that would
-// WIN on time has insufficient mating material — in which case it's a draw.
-// We test the winning color's own pieces: a lone king, K+N, or K+B (any number
-// of same-color bishops) cannot force mate, so the win is downgraded to a draw.
-function colorHasMatingMaterial(chess, color) {
-  try {
-    const board = chess.board();
-    let knights = 0, bishops = 0;
-    for (const row of board) {
-      for (const sq of row) {
-        if (!sq || sq.color !== color) continue;
-        const t = sq.type;
-        if (t === 'q' || t === 'r' || t === 'p') return true; // can mate
-        if (t === 'n') knights++;
-        else if (t === 'b') bishops++;
-      }
-    }
-    // King-only, K+single minor cannot force mate. K + (2+ knights) or
-    // K + bishop(s) + knight, etc. -> treat as sufficient (be permissive).
-    if (knights + bishops >= 2) return true;
-    return false; // lone K, K+N, or K+B
-  } catch {
-    return true; // on any error, don't downgrade the result
-  }
-}
+// Timeout-scoring (FIDE 6.9): a side that flags loses, UNLESS the winner cannot
+// checkmate the flagged king by ANY legal sequence — then it's a draw. The rule
+// considers BOTH sides' material (a single minor CAN help-mate a king that still
+// has a pawn/piece), and lives in ./timeout-rules.js so it's unit-testable.
 
 // Finish a clocked 1v1 game on a flag by `flagColor` ('w'|'b'). Normally a loss
 // for the flagger; downgraded to a draw if the winner can't mate.
 function timeoutFinishGame(io, game, flagColor) {
   const winnerColor = flagColor === 'w' ? 'b' : 'w';
-  if (!colorHasMatingMaterial(game.chess, winnerColor)) {
+  if (!winnerCanMateOnTimeout(game.chess, winnerColor)) {
     finishGame(io, game, { reason: 'timeout', winnerId: null });
     return;
   }
@@ -313,7 +293,7 @@ function timeoutFinishGame(io, game, flagColor) {
 // Finish a clocked 2v2 game on a flag by team `flagColor`.
 function timeoutFinishTeamGame(io, tg, flagColor) {
   const winnerColor = flagColor === 'w' ? 'b' : 'w';
-  if (!colorHasMatingMaterial(tg.chess, winnerColor)) {
+  if (!winnerCanMateOnTimeout(tg.chess, winnerColor)) {
     finishTeamGame(io, tg, { reason: 'timeout', winnerColor: null });
     return;
   }
