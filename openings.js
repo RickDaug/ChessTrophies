@@ -109,8 +109,10 @@
     },
     {
       id: 'caro-kann',
-      name: 'Caro-Kann Defense',
-      eco: 'B15',
+      name: 'Caro-Kann Defense, Classical',
+      // 3.Nc3 dxe4 4.Nxe4 Bf5 is the Classical (B18); reaching 5.Ng3 Bg6 6.h4 h6
+      // is the B19 main line — NOT B15 (which is 3.Nc3 without ...dxe4).
+      eco: 'B19',
       userColor: 'b',
       desc: 'Solid like the French but with a free light-squared bishop.',
       line: ['e4', 'c6', 'd4', 'd5', 'Nc3', 'dxe4', 'Nxe4', 'Bf5', 'Ng3', 'Bg6', 'h4', 'h6'],
