@@ -32,7 +32,7 @@ async function initSentry() {
 function captureException(err) { try { if (Sentry) Sentry.captureException(err); } catch (e) {} }
 await initSentry();
 
-import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, verifyEmailCode, resendEmailVerification } from './auth.js';
+import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, deleteAccount, verifyEmailCode, resendEmailVerification } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
 // `db` is still imported directly only to close the SQLite handle on shutdown
 // (no-op when running on Postgres); `getProgress` is a pure flags-JSON parser
@@ -331,6 +331,17 @@ app.post('/api/auth/change-password', authLimiter, requireAuth, async (req, res,
     // Return a fresh token (changePassword bumped token_version, revoking the old
     // one) so the client can keep THIS session signed in.
     res.json({ ok: true, token: (r && r.token) || undefined });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+// Permanently delete the authenticated user's account. Requires the current
+// password as confirmation; erases PII, revokes all sessions, and drops the
+// social graph (the anonymized row is retained so game/leaderboard FKs stay valid).
+app.post('/api/me/delete', authLimiter, requireAuth, async (req, res, next) => {
+  try {
+    const password = requireStringField(req.body || {}, 'password', { min: 1, max: 128 });
+    await deleteAccount(req.userId, password);
+    res.json({ ok: true });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 

@@ -464,6 +464,35 @@ export function removePushSub(userId, endpoint) {
   return db.prepare('DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?').run(userId, endpoint);
 }
 
+// Account deletion (self-serve). Erases PII, disables login, and drops the social
+// graph (friends/requests/blocks/pushes/league memberships). We KEEP the now
+// anonymized users row so the FKs from games/season/arena/leaderboard stay valid
+// and opponent history isn't corrupted — the row carries no personal data and is
+// un-loginnable (pw_hash cleared + token_version bumped revokes every JWT). This
+// is GDPR-meaningful without fighting the whole users FK graph. Atomic.
+export function deleteAccountData(userId) {
+  if (!userId) return;
+  const tombEmail = 'deleted+' + userId + '@deleted.invalid';
+  const tombName = 'deleted_' + userId;
+  const tx = db.transaction((id) => {
+    db.prepare('DELETE FROM friendships WHERE user_id = ? OR friend_id = ?').run(id, id);
+    db.prepare('DELETE FROM friend_requests WHERE from_id = ? OR to_id = ?').run(id, id);
+    db.prepare('DELETE FROM blocks WHERE blocker_id = ? OR blocked_id = ?').run(id, id);
+    db.prepare('DELETE FROM push_subscriptions WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM email_verifications WHERE user_id = ?').run(id);
+    db.prepare('DELETE FROM league_members WHERE user_id = ?').run(id);
+    db.prepare(
+      `UPDATE users SET email = ?, username = ?, pw_hash = '', region = '',
+         avatar_stock = '', avatar_data_url = '', is_premium = 0, subscription_status = '',
+         stripe_customer_id = '', geo_country = '', geo_region = '',
+         token_version = COALESCE(token_version, 0) + 1
+       WHERE id = ?`
+    ).run(tombEmail, tombName, id);
+  });
+  tx(userId);
+}
+
 // All push subscriptions for a user (for fan-out). Returns [{endpoint,p256dh,auth}].
 export function listPushSubs(userId) {
   if (!userId) return [];
