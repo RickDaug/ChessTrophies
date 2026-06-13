@@ -5374,10 +5374,19 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // a board can legitimately be empty (e.g. before any ranked games are played
       // this season). Say so instead of implying something is broken.
       const m = currentRankMetric;
-      const what = (m === 'checkers8' || m === 'checkers10') ? 'ranked checkers games'
-                 : (m === 'trophies') ? 'trophies earned'
-                 : 'ranked games';
-      wrap.innerHTML = `<div class="card muted center">No one's on the ${info.label.toLowerCase()} board yet — it fills up as players complete ${what}.</div>`;
+      // Reframe an empty board as an OPPORTUNITY, not a ghost town — for a brand-new
+      // product every leaderboard starts empty, so "be the first" beats "nobody's
+      // here". The action is metric-specific.
+      const action = (m === 'checkers8' || m === 'checkers10') ? 'Play a ranked checkers game'
+                   : (m === 'trophies') ? 'Earn your first trophy'
+                   : (m === 'wins') ? 'Win a ranked game'
+                   : (m === 'streak') ? 'Win a ranked game to start a streak'
+                   : 'Win a ranked game';
+      wrap.innerHTML = `<div class="card center" style="border:1px dashed var(--accent);background:linear-gradient(135deg,rgba(245,196,81,.08),var(--panel))">`
+        + `<div style="font-size:30px;line-height:1.2">🏆</div>`
+        + `<div style="font-weight:800;margin-top:6px">You're early — claim the top spot</div>`
+        + `<div class="muted small" style="margin-top:4px">No one's on the ${info.label.toLowerCase()} board yet. ${action} to put your name at #1.</div>`
+        + `</div>`;
       return;
     }
     const myIdx = players.findIndex(u => u.id === me.id);
