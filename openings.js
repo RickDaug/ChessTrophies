@@ -629,7 +629,10 @@
     renderBoard();
     var exp = expectedMoveObj();
     var want = expectedSan();
-    setStatus('Not the book move — the line goes ' + (want || '…') + '.', 'bad');
+    // The move IS legal (only legal moves reach here) — it's just not the line this
+    // drill is teaching. Frame it as "a different line", not a blunder, so a player
+    // who knows theory isn't told a sound alternative is "wrong".
+    setStatus('That’s playable — but this drill follows one line. The book continues ' + (want || '…') + '.', 'bad');
     refs.btnHint.disabled = true;
     setTimeout(function () {
       if (!state) return;
@@ -645,7 +648,7 @@
       state.lastMove = null;
       refs.btnHint.disabled = false;
       renderBoard();
-      setStatus('Try again — play ' + (want || 'the book move') + '.', 'bad');
+      setStatus('Play ' + (want || 'the book move') + ' to stay in the line.', 'bad');
     }, 900);
   }
 

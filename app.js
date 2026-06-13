@@ -3623,6 +3623,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       isAI: true,
       aiElo,
     };
+    // "Play again" closure for the result modal — re-reads the slider live so a
+    // guest's eased ramp (guestPracticeElo, advanced by the just-incremented
+    // guestGames) keeps progressing on each replay.
+    state._offlineReplay = function () {
+      var el = $('#practice-elo');
+      var sv = (el && +el.value) || level || 1200;
+      startPracticeGame(guestPracticeElo(sv));
+    };
     startGame('practice');
   }
 
@@ -3636,6 +3644,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     let rung = -1;
     try { rung = (window.CT_Gauntlet.ROSTER || []).findIndex(c => c.name === character.name); } catch (e) {}
     state._gauntlet = { rung, won: false };
+    state._offlineReplay = null; // gauntlet advances its own ladder — no generic replay
     state.opponent = { username: character.name + ' ' + character.emoji, elo: aiElo, isAI: true, aiElo };
     startGame('practice');
   }
@@ -3650,6 +3659,11 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       elo: aiElo,
       isAI: true,
       aiElo
+    };
+    state._offlineReplay = function () {
+      var el = $('#practice-elo');
+      var sv = (el && +el.value) || level || 1200;
+      startPractice960(guestPracticeElo(sv));
     };
     startGame('practice');
   }
@@ -4744,9 +4758,12 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       title = 'Defeat';
       outcome = 'You lose';
       stateClass = 'ct-result-lose';
-      body = reason === 'checkmate' ? 'Checkmated.' :
-             reason === 'resignation' ? 'You resigned.' :
-             reason === 'timeout' ? 'You lost on time.' : 'Your opponent won.';
+      // Warm, encouraging loss copy — a flat "Checkmated." sends a nervous
+      // first-timer off with no reason to try again. Nudge toward the rematch.
+      body = reason === 'checkmate' ? 'Checkmated this time — shake it off and go again.' :
+             reason === 'resignation' ? 'You resigned. The next one’s yours.' :
+             reason === 'timeout' ? 'Out of time — play a little quicker next round.' :
+             'Tough one — rematch and turn it around.';
     }
     var _titleEl = $('#result-title');
     _titleEl.textContent = title;
@@ -4778,20 +4795,52 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // framed by context (loss-aversion): a win/trophy → "save your win", a live
     // daily streak → "keep your N-day streak", else "track your progress".
     var _gBtn = $('#btn-result-guest-signup');
+    var _newTrophyCount = (typeof unlocked !== 'undefined' ? unlocked.length : 0) + (typeof moreUnlocks !== 'undefined' ? moreUnlocks.length : 0);
+    var _isGuest = !!(state.user && state.user.isGuest);
+    // guestGames is bumped AFTER this render block, so it still holds the COUNT
+    // BEFORE this game — i.e. 0 means this was the guest's very first game.
+    var _guestGamesPrior = (state.user && state.user.flags && state.user.flags.guestGames) || 0;
+    var _firstGame = _isGuest && _guestGamesPrior === 0;
     if (_gBtn) {
-      var _newTrophyCount = (typeof unlocked !== 'undefined' ? unlocked.length : 0) + (typeof moreUnlocks !== 'undefined' ? moreUnlocks.length : 0);
-      var _showGuestCta = !!(state.user && state.user.isGuest);
+      // The CTA shows after every guest game (a loser who got nothing had no path
+      // back). But DON'T frame a brand-new guest's first LOSS as "track your
+      // progress" — there's nothing to track yet and it reads as a hollow nag.
+      // Use a forward-looking value prop instead (play real people). The loss
+      // itself is now softened by the warm body copy + Play again + daily bridge.
+      var _showGuestCta = _isGuest;
       if (_showGuestCta) {
         var _gStreak = (state.user.playStreak && state.user.playStreak.streak) || 0;
         _gBtn.textContent = (myWon || _newTrophyCount > 0)
           ? '🏆 Save your win — create a free account'
           : (_gStreak > 1
               ? 'Keep your ' + _gStreak + '-day streak — create a free account'
-              : 'Track your progress — create a free account');
+              : (_firstGame
+                  ? 'Play real people — create a free account'
+                  : 'Track your progress — create a free account'));
       }
       _gBtn.style.display = _showGuestCta ? '' : 'none';
       // Analytics: the guest signup CTA is actually being shown.
       if (_showGuestCta) { try { window.CT_Analytics && window.CT_Analytics.track('signup_cta_view', { won: !!(myWon || _newTrophyCount > 0) }); } catch (e) {} }
+    }
+    // PLAY AGAIN: offline-vs-Computer games only (online games offer Rematch). Keeps
+    // the core loop one tap so a hooked player keeps momentum instead of being sent
+    // back to the lobby to re-find the practice card.
+    var _paBtn = $('#btn-result-playagain');
+    if (_paBtn) {
+      // Practice-mode AI games only. Gauntlet (also 'practice') nulls the closure so
+      // its own ladder progression isn't shadowed by a generic replay.
+      var _canReplay = !!(state.gameMode === 'practice' && typeof state._offlineReplay === 'function' && state.opponent && state.opponent.isAI);
+      _paBtn.style.display = _canReplay ? '' : 'none';
+    }
+    // RETENTION BRIDGE: a finished game does NOT advance the daily streak (that's
+    // earned by the daily puzzle) — so a fresh player who only plays games never
+    // discovers the come-back-tomorrow loop. Bridge them into today's puzzle when
+    // it's still unsolved. Works for guests too (their streak persists locally).
+    var _dailyBtn = $('#btn-result-daily');
+    if (_dailyBtn) {
+      var _solvedToday = !!(state.user && state.user.playStreak && state.user.playStreak.lastDate === todayKey());
+      var _showDaily = puzzlesAvailable() && !_solvedToday;
+      _dailyBtn.style.display = _showDaily ? '' : 'none';
     }
     // GROWTH LOOP: if this was a received challenge, tally it server-side; then show
     // the challenge button — "challenge a friend back" after completing one, or
@@ -4909,6 +4958,17 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     var opp = state.opponent;
     if (opp && opp.userId) { closeModal('result'); blockPlayer(opp.userId, opp.username); }
   });
+  { const _pa = $('#btn-result-playagain'); if (_pa) _pa.addEventListener('click', () => {
+    var fn = state._offlineReplay;
+    clearNetUI();
+    closeModal('result');
+    if (typeof fn === 'function') { try { fn(); } catch (e) { showScreen('lobby'); } }
+    else showScreen('lobby');
+  }); }
+  { const _dl = $('#btn-result-daily'); if (_dl) _dl.addEventListener('click', () => {
+    closeModal('result');
+    openDailyPuzzle();
+  }); }
   { const _gb = $('#btn-result-guest-signup'); if (_gb) _gb.addEventListener('click', () => {
     // Send the guest to the auth screen with Create-account preselected so their
     // future progress is saved server-side. (We can't migrate this game's result —
@@ -5451,10 +5511,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const days = Number(_seasonCache.daysRemaining) || 0;
     const title = $('#lobby-season-title');
     const sub = $('#lobby-season-sub');
-    if (title) title.textContent = '🏆 ' + (_seasonCache.name || 'Season') + ' ladder';
+    if (title) title.textContent = '🏆 ' + (_seasonCache.name || 'Monthly') + ' leaderboard';
     if (sub) sub.textContent = days > 0
-      ? `Season ends in ${days} day${days === 1 ? '' : 's'} — climb the ladder.`
-      : 'Final day of the season — climb the ladder!';
+      ? `Ranked wins this month count here — ${days} day${days === 1 ? '' : 's'} left before it resets.`
+      : 'Final day — last chance to climb this month’s leaderboard!';
     card.style.display = '';
   }
 
