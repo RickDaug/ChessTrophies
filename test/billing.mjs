@@ -21,6 +21,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(__dirname, '..', 'server');
@@ -182,10 +183,106 @@ async function testDbLayer() {
   }
 }
 
+// --- Part 3: the REAL webhook HTTP path (signature + handleEvent dispatch) ----
+// The two parts above never touch POST /api/billing/webhook — they exercise the
+// inert path and the DB layer directly, which (per the audit) MASKS the live
+// webhook: signature verification and the handleEvent dispatch were untested.
+// Here we boot the backend WITH Stripe configured (dummy keys — constructEvent +
+// the SDK constructor are pure-local, no network), sign events with the SDK's
+// own generateTestHeaderString, and drive the webhook over real HTTP:
+//   - a bad / missing signature is rejected (400);
+//   - a VALID checkout.session.completed dispatches through handleEvent and flips
+//     the user to premium (observed via authed GET /api/me);
+//   - a duplicate delivery is idempotent (still 200);
+//   - invoice.payment_succeeded delivered TWICE (same event.id) records revenue
+//     EXACTLY ONCE (verified by reading the payments table directly afterward).
+async function testWebhookHttpPath() {
+  const port = await freePort();
+  const BASE = `http://localhost:${port}`;
+  const dbPath = path.join(os.tmpdir(), `ct-billing-wh-${process.pid}-${port}.db`);
+  const WH_SECRET = 'whsec_test_' + Math.random().toString(36).slice(2, 14);
+  const RUN = Date.now().toString(36).slice(-5);
+  const invEventId = 'evt_inv_' + RUN;
+
+  const requireFromServer = createRequire(path.join(SERVER_DIR, 'db.js'));
+  const Stripe = requireFromServer('stripe');
+  const stripe = new Stripe('sk_test_dummy', { apiVersion: '2026-05-27.dahlia' });
+  const sign = (payloadStr) => stripe.webhooks.generateTestHeaderString({ payload: payloadStr, secret: WH_SECRET });
+  const postRaw = (p, bodyStr, headers = {}) => fetch(`${BASE}${p}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: bodyStr });
+
+  let proc, errOut = '';
+  try {
+    const env = {
+      ...process.env, PORT: String(port), DATABASE_PATH: dbPath, CORS_ORIGIN: '*', NODE_ENV: 'development',
+      STRIPE_SECRET_KEY: 'sk_test_dummy', STRIPE_PRICE_ID: 'price_dummy', STRIPE_WEBHOOK_SECRET: WH_SECRET,
+    };
+    delete env.STRIPE_PUBLISHABLE_KEY;
+    proc = spawn(process.execPath, ['server.js'], { cwd: SERVER_DIR, env, stdio: ['ignore', 'ignore', 'pipe'] });
+    proc.stderr.on('data', d => { errOut += d; });
+    proc.on('exit', c => { if (c) log('server exited', c, errOut); });
+    await waitForHealth(`${BASE}/health`);
+    log('backend healthy (Stripe configured w/ dummy keys)');
+
+    // A real user (for the premium-flip assertion via client_reference_id).
+    const su = await postRaw('/api/auth/signup', JSON.stringify({ email: `w${RUN}@bill.local`, username: `W${RUN}`, password: 'passw0rd' }));
+    assert(su.ok, `signup failed: ${su.status}`);
+    const token = (await su.json()).token;
+    const me0 = await (await fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${token}` } })).json();
+    const userId = me0.id;
+    assert(userId && me0.isPremium === false, 'seeded user should exist and start non-premium');
+
+    // 1) BAD signature -> 400.
+    const badPayload = JSON.stringify({ id: 'evt_bad', type: 'checkout.session.completed', data: { object: {} } });
+    const bad = await postRaw('/api/billing/webhook', badPayload, { 'Stripe-Signature': 't=1,v1=deadbeefdeadbeef' });
+    assert(bad.status === 400, `bad signature should be 400, got ${bad.status}`);
+    // 2) MISSING signature -> 400.
+    const miss = await postRaw('/api/billing/webhook', badPayload, {});
+    assert(miss.status === 400, `missing signature should be 400, got ${miss.status}`);
+    log('webhook rejects bad + missing signatures (400) ✓');
+
+    // 3) VALID checkout.session.completed -> 200 + premium flip over HTTP.
+    const coPayload = JSON.stringify({ id: 'evt_co_' + RUN, type: 'checkout.session.completed', livemode: false, data: { object: { client_reference_id: userId, customer: 'cus_' + RUN } } });
+    const co = await postRaw('/api/billing/webhook', coPayload, { 'Stripe-Signature': sign(coPayload) });
+    assert(co.status === 200, `valid event should be 200, got ${co.status} (${await co.text().catch(() => '')})`);
+    const me1 = await (await fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${token}` } })).json();
+    assert(me1.isPremium === true, 'checkout.session.completed should flip the user to premium over the HTTP webhook');
+    log('valid checkout.session.completed -> 200 + premium granted over HTTP ✓');
+
+    // 4) DUPLICATE delivery of the same event -> still 200 (idempotent, no crash).
+    const coDup = await postRaw('/api/billing/webhook', coPayload, { 'Stripe-Signature': sign(coPayload) });
+    assert(coDup.status === 200, `duplicate event should still be 200, got ${coDup.status}`);
+    log('duplicate checkout.session.completed -> 200 (idempotent) ✓');
+
+    // 5) invoice.payment_succeeded delivered TWICE (same event.id) -> 200/200.
+    const invPayload = JSON.stringify({ id: invEventId, type: 'invoice.payment_succeeded', livemode: false, data: { object: { customer: 'cus_unknown_' + RUN, amount_paid: 500, currency: 'usd' } } });
+    const inv1 = await postRaw('/api/billing/webhook', invPayload, { 'Stripe-Signature': sign(invPayload) });
+    const inv2 = await postRaw('/api/billing/webhook', invPayload, { 'Stripe-Signature': sign(invPayload) });
+    assert(inv1.status === 200 && inv2.status === 200, `invoice deliveries should be 200/200, got ${inv1.status}/${inv2.status}`);
+    log('valid invoice.payment_succeeded delivered twice -> 200/200 ✓');
+  } finally {
+    if (proc && proc.exitCode === null) await new Promise(r => { proc.once('exit', r); try { proc.kill(); } catch { r(); } setTimeout(r, 3000); });
+    // Server is down — read the payments table directly to prove the duplicate
+    // webhook delivery recorded revenue EXACTLY ONCE (the idempotency guarantee
+    // that matters over the real HTTP path, not just at the DB-helper level).
+    try {
+      const Database = requireFromServer('better-sqlite3');
+      const sdb = new Database(dbPath, { readonly: true });
+      const row = sdb.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(amount_cents),0) AS s FROM payments WHERE stripe_event_id = ?').get(invEventId);
+      sdb.close();
+      assert(Number(row.n) === 1, `duplicate invoice.payment_succeeded should record ONE payment, got ${row.n}`);
+      assert(Number(row.s) === 500, `revenue should be counted once (500), got ${row.s}`);
+      log('webhook HTTP path: duplicate invoice.payment_succeeded recorded revenue ONCE ✓');
+    } finally {
+      rmDb(dbPath);
+    }
+  }
+}
+
 async function main() {
   await testInertWhenUnconfigured();
   await testDbLayer();
-  log('PASS — billing feature inert when unconfigured; DB layer idempotent + revenue correct');
+  await testWebhookHttpPath();
+  log('PASS — billing inert when unconfigured; DB layer idempotent + revenue correct; webhook HTTP path verifies signatures + dispatches + dedupes');
   return 0;
 }
 main().then(c => process.exit(c ?? 0)).catch(e => { console.error('[billing] FAIL:', e.message); process.exit(1); });
