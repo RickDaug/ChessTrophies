@@ -1675,6 +1675,36 @@
     showScreen('auth');
   });
 
+  // Account deletion (Profile → Danger zone). Password-confirmed, then a full
+  // sign-out since the account no longer exists.
+  { const _da = $('#btn-delete-account'); if (_da) _da.addEventListener('click', () => {
+      const err = $('#delete-account-err'); if (err) err.textContent = '';
+      const pw = $('#delete-account-pw'); if (pw) pw.value = '';
+      openModal('delete-account');
+  }); }
+  { const _dc = $('#btn-delete-account-cancel'); if (_dc) _dc.addEventListener('click', () => closeModal('delete-account')); }
+  { const _dok = $('#btn-delete-account-confirm'); if (_dok) _dok.addEventListener('click', async () => {
+      const pwEl = $('#delete-account-pw'), errEl = $('#delete-account-err');
+      const pw = (pwEl && pwEl.value) || '';
+      if (!pw) { if (errEl) errEl.textContent = 'Enter your password to confirm.'; return; }
+      _dok.disabled = true;
+      try {
+        await api('/api/me/delete', { method: 'POST', body: JSON.stringify({ password: pw }) });
+        closeModal('delete-account');
+        setSession(null);
+        state.user = null;
+        if (window.CTNet) window.CTNet.disconnect();
+        state._netHandlersRegistered = false;
+        showNav(false);
+        showScreen('auth');
+        toast('Your account has been deleted.');
+      } catch (e) {
+        if (errEl) errEl.textContent = (e && e.message) || 'Could not delete your account.';
+      } finally {
+        _dok.disabled = false;
+      }
+  }); }
+
   // ---------------------------------------------------------------------------
   // Lobby
   // ---------------------------------------------------------------------------
@@ -5040,6 +5070,12 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Coach summary + daily-reminder opt-in (deferred modules; guard).
     try { if (window.CT_Coach) window.CT_Coach.renderInto('#profile-coach'); } catch (e) {}
     updateReminderCard();
+    // Danger zone (account deletion): only a signed-in server account can delete —
+    // guests have no server account, so hide it for them.
+    try {
+      const _dz = $('#profile-danger');
+      if (_dz) _dz.style.display = (!u.isGuest && isServerLoggedIn()) ? '' : 'none';
+    } catch (e) {}
     // Avatar: use custom/stock image or fallback to initial
   const profAvEl = $('#prof-avatar');
   if (profAvEl) {

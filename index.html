@@ -1154,6 +1154,13 @@
       <div style="font-weight:600">⚙️ Settings</div>
       <div class="pill">Open</div>
     </div>
+    <!-- Danger zone: self-serve account deletion. Shown only for a signed-in
+         (non-guest) account; renderProfile toggles visibility. -->
+    <div class="card" id="profile-danger" style="display:none;border:1px solid var(--danger);background:rgba(220,60,60,.06)">
+      <div style="font-weight:700;color:var(--danger);margin-bottom:6px">Danger zone</div>
+      <div class="muted small" style="margin-bottom:10px">Permanently delete your account — your profile, ratings, and trophies are erased and you're signed out everywhere. This can't be undone.</div>
+      <button class="btn btn-ghost small" id="btn-delete-account" style="color:var(--danger);border-color:var(--danger)">Delete account</button>
+    </div>
   </section>
 
     <!-- STORE SCREEN (cosmetic themed piece/board sets) -->
@@ -1600,6 +1607,20 @@
     <button class="btn btn-block btn-secondary" id="btn-result-review" style="margin-top:10px">Review game</button>
         <button class="btn btn-block btn-ghost" id="btn-result-block" style="margin-top:8px;color:var(--danger);display:none">Block opponent</button>
         <button class="btn btn-block" id="btn-result-close" style="margin-top:14px">Done</button>
+  </div>
+</div>
+
+<!-- Account deletion confirmation: requires the password as confirmation, then
+     calls POST /api/me/delete and signs the user out. -->
+<div class="modal-overlay" id="modal-delete-account">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2 style="color:var(--danger)">Delete your account?</h2>
+    <p class="muted" style="margin:6px 0 14px">This permanently erases your profile, ratings, and trophies and signs you out. It can't be undone. Enter your password to confirm.</p>
+    <input type="password" id="delete-account-pw" placeholder="Your password" autocomplete="current-password" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--line,#2a3142);background:var(--panel-2,#1a2030);color:inherit;font-size:15px;box-sizing:border-box">
+    <div id="delete-account-err" class="small" style="color:var(--danger);min-height:18px;margin:6px 2px"></div>
+    <button class="btn btn-block" id="btn-delete-account-confirm" style="background:var(--danger);border:none">Delete forever</button>
+    <button class="btn btn-block btn-ghost" id="btn-delete-account-cancel" style="margin-top:8px">Cancel</button>
   </div>
 </div>
 
