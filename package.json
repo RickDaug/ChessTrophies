@@ -47,6 +47,7 @@
     "test:arena-ui": "node test/arena-ui.mjs",
     "test:guest-funnel": "node test/guest-funnel.mjs",
     "test:analytics": "node test/analytics.mjs",
+    "test:client-errors": "node test/client-errors.mjs",
     "test:challenges": "node test/challenges.mjs",
     "test:challenge-ui": "node test/challenge-ui.mjs",
     "test:leagues": "node test/leagues.mjs",

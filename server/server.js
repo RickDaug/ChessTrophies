@@ -46,6 +46,7 @@ import { mountPush, logPushStatus, sendPushToUser } from './push.js';
 import { mountPuzzles } from './puzzles.js';
 import { mountArena, startArenaScheduler, logArenaStatus, liveArena, arenaEnabled, recentChampions } from './arena.js';
 import { mountAnalytics, analyticsStats, logAnalyticsStatus } from './analytics.js';
+import { mountClientErrors } from './client-errors.js';
 import { geoFromReq } from './geo.js';
 import { retentionCurves } from './cohorts.js';
 import { mountChallenges } from './challenges.js';
@@ -197,6 +198,16 @@ mountArena(app);
 // POST /api/events, rate-limited per visitor+IP. Powers the admin funnel/daily
 // traffic block in /api/admin/stats. Backend-agnostic via the store facade.
 mountAnalytics(app);
+
+// Client-side error sink — PUBLIC (first-session crashes happen pre-auth + for
+// guests), rate-limited per IP. Lands reports in the logs and forwards to Sentry
+// (when configured) so a JS exception that white-screens a new visitor is no
+// longer invisible. See server/client-errors.js.
+mountClientErrors(app, {
+  report: (info) => captureException(new Error(
+    '[client] ' + info.message + (info.source ? ' @ ' + info.source + ':' + (info.line ?? '?') : '')
+  )),
+});
 
 // Shareable "beat the Computer" challenge links — the growth loop. PUBLIC
 // create/fetch/result (guests included), rate-limited. See server/challenges.js.
