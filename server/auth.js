@@ -249,6 +249,19 @@ export async function changePassword(userId, currentPassword, newPassword) {
   return { ok: true, token: makeToken(u.id, (u.token_version || 0) + 1) };
 }
 
+// Permanently delete the caller's account after verifying their password. Erases
+// PII, revokes every session (token_version bump), and drops the social graph;
+// the anonymized users row is retained so historical game/leaderboard FKs stay
+// valid (it holds no PII and can't be logged into). Throws on a bad password.
+export async function deleteAccount(userId, currentPassword) {
+  const u = await store.getUserById(userId);
+  if (!u) throw new Error('User not found.');
+  const ok = await bcrypt.compare(typeof currentPassword === 'string' ? currentPassword : '', u.pw_hash || '');
+  if (!ok) { const e = new Error('Password is incorrect.'); e.status = 400; throw e; }
+  await store.deleteAccountData(u.id);
+  return { ok: true };
+}
+
 export function makeToken(userId, tokenVersion = 0) {
   return jwt.sign({ uid: userId, tv: tokenVersion | 0 }, SECRET, { expiresIn: TOKEN_EXPIRY });
 }

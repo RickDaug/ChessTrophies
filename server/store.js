@@ -56,6 +56,11 @@ export async function init() {
 // On SQLite each just calls the synchronous db.js function and resolves; the
 // returned row shapes are identical across both backends.
 
+export async function deleteAccountData(userId) {
+  if (usingPostgres) return (await loadPg()).deleteAccountData(userId);
+  return sqlite.deleteAccountData(userId);
+}
+
 export async function areBlocked(a, b) {
   if (usingPostgres) return (await loadPg()).areBlocked(a, b);
   return sqlite.areBlocked(a, b);

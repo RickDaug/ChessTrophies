@@ -78,7 +78,7 @@
     {
       id: 'sicilian-open',
       name: 'Sicilian Defense — Open',
-      eco: 'B50',
+      eco: 'B90',
       userColor: 'b',
       desc: 'Black fights for the center asymmetrically and plays for the win.',
       line: ['e4', 'c5', 'Nf3', 'd6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'a6', 'Be2', 'e5'],
@@ -109,8 +109,10 @@
     },
     {
       id: 'caro-kann',
-      name: 'Caro-Kann Defense',
-      eco: 'B15',
+      name: 'Caro-Kann Defense, Classical',
+      // 3.Nc3 dxe4 4.Nxe4 Bf5 is the Classical (B18); reaching 5.Ng3 Bg6 6.h4 h6
+      // is the B19 main line — NOT B15 (which is 3.Nc3 without ...dxe4).
+      eco: 'B19',
       userColor: 'b',
       desc: 'Solid like the French but with a free light-squared bishop.',
       line: ['e4', 'c6', 'd4', 'd5', 'Nc3', 'dxe4', 'Nxe4', 'Bf5', 'Ng3', 'Bg6', 'h4', 'h6'],
@@ -629,7 +631,10 @@
     renderBoard();
     var exp = expectedMoveObj();
     var want = expectedSan();
-    setStatus('Not the book move — the line goes ' + (want || '…') + '.', 'bad');
+    // The move IS legal (only legal moves reach here) — it's just not the line this
+    // drill is teaching. Frame it as "a different line", not a blunder, so a player
+    // who knows theory isn't told a sound alternative is "wrong".
+    setStatus('That’s playable — but this drill follows one line. The book continues ' + (want || '…') + '.', 'bad');
     refs.btnHint.disabled = true;
     setTimeout(function () {
       if (!state) return;
@@ -645,7 +650,7 @@
       state.lastMove = null;
       refs.btnHint.disabled = false;
       renderBoard();
-      setStatus('Try again — play ' + (want || 'the book move') + '.', 'bad');
+      setStatus('Play ' + (want || 'the book move') + ' to stay in the line.', 'bad');
     }, 900);
   }
 

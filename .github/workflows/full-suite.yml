@@ -1,0 +1,71 @@
+name: Full test suite
+
+# Runs the ENTIRE test/ suite via the aggregate runner (scripts/test-all.mjs),
+# closing the gap where ~22 test:* scripts + the previously-scriptless tests
+# never ran in CI. Two jobs:
+#   * logic   — pure-logic + real-backend tests; no Chromium needed, so it still
+#               reports even if the browser install is flaky/unavailable.
+#   * browser — installs Playwright Chromium and runs the whole suite (browser
+#               tests included).
+# The existing smoke-2v2.yml is left untouched as the focused regression guard.
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+jobs:
+  logic:
+    name: Pure-logic + real-backend suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CT_SKIP_BROWSER: '1'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+
+      - name: Install client/test deps
+        run: npm ci
+
+      - name: Install server deps
+        working-directory: server
+        run: npm ci
+
+      - name: Run full suite (browser tests skipped)
+        run: npm run test:all
+
+  browser:
+    name: Full suite incl. browser/build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+
+      - name: Install client/test deps
+        run: npm ci
+
+      - name: Install server deps
+        working-directory: server
+        run: npm ci
+
+      - name: Install Playwright Chromium (+ OS deps)
+        run: npx playwright install --with-deps chromium
+
+      - name: Run full suite (all tests)
+        run: npm run test:all

@@ -540,6 +540,33 @@ export async function removePushSub(userId, endpoint) {
   await pool.query('DELETE FROM push_subscriptions WHERE user_id = $1 AND endpoint = $2', [userId, endpoint]);
 }
 
+// Account deletion (self-serve) — async mirror of db.js. Erases PII, disables
+// login, drops the social graph; KEEPS the anonymized users row so games/season/
+// arena/leaderboard FKs stay valid (it holds no PII and is un-loginnable). Atomic
+// via a transaction so a partial purge can't leave the account half-deleted.
+export async function deleteAccountData(userId) {
+  if (!userId) return;
+  const tombEmail = 'deleted+' + userId + '@deleted.invalid';
+  const tombName = 'deleted_' + userId;
+  await transaction(async (client) => {
+    await client.query('DELETE FROM friendships WHERE user_id = $1 OR friend_id = $1', [userId]);
+    await client.query('DELETE FROM friend_requests WHERE from_id = $1 OR to_id = $1', [userId]);
+    await client.query('DELETE FROM blocks WHERE blocker_id = $1 OR blocked_id = $1', [userId]);
+    await client.query('DELETE FROM push_subscriptions WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM password_resets WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM email_verifications WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM league_members WHERE user_id = $1', [userId]);
+    await client.query(
+      `UPDATE users SET email = $1, username = $2, pw_hash = '', region = '',
+         avatar_stock = '', avatar_data_url = '', is_premium = 0, subscription_status = '',
+         stripe_customer_id = '', geo_country = '', geo_region = '',
+         token_version = COALESCE(token_version, 0) + 1
+       WHERE id = $3`,
+      [tombEmail, tombName, userId]
+    );
+  });
+}
+
 // All push subscriptions for a user (for fan-out).
 export async function listPushSubs(userId) {
   if (!userId) return [];

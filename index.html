@@ -316,7 +316,7 @@
      transition (a mobile compositor killer). 0.96 alpha reads the same visually. */
   #bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(11, 18, 32, 0.96); border-top: 1px solid var(--border); display: none; justify-content: space-around; padding: 8px 4px calc(8px + env(safe-area-inset-bottom)); max-width: 480px; margin: 0 auto; z-index: 50; }
   #bottom-nav.show { display: flex; }
-  .nav-item { flex: 1; padding: 8px 4px; text-align: center; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 600; transition: color .15s; background: none; border: 0; font-family: inherit; appearance: none; -webkit-appearance: none; }
+  .nav-item { flex: 1; min-height: 48px; padding: 8px 4px; text-align: center; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 600; transition: color .15s; background: none; border: 0; font-family: inherit; appearance: none; -webkit-appearance: none; }
   .nav-item.active { color: var(--accent); }
   .nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; border-radius: 8px; }
   .nav-item svg { width: 22px; height: 22px; margin-bottom: 2px; }
@@ -368,9 +368,45 @@
   .premium-card .pc-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .premium-badge { background: linear-gradient(135deg, var(--accent), #ffd97a); color: #1a1300; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; letter-spacing: 0.5px; }
 
+  /* LOBBY VISUAL HIERARCHY (single focal point) */
+  /* The primary Play action is the dominant element near the top. Secondary
+     feature entry-points (arena, gauntlet, openings, leagues, daily, season)
+     are demoted into a collapsed "More ways to play" group so they don't all
+     shout with the same gold accent. */
+  #lobby-more-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; color: var(--text); font-family: inherit; font-weight: 600; font-size: 14px; cursor: pointer; margin: 14px 0 0; }
+  #lobby-more-toggle:hover { border-color: rgba(245, 196, 81, .35); }
+  #lobby-more-toggle .chev { color: var(--muted); font-size: 12px; transition: transform .18s; }
+  #lobby-more-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
+  #lobby-more-list { display: none; }
+  #lobby-more-list.open { display: block; }
+  /* Demote secondary feature cards: drop the loud gold gradient/border the
+     individual cards set inline, render them as quiet neutral cards. The inline
+     styles set border/background, so override with !important to win cascade. */
+  .lobby-secondary { border: 1px solid var(--border) !important; background: var(--panel) !important; }
+  .lobby-secondary .pill.gold { background: var(--panel-2); color: var(--muted); }
+  .lobby-secondary .pc-title { font-size: 15px !important; }
+  /* Primary Play card emphasis. */
+  #card-practice { border-color: rgba(245, 196, 81, .45); box-shadow: 0 6px 22px rgba(245, 196, 81, .10); }
+
   /* RESPONSIVE */
   @media (min-width: 600px) {
     .stat .v { font-size: 24px; }
+  }
+  /* DESKTOP: stop stranding a 480px column in a sea of empty space. On wide
+     viewports let the app/screens/modals grow to a comfortable reading width and
+     let the board scale up with them (the board is width:100% + aspect-ratio:1/1,
+     so it stays square). Mobile (<900px) is completely unchanged. The bottom-nav
+     stays centered + constrained so the touch targets don't sprawl. We cap the
+     board so it never exceeds the viewport height. */
+  @media (min-width: 900px) {
+    #app { max-width: 720px; }
+    .screen { max-width: 720px; padding: 24px 28px 100px; }
+    .modal { max-width: 560px; border-radius: 20px; }
+    /* Keep the board from growing taller than the viewport (it's a square that
+       follows its width otherwise). min() of width-driven (100%) vs height-driven
+       (78vh) keeps it fully visible alongside the move list / controls. */
+    .board-wrap { max-width: min(100%, 78vh); margin-left: auto; margin-right: auto; }
+    #bottom-nav { max-width: 720px; }
   }
 
     /* === ENHANCED NAV === */
@@ -390,6 +426,7 @@
       align-items: center;
       justify-content: center;
       padding: 6px 2px 4px;
+      min-height: 48px; /* >= 44px iOS HIG touch target */
       cursor: pointer;
       border-radius: 10px;
       transition: background .15s;
@@ -624,12 +661,12 @@
         </svg>
       </div>
       <h1>ChessTrophies</h1>
-      <p>Play. Win streaks. Earn trophies.</p>
+      <p>Play the computer, solve daily puzzles, build streaks, earn trophies.</p>
     </div>
 
     <!-- Fastest path to playing: jump straight into a guest game, no account needed. -->
     <button type="button" id="btn-play-now" class="btn btn-block" style="margin-bottom:6px">▶ Play now</button>
-    <p class="muted center small" style="margin:0 0 16px">No sign-up needed — start a game in one tap.</p>
+    <p class="muted center small" style="margin:0 0 16px">No sign-up needed — start a game vs the computer in one tap. Create an account to play real people online.</p>
 
     <div class="tabs">
       <div class="tab" data-tab="login">Sign in</div>
@@ -671,7 +708,7 @@
 
             <div class="muted center small" style="margin-top:18px">or</div>
         <button type="button" id="btn-continue-guest" class="btn btn-secondary btn-block" style="margin-top:8px">Continue as guest</button>
-        <p class="muted center small" style="margin-top:6px">No sign-up. A temporary name is assigned and nothing is saved.</p>
+        <p class="muted center small" style="margin-top:6px">No sign-up. Your progress is saved on this device — create an account to keep it across devices.</p>
 
         <p class="muted center small" style="margin-top:24px">Your account is securely stored on our servers, so your rating and trophies follow you across devices.<br>Usernames are unique across every platform.</p>
     <p class="muted center small" style="margin-top:14px;font-size:11px">
@@ -730,14 +767,28 @@
          ad / premium cards so it's the first compelling thing a returning user sees. -->
     <div id="playstreak-card"></div>
 
-    <!-- Today's Challenge — opens the daily puzzle (puzzles.js). Hidden by app.js
-         when the puzzle module failed to load (graceful degrade). -->
-    <div id="lobby-season-nudge" class="card" data-act="open-season" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(250,204,21,.10), var(--panel))">
+    <!-- ===================== SECONDARY "MORE WAYS TO PLAY" =====================
+         These feature entry-points used to stack above the Play action, each with
+         the same loud gold accent, burying the primary CTA below the fold. They're
+         now demoted (neutral .lobby-secondary treatment) and collapsed into a
+         single expandable group (collapsed by default) so the lobby has ONE focal
+         point: Play (below). Each card still self-hides via its module's
+         renderLobbyCard (targeted by ID); the collapsible wrapper does not change
+         that. The toggle is wired in app.js via addEventListener (CSP: no inline
+         handlers). -->
+    <button type="button" id="lobby-more-toggle" aria-expanded="false" aria-controls="lobby-more-list">
+      <span>More ways to play</span>
+      <span class="chev" aria-hidden="true">▾</span>
+    </button>
+    <div id="lobby-more-list" role="region" aria-label="More ways to play">
+
+    <!-- Season ladder (puzzles.js / season). Hidden until a season is active. -->
+    <div id="lobby-season-nudge" class="card lobby-secondary" data-act="open-season" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(250,204,21,.10), var(--panel))">
       <div class="pc-row" style="display:flex;align-items:center;gap:12px">
         <div class="pc-icon" style="font-size:26px">🏆</div>
         <div style="flex:1;min-width:0">
-          <div class="pc-title" style="font-weight:800;font-size:16px" id="lobby-season-title">Season ladder</div>
-          <div class="muted small" style="margin-top:4px" id="lobby-season-sub">Climb the monthly ladder before it resets.</div>
+          <div class="pc-title" style="font-weight:800;font-size:16px" id="lobby-season-title">Monthly leaderboard</div>
+          <div class="muted small" style="margin-top:4px" id="lobby-season-sub">A fresh leaderboard every month — climb it before it resets on the 1st.</div>
         </div>
         <div class="pill gold">View</div>
       </div>
@@ -745,31 +796,31 @@
 
     <!-- Arena tournaments live card (rendered by ct-arena.js; hidden until it
          confirms arenas are enabled + an event exists). -->
-    <div id="lobby-arena-card" class="card" data-act="open-arena" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(250,204,21,.12), var(--panel))">
+    <div id="lobby-arena-card" class="card lobby-secondary" data-act="open-arena" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(250,204,21,.12), var(--panel))">
       <div class="pc-row" style="display:flex;align-items:center;gap:12px">
         <div class="pc-icon" style="font-size:26px">⏱️</div>
         <div style="flex:1;min-width:0">
-          <div class="pc-title" style="font-weight:800;font-size:16px" id="lobby-arena-title">Arena</div>
-          <div class="muted small" style="margin-top:4px" id="lobby-arena-sub">Join the live tournament.</div>
+          <div class="pc-title" style="font-weight:800;font-size:16px" id="lobby-arena-title">Live tournament</div>
+          <div class="muted small" style="margin-top:4px" id="lobby-arena-sub">Quick back-to-back games against a stream of opponents — climb the points board before the timer runs out.</div>
         </div>
         <div class="pill gold" id="lobby-arena-pill">Join</div>
       </div>
     </div>
 
     <!-- Bot Gauntlet lobby card (filled by ct-gauntlet.js). -->
-    <div id="lobby-gauntlet-card" class="card" data-act="open-gauntlet" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(245,196,81,.12), var(--panel))">
+    <div id="lobby-gauntlet-card" class="card lobby-secondary" data-act="open-gauntlet" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(245,196,81,.12), var(--panel))">
       <div class="pc-row" style="display:flex;align-items:center;gap:12px">
         <div class="pc-icon" style="font-size:26px">⚔️</div>
         <div style="flex:1;min-width:0">
-          <div class="pc-title" style="font-weight:800;font-size:16px" id="lobby-gauntlet-title">Bot Gauntlet</div>
-          <div class="muted small" style="margin-top:4px" id="lobby-gauntlet-sub">Climb the ladder of bots.</div>
+          <div class="pc-title" style="font-weight:800;font-size:16px" id="lobby-gauntlet-title">Beat the bots</div>
+          <div class="muted small" style="margin-top:4px" id="lobby-gauntlet-sub">A line-up of computer opponents, each one tougher than the last. How far can you get?</div>
         </div>
         <div class="pill gold" id="lobby-gauntlet-pill">Climb</div>
       </div>
     </div>
 
     <!-- Opening Trainer lobby card (filled by openings.js). -->
-    <div id="lobby-openings-card" class="card" data-act="open-openings" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
+    <div id="lobby-openings-card" class="card lobby-secondary" data-act="open-openings" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
       <div class="pc-row" style="display:flex;align-items:center;gap:12px">
         <div class="pc-icon" style="font-size:26px">📖</div>
         <div style="flex:1;min-width:0">
@@ -781,7 +832,7 @@
     </div>
 
     <!-- Friend Leagues lobby card (shown once signed in; ct-leagues.renderLobbyCard). -->
-    <div id="lobby-leagues-card" class="card" data-act="open-leagues" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
+    <div id="lobby-leagues-card" class="card lobby-secondary" data-act="open-leagues" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
       <div class="pc-row" style="display:flex;align-items:center;gap:12px">
         <div class="pc-icon" style="font-size:26px">🛡️</div>
         <div style="flex:1;min-width:0">
@@ -792,7 +843,7 @@
       </div>
     </div>
 
-    <div id="lobby-daily-card" class="card" data-act="open-daily" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
+    <div id="lobby-daily-card" class="card lobby-secondary" data-act="open-daily" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
       <div class="pc-row" style="display:flex;align-items:center;gap:12px">
         <div class="pc-icon" style="font-size:26px">🧩</div>
         <div style="flex:1;min-width:0">
@@ -803,17 +854,7 @@
       </div>
     </div>
 
-    <div id="lobby-ad-slot"></div>
-    <div class="premium-card" id="lobby-premium-card">
-      <div class="pc-row">
-        <div class="pc-icon">⭐</div>
-        <div style="flex:1">
-          <div class="pc-title">Go Premium — unlock all sets</div>
-          <div class="pc-desc" id="lobby-premium-desc">Equip every premium board &amp; piece set, hide all ads, and get a Premium badge.</div>
-        </div>
-        <div class="pill gold" id="lobby-premium-pill">$4.99/mo</div>
-      </div>
-    </div>
+    </div><!-- /#lobby-more-list -->
 
     <h2 style="margin-top:18px">Play</h2>
 
@@ -853,7 +894,7 @@
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px;flex-wrap:wrap;">
         <div>
           <div style="font-weight:700;">Computer Strength</div>
-          <div class="muted small">Set the AI's Elo rating from 100 to 2800.</div>
+          <div class="muted small">How strong the computer plays — 100 is a total beginner, 2800 is world-champion level. New here? Start low.</div>
         </div>
         <div id="practice-elo-label" class="pill gold" style="min-width:80px;text-align:center;">1200</div>
       </div>
@@ -892,7 +933,8 @@
     <!-- Collapsed stand-in for the ranked cards while ranked is OFF. app.js toggles
          this vs the full Ranked 1v1 + 2v2 sections via applyRankedGate(). -->
     <div class="card" id="lobby-more-modes" style="order:5;display:none;text-align:center;border-style:dashed">
-      <div class="muted small">More modes coming soon — ranked 1v1 &amp; 2v2 are on the way.</div>
+      <div style="font-weight:700;margin-bottom:4px">Ranked 1v1 &amp; 2v2 — coming soon</div>
+      <div class="muted small">Rated ladder play unlocks as the player base grows. For now, climb your rating vs the computer, keep your daily streak, and rack up trophies.</div>
     </div>
     </div><!-- /#chess-play-cards -->
 
@@ -900,13 +942,13 @@
     <div id="checkers-play-cards" style="display:none">
       <div class="card">
         <h3 style="margin-bottom:8px">Play online — Casual</h3>
-        <p class="muted small" style="margin:0 0 12px">Jump into a friendly checkers game against a random real opponent online. Just for fun — never affects your checkers rating or stats.</p>
+        <p class="muted small" style="margin:0 0 12px">Jump into a friendly checkers game against a random real opponent online. Just for fun — never affects your checkers rating or stats. Checkers games are untimed (no clock).</p>
         <button class="btn btn-block" id="ck-btn-find-casual">Play a casual game</button>
         <p class="muted small" style="margin:8px 0 0">Want to play a specific friend? Open the Friends tab and send a checkers challenge.</p>
       </div>
       <div class="card">
         <h3 style="margin-bottom:8px">Ranked checkers</h3>
-        <p class="muted small" style="margin:0 0 12px">Match with an opponent near your checkers rating. Counts toward your checkers ELO, wins, and streaks.</p>
+        <p class="muted small" style="margin:0 0 12px">Match with an opponent near your checkers rating. Counts toward your checkers ELO, wins, and streaks. Checkers games are untimed (no clock).</p>
         <button class="btn btn-block" id="ck-btn-find-match">Find ranked checkers opponent</button>
         <p class="muted small" style="margin:8px 0 0">Want to play a specific friend? Open the Friends tab and send a checkers challenge — friend games are always unrated.</p>
       </div>
@@ -925,6 +967,20 @@
       </div>
     </div>
 
+    <!-- Ad slot + Premium upsell. Moved below the Play action so the primary CTA
+         leads the lobby. Both self-hide for new users (renderLobby gates on
+         adsUnlocked()), so a day-1 player sees Play, not monetization. -->
+    <div id="lobby-ad-slot"></div>
+    <div class="premium-card" id="lobby-premium-card">
+      <div class="pc-row">
+        <div class="pc-icon">⭐</div>
+        <div style="flex:1">
+          <div class="pc-title">Go Premium — unlock all sets</div>
+          <div class="pc-desc" id="lobby-premium-desc">Equip every premium board &amp; piece set, hide all ads, and get a Premium badge.</div>
+        </div>
+        <div class="pill gold" id="lobby-premium-pill">$4.99/mo</div>
+      </div>
+    </div>
 
   </section>
 
@@ -1097,6 +1153,13 @@
     <div class="card row between" data-go="settings" style="cursor:pointer">
       <div style="font-weight:600">⚙️ Settings</div>
       <div class="pill">Open</div>
+    </div>
+    <!-- Danger zone: self-serve account deletion. Shown only for a signed-in
+         (non-guest) account; renderProfile toggles visibility. -->
+    <div class="card" id="profile-danger" style="display:none;border:1px solid var(--danger);background:rgba(220,60,60,.06)">
+      <div style="font-weight:700;color:var(--danger);margin-bottom:6px">Danger zone</div>
+      <div class="muted small" style="margin-bottom:10px">Permanently delete your account — your profile, ratings, and trophies are erased and you're signed out everywhere. This can't be undone.</div>
+      <button class="btn btn-ghost small" id="btn-delete-account" style="color:var(--danger);border-color:var(--danger)">Delete account</button>
     </div>
   </section>
 
@@ -1527,6 +1590,14 @@
         </div>
       </div>
     </div>
+    <!-- Play again: offline-vs-Computer games only (online games use Rematch above).
+         Keeps the core loop one tap — JS shows it + re-runs the same kind of game. -->
+    <button class="btn btn-block" id="btn-result-playagain" style="margin-top:10px;display:none">↻ Play again</button>
+    <!-- Retention bridge: routes the player into today's daily puzzle to START or
+         KEEP a streak (the streak is earned by the daily puzzle, not by games — so
+         this is how a fresh player discovers the come-back-tomorrow loop). JS shows
+         it only when today's daily puzzle is still unsolved + puzzles are available. -->
+    <button class="btn btn-block" id="btn-result-daily" style="margin-top:10px;display:none;background:linear-gradient(135deg,#f5c451,#e0a83c);border:none;color:#2a2410">🧩 Solve today’s puzzle to start a streak</button>
     <!-- Guest-only CTA after a win/trophy: guest progress is sessionStorage-only and
          is lost when the tab closes. JS shows this only for a guest who just won. -->
     <button class="btn btn-block" id="btn-result-guest-signup" style="margin-top:10px;display:none">Create an account to keep your progress</button>
@@ -1536,6 +1607,20 @@
     <button class="btn btn-block btn-secondary" id="btn-result-review" style="margin-top:10px">Review game</button>
         <button class="btn btn-block btn-ghost" id="btn-result-block" style="margin-top:8px;color:var(--danger);display:none">Block opponent</button>
         <button class="btn btn-block" id="btn-result-close" style="margin-top:14px">Done</button>
+  </div>
+</div>
+
+<!-- Account deletion confirmation: requires the password as confirmation, then
+     calls POST /api/me/delete and signs the user out. -->
+<div class="modal-overlay" id="modal-delete-account">
+  <div class="modal">
+    <div class="handle"></div>
+    <h2 style="color:var(--danger)">Delete your account?</h2>
+    <p class="muted" style="margin:6px 0 14px">This permanently erases your profile, ratings, and trophies and signs you out. It can't be undone. Enter your password to confirm.</p>
+    <input type="password" id="delete-account-pw" placeholder="Your password" autocomplete="current-password" style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--line,#2a3142);background:var(--panel-2,#1a2030);color:inherit;font-size:15px;box-sizing:border-box">
+    <div id="delete-account-err" class="small" style="color:var(--danger);min-height:18px;margin:6px 2px"></div>
+    <button class="btn btn-block" id="btn-delete-account-confirm" style="background:var(--danger);border:none">Delete forever</button>
+    <button class="btn btn-block btn-ghost" id="btn-delete-account-cancel" style="margin-top:8px">Cancel</button>
   </div>
 </div>
 

@@ -449,6 +449,29 @@
     var correct = expected && (playedUci === expected ||
       (expected.length === 4 && playedUci.slice(0, 4) === expected));
 
+    // ALTERNATIVE MATE: on the FINAL move of a MATE puzzle, accept ANY move that
+    // delivers checkmate — not only the scripted one (e.g. Qh5# and Qh1# both mate;
+    // a Q- or R-promotion can both mate). We relax this ONLY when the puzzle's own
+    // scripted last move is itself a checkmate, so non-mate puzzles (a single best
+    // move winning material, a quiet move) keep their unique required answer.
+    if (!correct && expected && window.Chess &&
+        state.stepIndex === state.puzzle.moves.length - 1) {
+      try {
+        var fenNow = state.chess.fen();
+        var tUser = new window.Chess(fenNow);
+        var userMv = tUser.move({ from: from, to: to, promotion: promo });
+        if (userMv && tUser.in_checkmate()) {
+          var tExp = new window.Chess(fenNow);
+          var expMv = tExp.move({
+            from: expected.slice(0, 2),
+            to: expected.slice(2, 4),
+            promotion: expected.length > 4 ? expected.slice(4) : undefined,
+          });
+          if (expMv && tExp.in_checkmate()) correct = true;
+        }
+      } catch (e) { /* fall through as incorrect */ }
+    }
+
     if (correct) {
       var mv = state.chess.move({ from: from, to: to, promotion: promo });
       state.lastMove = { from: from, to: to };

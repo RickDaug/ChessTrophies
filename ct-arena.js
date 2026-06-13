@@ -157,11 +157,11 @@
       var title = $('lobby-arena-title'), sub = $('lobby-arena-sub'), pill = $('lobby-arena-pill');
       if (d.live) {
         if (title) title.textContent = '⏱️ ' + d.live.name;
-        if (sub) sub.textContent = 'Live now — ' + countdownText();
+        if (sub) sub.textContent = 'Live now — quick back-to-back games, climb the points board · ' + countdownText();
         if (pill) pill.textContent = active ? 'Open' : 'Join';
       } else {
         if (title) title.textContent = '⏱️ ' + d.next.name;
-        if (sub) sub.textContent = countdownText();
+        if (sub) sub.textContent = 'Live tournament — quick back-to-back games · ' + countdownText();
         if (pill) pill.textContent = 'View';
       }
       card.style.display = '';
