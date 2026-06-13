@@ -73,3 +73,10 @@ jobs:
       # the fresh database at boot.
       - name: Postgres smoke (boot + auth + progress sync + leaderboard)
         run: node test/pg-smoke.mjs
+
+      # Run the pure-HTTP server-backed tests against Postgres too (db-pg.js
+      # transaction for account deletion, password_resets/email_verifications,
+      # ON CONFLICT in leagues, analytics aggregates, …). The runner resets the
+      # schema between tests. All six verified passing on real PG locally.
+      - name: Postgres — pure-HTTP suite (account/auth/challenges/leagues/analytics)
+        run: node test/pg-run.mjs

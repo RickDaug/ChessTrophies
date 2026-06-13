@@ -50,6 +50,7 @@
     "test:client-errors": "node test/client-errors.mjs",
     "test:db-parity": "node test/db-parity.mjs",
     "test:pg-smoke": "node test/pg-smoke.mjs",
+    "test:pg-run": "node test/pg-run.mjs",
     "test:auth-recovery": "node test/auth-recovery.mjs",
     "test:account-deletion": "node test/account-deletion.mjs",
     "test:account-deletion-ui": "node test/account-deletion-ui.mjs",
