@@ -1140,18 +1140,30 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
       if (offSock) io.sockets.sockets.get(offSock)?.emit('rematch_declined', { gameId });
     });
 
-    socket.on('chat', ({ gameId, text }) => {
+    socket.on('chat', ({ gameId, text, lang, name }) => {
       const uid = socket.data.userId; if (!uid) return;
       if (!consumeBucket(chatBuckets, uid, 5, 1)) {
         socket.emit('rate_limited', { event: 'chat', retryInMs: 1000 });
         return;
       }
       const game = activeGames.get(gameId); if (!game) return;
+      // Only the two players in THIS game may post to its room (the sender doesn't
+      // have to be in the socket room to emit to it, so guard explicitly).
+      if (game.white !== uid && game.black !== uid) return;
       if (typeof text !== 'string' || text.length > 200) return;
       const cleanText = text.replace(/[\u0000-\u001F\u007F<>]/g, '');
+      if (!cleanText) return;
+      // Sender's UI language (ISO code) so the recipient can auto-translate, and a
+      // display name so the bubble renders without a DB lookup. Both are client-
+      // provided display data → sanitized, low-trust (the authoritative id is uid).
+      const cleanLang = (typeof lang === 'string' ? lang : '').replace(/[^a-zA-Z-]/g, '').slice(0, 8);
+      const cleanName = (typeof name === 'string' ? name : '').replace(/[\x00-\x1f\x7f<>]/g, '').slice(0, 40);
       io.to(gameId).emit('chat', {
+        gameId,
         from: uid,
+        name: cleanName,
         text: cleanText,
+        lang: cleanLang,
         at: Date.now()
       });
     });

@@ -144,6 +144,9 @@ const RL_DISABLED = process.env.LOAD_TEST_NO_RATELIMIT === '1';
 if (RL_DISABLED) console.warn('[ratelimit] DISABLED via LOAD_TEST_NO_RATELIMIT — do NOT use in production');
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many auth attempts. Please try again later.' } });
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many requests. Please slow down.' } });
+// Chat auto-translation proxies to an upstream (LibreTranslate); cap it tighter
+// than the general API so a flood of chat can't hammer the upstream / our egress.
+const translateLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many translation requests. Please slow down.' } });
 
 app.disable('x-powered-by');
 // Behind Railway's (single) reverse proxy: trust the first hop so req.ip and the
@@ -817,6 +820,43 @@ app.post('/api/progress', requireAuth, async (req, res, next) => {
     const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles, showcase, achievements, streakTrophies, trophyPoints, themeBoard, themePieces, language });
     res.json(result);
   } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+// CHAT AUTO-TRANSLATION — server-side proxy to a LibreTranslate instance so the
+// upstream URL/key stay server-side (no CORS, cacheable, abuse-limited). ENV-GATED:
+// inert until LIBRETRANSLATE_URL is set, in which case it returns the text
+// UNCHANGED with { translated:false, disabled:true } so the chat just shows the
+// original — the feature degrades gracefully instead of erroring. Auth-gated
+// (chat is between signed-in players) + its own tight rate limit.
+//   POST /api/translate { q, source?, target } -> { translatedText, translated, ... }
+app.post('/api/translate', translateLimiter, requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const q = typeof body.q === 'string' ? body.q : '';
+    const target = typeof body.target === 'string' ? body.target.replace(/[^a-zA-Z-]/g, '').slice(0, 8) : '';
+    const source = (typeof body.source === 'string' && body.source) ? body.source.replace(/[^a-zA-Z-]/g, '').slice(0, 8) : 'auto';
+    if (!q.trim() || !target) return res.status(400).json({ error: 'q and target are required.' });
+    if (q.length > 500) return res.status(400).json({ error: 'Text too long (max 500 chars).' });
+    // Nothing to do when the source equals the target (or when there's no upstream).
+    if (source !== 'auto' && source === target) return res.json({ translatedText: q, translated: false });
+    const url = process.env.LIBRETRANSLATE_URL;
+    if (!url) return res.json({ translatedText: q, translated: false, disabled: true });
+    const payload = { q, source, target, format: 'text' };
+    if (process.env.LIBRETRANSLATE_API_KEY) payload.api_key = process.env.LIBRETRANSLATE_API_KEY;
+    const r = await fetch(url.replace(/\/+$/, '') + '/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) return res.json({ translatedText: q, translated: false, error: 'upstream' });
+    const j = await r.json().catch(() => ({}));
+    const out = (j && typeof j.translatedText === 'string') ? j.translatedText : q;
+    return res.json({ translatedText: out, translated: out !== q, detected: j && j.detectedLanguage });
+  } catch (e) {
+    // Never fail the chat over a translation hiccup — return the original text.
+    return res.json({ translatedText: (req.body && req.body.q) || '', translated: false, error: 'fail' });
+  }
 });
 
 // Guest sessions: assign a goofy display name unique among active guests.
