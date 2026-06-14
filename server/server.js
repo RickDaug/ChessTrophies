@@ -808,7 +808,13 @@ app.post('/api/progress', requireAuth, async (req, res, next) => {
       if (typeof body.themePieces !== 'string') throw new Error('themePieces must be a string.');
       themePieces = body.themePieces.slice(0, 32);
     }
-    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles, showcase, achievements, streakTrophies, trophyPoints, themeBoard, themePieces });
+    // Preferred UI language (short ISO code) — follows the account across devices.
+    let language;
+    if (body.language !== undefined) {
+      if (typeof body.language !== 'string') throw new Error('language must be a string.');
+      language = body.language.slice(0, 8);
+    }
+    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles, showcase, achievements, streakTrophies, trophyPoints, themeBoard, themePieces, language });
     res.json(result);
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });

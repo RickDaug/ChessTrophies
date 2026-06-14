@@ -93,7 +93,7 @@ function parseScripts(html) {
 
 async function minifyFile(file, outName = file) {
   const src = await fsp.readFile(path.join(ROOT, file), 'utf8');
-  const res = await esbuild.transform(src, { minify: true, loader: 'js', legalComments: 'none' });
+  const res = await esbuild.transform(src, { minify: true, loader: 'js', legalComments: 'none', charset: 'utf8' });
   await fsp.writeFile(path.join(DIST, outName), res.code, 'utf8');
   return { in: Buffer.byteLength(src), out: Buffer.byteLength(res.code) };
 }
@@ -150,7 +150,7 @@ async function main() {
       // safety to avoid any ASI edge between concatenated files.
       parts.push('/*' + f + '*/\n' + s + '\n;');
     }
-    const res = await esbuild.transform(parts.join('\n'), { minify: true, loader: 'js', legalComments: 'none' });
+    const res = await esbuild.transform(parts.join('\n'), { minify: true, loader: 'js', legalComments: 'none', charset: 'utf8' });
     await fsp.writeFile(path.join(DIST, 'app.bundle.js'), res.code, 'utf8');
     bundleReport = { name: 'app.bundle.js', in: rawTotal, out: Buffer.byteLength(res.code), kind: 'BUNDLE (tail x5)' };
   }
@@ -311,7 +311,7 @@ async function rewriteServiceWorker() {
     .replace(/const\s+CACHE\s*=\s*['"][^'"]*['"];/, `const CACHE = ${stampedCache};`)
     .replace(/const\s+ASSETS\s*=\s*\[[\s\S]*?\];/, assetsLiteral);
 
-  const res = await esbuild.transform(out, { minify: true, loader: 'js', legalComments: 'none' });
+  const res = await esbuild.transform(out, { minify: true, loader: 'js', legalComments: 'none', charset: 'utf8' });
   await fsp.writeFile(path.join(DIST, 'sw.js'), res.code, 'utf8');
   log('');
   log(`service worker: CACHE=chesstrophies-${STAMP}, ${assets.length} precache assets:`);

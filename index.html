@@ -661,56 +661,64 @@
         </svg>
       </div>
       <h1>ChessTrophies</h1>
-      <p>Play the computer, solve daily puzzles, build streaks, earn trophies.</p>
+      <p data-i18n="auth.tagline">Play the computer, solve daily puzzles, build streaks, earn trophies.</p>
+    </div>
+
+    <!-- Language picker — sets the whole UI language live (stored on the account
+         at sign-up so it follows you across devices). The ChessTrophies /
+         playchesstrophies.com brand name always stays in English. -->
+    <div class="auth-lang-row" style="display:flex;align-items:center;justify-content:center;gap:8px;margin:0 0 14px">
+      <label for="signup-language" class="muted small" style="margin:0" data-i18n="auth.languageLabel">Language</label>
+      <select id="signup-language" aria-label="Language" style="padding:6px 10px;border-radius:8px;background:var(--panel-2,#141d2b);color:var(--text);border:1px solid var(--border)"></select>
     </div>
 
     <!-- Fastest path to playing: jump straight into a guest game, no account needed. -->
-    <button type="button" id="btn-play-now" class="btn btn-block" style="margin-bottom:6px">▶ Play now</button>
-    <p class="muted center small" style="margin:0 0 16px">No sign-up needed — start a game vs the computer in one tap. Create an account to play real people online.</p>
+    <button type="button" id="btn-play-now" class="btn btn-block" style="margin-bottom:6px" data-i18n="auth.playNow">▶ Play now</button>
+    <p class="muted center small" style="margin:0 0 16px" data-i18n="auth.playNowHint">No sign-up needed — start a game vs the computer in one tap. Create an account to play real people online.</p>
 
     <div class="tabs">
-      <div class="tab" data-tab="login">Sign in</div>
-      <div class="tab active" data-tab="signup">Create account</div>
+      <div class="tab" data-tab="login" data-i18n="auth.tabSignIn">Sign in</div>
+      <div class="tab active" data-tab="signup" data-i18n="auth.tabCreate">Create account</div>
     </div>
 
     <form id="form-login" class="auth-form" style="display:none">
-      <label for="login-email">Email or username</label>
-      <input type="text" id="login-email" autocomplete="username" placeholder="Email or username" required>
-      <label for="login-password">Password</label>
+      <label for="login-email" data-i18n="auth.emailOrUsername">Email or username</label>
+      <input type="text" id="login-email" autocomplete="username" placeholder="Email or username" data-i18n-ph="auth.emailOrUsername" required>
+      <label for="login-password" data-i18n="auth.password">Password</label>
       <input type="password" id="login-password" autocomplete="current-password" required>
       <div class="error" id="login-error"></div>
-      <button type="submit" class="btn btn-block" style="margin-top:14px">Sign in</button>
+      <button type="submit" class="btn btn-block" style="margin-top:14px" data-i18n="auth.signInBtn">Sign in</button>
       <p class="center small" style="margin-top:10px">
-        <a href="#" id="link-forgot-password" style="color:var(--accent)">Forgot password?</a>
+        <a href="#" id="link-forgot-password" style="color:var(--accent)" data-i18n="auth.forgotPassword">Forgot password?</a>
       </p>
     </form>
 
     <form id="form-signup" class="auth-form">
-      <label for="signup-username">Username</label>
+      <label for="signup-username" data-i18n="auth.username">Username</label>
       <input type="text" id="signup-username" autocomplete="username" required minlength="3" maxlength="20">
-      <label for="signup-email">Email</label>
+      <label for="signup-email" data-i18n="auth.email">Email</label>
       <input type="email" id="signup-email" autocomplete="email" required>
-      <label for="signup-password">Password</label>
+      <label for="signup-password" data-i18n="auth.password">Password</label>
       <input type="password" id="signup-password" autocomplete="new-password" required minlength="6">
-      <label for="signup-region">Region (city, country) <span class="muted" style="font-weight:400">— optional</span></label>
-      <input type="text" id="signup-region" placeholder="Optional — e.g. Austin, USA">
-      <label for="signup-skill">Skill level (sets your starting rating) <span class="muted" style="font-weight:400">— optional</span></label>
+      <label for="signup-region"><span data-i18n="auth.regionLabel">Region (city, country)</span> <span class="muted" style="font-weight:400" data-i18n="auth.optionalDash">— optional</span></label>
+      <input type="text" id="signup-region" placeholder="Optional — e.g. Austin, USA" data-i18n-ph="auth.regionPlaceholder">
+      <label for="signup-skill"><span data-i18n="auth.skillLabel">Skill level (sets your starting rating)</span> <span class="muted" style="font-weight:400" data-i18n="auth.optionalDash">— optional</span></label>
         <select id="signup-skill">
-          <option value="400">New to chess – 400</option>
-          <option value="800" selected>Beginner – 800</option>
-          <option value="1200">Intermediate – 1200</option>
-          <option value="1600">Advanced – 1600</option>
+          <option value="400" data-i18n="auth.skillNew">New to chess – 400</option>
+          <option value="800" selected data-i18n="auth.skillBeginner">Beginner – 800</option>
+          <option value="1200" data-i18n="auth.skillIntermediate">Intermediate – 1200</option>
+          <option value="1600" data-i18n="auth.skillAdvanced">Advanced – 1600</option>
         </select>
-        <p class="muted small" style="margin:6px 0 0;font-size:11px">ELO is your chess rating — higher means stronger. New players usually start around 400–800. You can leave this — we default to Beginner.</p>
+        <p class="muted small" style="margin:6px 0 0;font-size:11px" data-i18n="auth.eloHelp">ELO is your chess rating — higher means stronger. New players usually start around 400–800. You can leave this — we default to Beginner.</p>
         <div class="error" id="signup-error"></div>
-      <button type="submit" class="btn btn-block" style="margin-top:14px">Create account</button>
+      <button type="submit" class="btn btn-block" style="margin-top:14px" data-i18n="auth.createBtn">Create account</button>
     </form>
 
-            <div class="muted center small" style="margin-top:18px">or</div>
-        <button type="button" id="btn-continue-guest" class="btn btn-secondary btn-block" style="margin-top:8px">Continue as guest</button>
-        <p class="muted center small" style="margin-top:6px">No sign-up. Your progress is saved on this device — create an account to keep it across devices.</p>
+            <div class="muted center small" style="margin-top:18px" data-i18n="auth.or">or</div>
+        <button type="button" id="btn-continue-guest" class="btn btn-secondary btn-block" style="margin-top:8px" data-i18n="auth.continueGuest">Continue as guest</button>
+        <p class="muted center small" style="margin-top:6px" data-i18n="auth.guestHint">No sign-up. Your progress is saved on this device — create an account to keep it across devices.</p>
 
-        <p class="muted center small" style="margin-top:24px">Your account is securely stored on our servers, so your rating and trophies follow you across devices.<br>Usernames are unique across every platform.</p>
+        <p class="muted center small" style="margin-top:24px" data-i18n="auth.crossDevice">Your account is securely stored on our servers, so your rating and trophies follow you across devices. Usernames are unique across every platform.</p>
     <p class="muted center small" style="margin-top:14px;font-size:11px">
       By signing up you agree to our
       <a href="terms.html" style="color:var(--accent)">Terms</a> and
@@ -1349,34 +1357,41 @@
 
   <!-- SETTINGS -->
   <section id="screen-settings" class="screen">
-      <div class="top-bar"><h1>Settings</h1></div>
+      <div class="top-bar"><h1 data-i18n="settings.title">Settings</h1></div>
       <div style="padding:12px 16px;padding-bottom:80px;">
 
         <!-- APPEARANCE -->
         <div class="settings-section">
-          <h3>🎨 Appearance</h3>
-          <h4 style="font-size:12px;color:var(--text);margin:0 0 8px;font-weight:500;">Board Theme</h4>
+          <h3 data-i18n="settings.appearance">🎨 Appearance</h3>
+          <h4 style="font-size:12px;color:var(--text);margin:0 0 8px;font-weight:500;" data-i18n="settings.boardTheme">Board Theme</h4>
           <div class="theme-grid" id="settings-boards"></div>
-          <h4 style="font-size:12px;color:var(--text);margin:14px 0 8px;font-weight:500;">Piece Style</h4>
+          <h4 style="font-size:12px;color:var(--text);margin:14px 0 8px;font-weight:500;" data-i18n="settings.pieceStyle">Piece Style</h4>
           <div class="theme-grid" id="settings-pieces"></div>
+        </div>
+
+        <!-- LANGUAGE -->
+        <div class="settings-section">
+          <h3 data-i18n="settings.language">🌍 Language</h3>
+          <select id="settings-language" aria-label="Language" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;"></select>
+          <p class="muted small" style="margin:8px 0 0;font-size:11px" data-i18n="settings.languageHint">Choose your language. Chat with players in other languages still works — the playchesstrophies.com brand name always stays in English.</p>
         </div>
 
         <!-- PROFILE PERSONALIZATION -->
         <div class="settings-section">
-          <h3>👤 Profile</h3>
-          <button id="btn-open-avatar-editor" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:8px;">
+          <h3 data-i18n="settings.profile">👤 Profile</h3>
+          <button id="btn-open-avatar-editor" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:8px;" data-i18n="settings.changePic">
             🖼️ &nbsp; Change Profile Picture
           </button>
-          <button id="btn-view-profile" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;">
+          <button id="btn-view-profile" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;" data-i18n="settings.viewProfile">
             ✏️ &nbsp; View My Profile
           </button>
         </div>
 
         <!-- NOTIFICATIONS (placeholder) -->
         <div class="settings-section">
-          <h3>🔔 Notifications</h3>
+          <h3 data-i18n="settings.notifications">🔔 Notifications</h3>
           <div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;">
-            <span style="font-size:14px;color:var(--text);">Game sounds</span>
+            <span style="font-size:14px;color:var(--text);" data-i18n="settings.gameSounds">Game sounds</span>
             <label style="position:relative;display:inline-block;width:42px;height:24px;">
               <input type="checkbox" id="toggle-sounds" checked style="opacity:0;width:0;height:0;">
               <span id="toggle-sounds-track" style="position:absolute;cursor:pointer;inset:0;background:var(--accent);border-radius:24px;transition:.2s;"></span>
@@ -1387,12 +1402,12 @@
 
         <!-- ACCOUNT -->
         <div class="settings-section">
-          <h3>⚙️ Account</h3>
-          <p class="muted small" style="margin-bottom:10px;">Your theme is saved to your profile — it stays the same every time you sign in on this device.</p>
-          <button id="btn-change-password" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:8px;">
+          <h3 data-i18n="settings.account">⚙️ Account</h3>
+          <p class="muted small" style="margin-bottom:10px;" data-i18n="settings.themeSavedNote">Your theme is saved to your profile — it stays the same every time you sign in on this device.</p>
+          <button id="btn-change-password" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:8px;" data-i18n="settings.changePassword">
             🔑 &nbsp; Change Password
           </button>
-          <button id="btn-sign-out" style="width:100%;padding:11px;background:#8b2020;border:none;border-radius:10px;color:#fff;font-size:14px;cursor:pointer;font-weight:600;">Sign Out</button>
+          <button id="btn-sign-out" style="width:100%;padding:11px;background:#8b2020;border:none;border-radius:10px;color:#fff;font-size:14px;cursor:pointer;font-weight:600;" data-i18n="settings.signOut">Sign Out</button>
         </div>
 
         <!-- SUBSCRIPTION (shown only when Stripe billing is live) -->
@@ -1437,23 +1452,23 @@
     <nav id="bottom-nav" aria-label="Primary">
       <button type="button" class="nav-item active" data-nav="lobby" aria-current="page">
         <span class="nav-icon" aria-hidden="true">♟</span>
-        <span class="nav-label">Play</span>
+        <span class="nav-label" data-i18n="nav.play">Play</span>
       </button>
       <button type="button" class="nav-item" data-nav="puzzles" id="nav-puzzles">
         <span class="nav-icon" aria-hidden="true">🧩</span>
-        <span class="nav-label">Puzzles</span>
+        <span class="nav-label" data-i18n="nav.puzzles">Puzzles</span>
       </button>
       <button type="button" class="nav-item" data-nav="trophies">
         <span class="nav-icon" aria-hidden="true">🏆</span>
-        <span class="nav-label">Trophies</span>
+        <span class="nav-label" data-i18n="nav.trophies">Trophies</span>
       </button>
       <button type="button" class="nav-item" data-nav="rankings">
         <span class="nav-icon" aria-hidden="true">🏅</span>
-        <span class="nav-label">Rankings</span>
+        <span class="nav-label" data-i18n="nav.rankings">Rankings</span>
       </button>
       <button type="button" class="nav-item" data-nav="profile">
         <span class="nav-icon" aria-hidden="true">👤</span>
-        <span class="nav-label">Profile</span>
+        <span class="nav-label" data-i18n="nav.profile">Profile</span>
       </button>
 </nav>
 </div>
@@ -1862,6 +1877,9 @@
      IIFEs (e.g. ct-auth before app, checkers before its UI). The head boot/onerror
      tags stay synchronous on purpose. -->
 <!-- chess.js (move validation, check/mate detection) -->
+<!-- i18n must load before app.js (and ideally first) so the UI is translated
+     at first paint and window.CT_i18n is available to every later script. -->
+<script defer src="i18n.js?v=20260614a"></script>
 <script defer src="ct-chess-check.js?v=20260606c"></script>
 <script defer src="chess.min.js?v=20260530m"></script>
 <script defer src="chess960.js?v=20260606b"></script>

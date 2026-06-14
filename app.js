@@ -1286,6 +1286,15 @@
       );
       setSession(Object.assign({}, getSession(), { userId: u.id }));
       state.user = u;
+      // i18n: persist the language the visitor picked on the welcome screen onto
+      // the brand-new account so it follows them across devices (synced below).
+      try {
+        if (window.CT_i18n) {
+          u.language = window.CT_i18n.getLang();
+          const _db = loadDB();
+          if (_db.users[u.id]) { _db.users[u.id] = u; saveDB(_db); }
+        }
+      } catch (e) {}
       // Analytics: a successful account creation.
       try { window.CT_Analytics && window.CT_Analytics.track('signup', { wasGuest: _wasGuest }); } catch (e) {}
       toast('Welcome, ' + u.username + ' 👑', true);
@@ -3323,6 +3332,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // Board/piece appearance theme — follows the account across devices.
       themeBoard: (state.user && state.user.themeBoard) || 'walnut',
       themePieces: (state.user && state.user.themePieces) || 'classic',
+      // Preferred UI language — follows the account across devices (like the theme).
+      language: (state.user && state.user.language) || (window.CT_i18n && window.CT_i18n.getLang()) || 'en',
     };
   }
 
@@ -3390,6 +3401,17 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         try { if (window.CT_applyThemes) window.CT_applyThemes(nb, np); } catch (e) {}
         try { if (window.CT_renderSettings && document.getElementById('screen-settings').classList.contains('active')) window.CT_renderSettings(); } catch (e) {}
       }
+    }
+    // Preferred UI language: adopt the account's server-stored choice (set on
+    // another device). The login GET carries the latest saved value; a POST
+    // echoes what we just sent (a no-op). Apply live so the UI re-translates.
+    if (state.user && typeof p.language === 'string' && p.language && window.CT_i18n && window.CT_i18n.supported(p.language)) {
+      if (p.language !== state.user.language) {
+        state.user.language = p.language;
+        const db = loadDB();
+        if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
+      }
+      try { window.CT_i18n.setLang(p.language); } catch (e) {}
     }
     // Refresh any visible rank/academy UI now that counts may have grown.
     try { if (window.CT_renderAcademy && document.getElementById('screen-academy').classList.contains('active')) window.CT_renderAcademy(); } catch (e) {}
@@ -6100,6 +6122,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Fresh (re)entry — reset the one-shot auth-expiry guard so a future token
     // expiry can prompt again.
     state._authExpiredHandled = false;
+    // Adopt the signed-in user's saved UI language (covers an offline returning
+    // user whose choice lives only on their local profile). A cross-device login
+    // also re-applies it via applyServerProgress.
+    try { if (window.CT_i18n && state.user && state.user.language) window.CT_i18n.setLang(state.user.language); } catch (e) {}
     showNav(true);
     showScreen('lobby');
     // Native AdMob banner: shown for free users, suppressed for premium. No-op on web.
@@ -6113,6 +6139,34 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Reconcile premium from Stripe (self-healing; best-effort, async).
     syncPremiumFromStripe();
   }
+  // i18n: wire the welcome-screen language <select>. Changing it switches the UI
+  // language immediately (stored in localStorage by CT_i18n) for guests AND
+  // pre-account visitors; sign-up then copies the choice onto the new account so
+  // it follows the user across devices.
+  function initLanguageUI() {
+    try {
+      if (!window.CT_i18n) return;
+      const sel = document.getElementById('signup-language');
+      if (!sel) return;
+      window.CT_i18n.fillSelect(sel, window.CT_i18n.getLang());
+      sel.addEventListener('change', function () {
+        window.CT_i18n.setLang(sel.value);
+        // If a user is signed in, persist + sync the choice to their account.
+        if (state.user && !state.user.isGuest) {
+          state.user.language = window.CT_i18n.getLang();
+          const db = loadDB();
+          if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
+          try { if (window.CT_syncProgress) window.CT_syncProgress(); } catch (e) {}
+        }
+      });
+      // Keep both pickers (welcome + settings) in step when language changes anywhere.
+      window.addEventListener('ct:langchange', function () {
+        try { window.CT_i18n.fillSelect(sel, window.CT_i18n.getLang()); } catch (e) {}
+        try { if (window.CT_renderSettings && document.getElementById('screen-settings') && document.getElementById('screen-settings').classList.contains('active')) window.CT_renderSettings(); } catch (e) {}
+      });
+    } catch (e) {}
+  }
+
   // Clear the boot splash marker (ct-boot.js) once we've decided what to show, so
   // the splash hides and normal screen control resumes.
   function doneBoot() {
@@ -6159,6 +6213,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     };
     if (document.readyState === 'loading' || !window.CT_Push) document.addEventListener('DOMContentLoaded', initPushSafe, { once: true });
     else initPushSafe();
+    // i18n: populate the welcome-screen language picker + switch the whole UI
+    // live when it changes (the choice is stored on the account at sign-up). The
+    // ChessTrophies / playchesstrophies.com brand name always stays in English.
+    initLanguageUI();
     const session = getSession();
     const db = loadDB();
     if (session && (session.userId || session.token)) {

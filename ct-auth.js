@@ -251,6 +251,9 @@
       lessonsCompleted: [],
       themeBoard: 'walnut',
       themePieces: 'classic',
+      // Preferred UI language (ISO code). Defaults to whatever the visitor has
+      // already selected on this device, else English. Synced via /api/progress.
+      language: (typeof window !== 'undefined' && window.CT_i18n && window.CT_i18n.getLang && window.CT_i18n.getLang()) || 'en',
       isPremium: false,    // ads hidden when true (set via Upgrade flow)
       premiumSince: null,
       // Trophy tracking flags (counters consumed by Hidden + Oops trophies)

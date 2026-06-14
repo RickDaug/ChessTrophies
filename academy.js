@@ -823,6 +823,26 @@
         renderSettings();
       });
     });
+    // Language picker — switches the whole UI live + follows the account across
+    // devices (same loadDB -> assign -> saveDB -> syncProgress pattern as themes).
+    const langSel = document.getElementById('settings-language');
+    if (langSel && window.CT_i18n) {
+      window.CT_i18n.fillSelect(langSel, u.language || window.CT_i18n.getLang());
+      if (!langSel._ctBound) {
+        langSel._ctBound = true;
+        langSel.addEventListener('change', () => {
+          const code = langSel.value;
+          window.CT_i18n.setLang(code);
+          u.language = window.CT_i18n.getLang();
+          const db = CT.loadDB();
+          db.users[u.id] = u;
+          CT.saveDB(db);
+          if (window.CT_syncProgress) window.CT_syncProgress(); // follow the account across devices
+          try { if (window.CT && typeof CT.toast === 'function') CT.toast(window.CT_i18n.t('toast.langChanged'), true); } catch (e) {}
+          renderSettings();
+        });
+      }
+    }
   }
   function renderPiecePreview(type, color, theme) {
     const fill = color === 'w' ? theme.lightFill : theme.darkFill;
