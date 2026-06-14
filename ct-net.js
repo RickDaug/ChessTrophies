@@ -134,6 +134,10 @@
     socket.on('challenge_declined', function (data) { emit('challengeDeclined', data); });
     socket.on('challenge_cancelled', function (data) { emit('challengeCancelled', data); });
 
+    // In-game CHAT: the server broadcasts to everyone in the game room (including
+    // the sender's own echo). Payload: { gameId, from, name, text, lang, at }.
+    socket.on('chat', function (data) { emit('chat', data); });
+
     socket.on('friend_request', function (data) { emit('friendRequest', data); });
     socket.on('friend_accepted', function (data) { emit('friendAccepted', data); });
 
@@ -212,6 +216,16 @@
   function resign(gameId) {
     if (!ready) return false;
     socket.emit('resign', { gameId: gameId });
+    return true;
+  }
+
+  // In-game chat: send a message to the opponent in this game. `lang` is the
+  // sender's UI language and `name` their display name (so the recipient can
+  // auto-translate + render without a lookup). The server echoes it back to the
+  // whole room, so the sender renders from the echo too (single source of truth).
+  function sendChat(gameId, text, lang, name) {
+    if (!ready) return false;
+    socket.emit('chat', { gameId: gameId, text: text, lang: lang || '', name: name || '' });
     return true;
   }
 
@@ -348,6 +362,7 @@
     leaveArena: leaveArena,
     sendMove: sendMove,
     resign: resign,
+    sendChat: sendChat,
     // checkers (additive)
     joinCheckersQueue: joinCheckersQueue,
     leaveCheckersQueue: leaveCheckersQueue,

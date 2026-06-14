@@ -3013,6 +3013,10 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     rematchState.eligible = true; // online 1v1 match -> rematch allowed
     state._forceColor = iAmWhite ? 'w' : 'b';
     toast('Matched with ' + state.opponent.username + ' (ELO ' + state.opponent.elo + ')', true);
+    // In-game chat button (networked + auto-translated). Points at this game's room
+    // so messages reach the opponent. The lobby render restores the lobby chat
+    // button after the game ends.
+    try { addChatButton(state.gameId, '💬 ' + state.opponent.username); } catch (e) {}
     state.tc = data.tc || null;
     startGame(data.mode === 'ranked' ? 'ranked' : 'unranked');
     state._forceColor = null;
@@ -3090,6 +3094,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Capture the finished game's id so the rematch button can reference it after
     // state.gameId is cleared below. eligible was set when this 1v1 match started.
     rematchState.gameId = state.gameId;
+    // Keep chat networked to this game for a short post-game window so "gg" on the
+    // result screen still reaches the opponent (mirrors the server's recentGames TTL).
+    if (state.gameId) { chatState.postGameId = state.gameId; chatState.postGameUntil = Date.now() + POST_GAME_CHAT_MS; }
     const me = state.user;
     let winnerColor = null;
     if (data.winnerId) {
@@ -3221,6 +3228,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       window.CTNet.on('moveMade', handleServerMoveMade);
       window.CTNet.on('illegalMove', handleServerIllegalMove);
       window.CTNet.on('gameOver', handleServerGameOver);
+      window.CTNet.on('chat', handleIncomingChat);
       window.CTNet.on('rateLimited', (d) => toast('Slow down (' + (d && d.event) + ')'));
       // Arena tournaments: forward join/leave acks + errors to CT_Arena.
       window.CTNet.on('arenaJoined', (d) => {
@@ -6471,7 +6479,14 @@ function ctSyncAvatar(u) {
 const chatState = {
   messages: {},  // roomId -> [{sender, text, ts}]
   activeRoom: null,
+  // Post-game "gg" window: after an online game ends, its room id stays networked
+  // for a short window (matches the server's RECENT_GAME_TTL_MS) so messages still
+  // reach the opponent on the result screen.
+  postGameId: null,
+  postGameUntil: 0,
 };
+// Keep this in step with server/game.js RECENT_GAME_TTL_MS (120s).
+const POST_GAME_CHAT_MS = 120000;
 
 function getChatMessages(roomId) {
   try {
@@ -6488,6 +6503,70 @@ function saveChatMessages(roomId, messages) {
   } catch(e) {}
 }
 
+// A chat room is "online" (networked through the socket) when it's the current
+// server game OR a just-finished game still inside the post-game "gg" window.
+// Other rooms (lobby, pass-and-play) stay local/localStorage-only.
+function isOnlineChatRoom(roomId) {
+  if (state.isOnline && state.gameId && roomId === state.gameId) return true;
+  if (roomId && chatState.postGameId === roomId && Date.now() < chatState.postGameUntil) return true;
+  return false;
+}
+
+// In-memory translation cache: 'source|target|text' -> translated string (or null
+// when no translation is available, so we don't re-ask the server every render).
+const _ctTranslateCache = Object.create(null);
+function ctTranslate(text, source, target) {
+  return new Promise(function (resolve) {
+    if (!text || !target || !source || source === target) return resolve(null);
+    const key = source + '|' + target + '|' + text;
+    if (Object.prototype.hasOwnProperty.call(_ctTranslateCache, key)) return resolve(_ctTranslateCache[key]);
+    api('/api/translate', { method: 'POST', body: JSON.stringify({ q: text, source: source, target: target }) })
+      .then(function (r) {
+        const out = (r && r.translated && typeof r.translatedText === 'string') ? r.translatedText : null;
+        _ctTranslateCache[key] = out;
+        resolve(out);
+      })
+      .catch(function () { _ctTranslateCache[key] = null; resolve(null); });
+  });
+}
+
+// Incoming chat from the socket (server echoes every message to the whole game
+// room, INCLUDING the sender's own message). Payload: { gameId, from, name, text,
+// lang, at }. We store it (dedup on sender+ts+text so an echo can't double-add),
+// auto-translate foreign-language messages to the player's UI language, and render.
+function handleIncomingChat(data) {
+  if (!data || !data.from) return;
+  const roomId = data.gameId || state.gameId;
+  if (!roomId) return;
+  const myId = state.user && state.user.id;
+  const msg = { sender: String(data.name || ''), senderId: data.from, text: String(data.text || ''), lang: String(data.lang || ''), ts: data.at || Date.now() };
+  if (!msg.text) return;
+  const msgs = getChatMessages(roomId);
+  const dup = msgs.some(function (m) { return m.senderId === msg.senderId && m.ts === msg.ts && m.text === msg.text; });
+  if (!dup) { msgs.push(msg); saveChatMessages(roomId, msgs); }
+  if (chatState.activeRoom === roomId && document.getElementById('ct-chat-box')) renderChat(roomId);
+  else if (data.from !== myId) pulseChatFab();
+  // Auto-translate the opponent's message into my language (best-effort; the chat
+  // shows the original if translation is unavailable/disabled).
+  const myLang = (window.CT_i18n && window.CT_i18n.getLang && window.CT_i18n.getLang()) || 'en';
+  if (data.from !== myId && msg.lang && msg.lang !== myLang) {
+    ctTranslate(msg.text, msg.lang, myLang).then(function (tr) {
+      if (!tr || tr === msg.text) return;
+      const cur = getChatMessages(roomId);
+      for (let i = cur.length - 1; i >= 0; i--) {
+        if (cur[i].senderId === msg.senderId && cur[i].ts === msg.ts && cur[i].text === msg.text) { cur[i].translated = tr; break; }
+      }
+      saveChatMessages(roomId, cur);
+      if (chatState.activeRoom === roomId) renderChat(roomId);
+    });
+  }
+}
+
+function pulseChatFab() {
+  const fab = document.getElementById('ct-chat-fab');
+  if (fab) fab.classList.add('ct-chat-fab-pulse');
+}
+
 function sendChatMessage(roomId, text) {
   if (!roomId || !text || !text.trim()) return;
   const user = state.user;
@@ -6496,6 +6575,16 @@ function sendChatMessage(roomId, text) {
   // trust escape-at-write and never risk double-escaping.
   const clean = text.trim().substring(0, 500);
   if (!clean) return;
+  // Online game room: send over the socket, tagged with my UI language + name so
+  // the opponent can auto-translate. The server echoes it back to the whole room,
+  // so handleIncomingChat stores + renders it — we DON'T store here (that avoids a
+  // duplicate and keeps the server's ordering authoritative).
+  if (isOnlineChatRoom(roomId) && window.CTNet && window.CTNet.isReady()) {
+    const myLang = (window.CT_i18n && window.CT_i18n.getLang && window.CT_i18n.getLang()) || 'en';
+    window.CTNet.sendChat(roomId, clean, myLang, user.username);
+    return;
+  }
+  // Local/offline room (lobby, pass-and-play): store + render locally.
   const msgs = getChatMessages(roomId);
   msgs.push({ sender: user.username, senderId: user.id, text: clean, ts: Date.now() });
   saveChatMessages(roomId, msgs);
@@ -6508,14 +6597,23 @@ function renderChat(roomId) {
   const msgs = getChatMessages(roomId);
   const db = loadDB();
   wrap.innerHTML = msgs.map(m => {
+    // Online opponents aren't in our local db.users, so fall back to the name the
+    // server forwarded with the message (m.sender) + a default avatar.
     const sender = Object.values(db.users).find(u => u.id === m.senderId);
     const avatarHTML = getAvatarHTML(sender, 28);
     const isMe = state.user && m.senderId === state.user.id;
+    const name = m.sender || (sender && sender.username) || 'Player';
+    // When we have a translation (set by handleIncomingChat), show it as the bubble
+    // and the ORIGINAL underneath with a 🌐 marker, so nothing is hidden.
+    const hasTr = m.translated && m.translated !== m.text;
+    const mainText = hasTr ? m.translated : m.text;
+    const origLine = hasTr ? `<div style="font-size:10px;color:#7f8aa3;margin-top:3px;${isMe?'text-align:right':''}">🌐 ${escapeHTML(m.text)}</div>` : '';
     return `<div class="ct-chat-msg ${isMe ? 'ct-chat-me' : ''}" style="display:flex;align-items:flex-start;gap:6px;margin-bottom:6px;flex-direction:${isMe?'row-reverse':'row'};">
       <div style="flex-shrink:0">${avatarHTML}</div>
       <div style="max-width:70%;">
-        <div style="font-size:10px;color:#888;margin-bottom:2px;${isMe?'text-align:right':''}">${escapeHTML(m.sender)}</div>
-        <div style="background:${isMe?'#3b425a':'#222b3a'};color:#f0f0f0;border-radius:10px;padding:6px 10px;font-size:13px;word-break:break-word;">${escapeHTML(m.text)}</div>
+        <div style="font-size:10px;color:#888;margin-bottom:2px;${isMe?'text-align:right':''}">${escapeHTML(name)}</div>
+        <div style="background:${isMe?'#3b425a':'#222b3a'};color:#f0f0f0;border-radius:10px;padding:6px 10px;font-size:13px;word-break:break-word;">${escapeHTML(mainText)}</div>
+        ${origLine}
         <div style="font-size:9px;color:#555;margin-top:2px;${isMe?'text-align:right':''}">${timeAgo(m.ts)}</div>
       </div>
     </div>`;
@@ -6525,6 +6623,9 @@ function renderChat(roomId) {
 
 function openChat(roomId, label) {
   chatState.activeRoom = roomId;
+  // Opening the chat clears the unread pulse on the floating button.
+  const fab0 = document.getElementById('ct-chat-fab');
+  if (fab0) fab0.classList.remove('ct-chat-fab-pulse');
   const existing = document.getElementById('ct-chat-overlay');
   if (existing) existing.remove();
   const overlay = document.createElement('div');
@@ -6567,8 +6668,9 @@ function openChat(roomId, label) {
 function openGameChat(gameLabel) {
   const user = state.user;
   if (!user) return toast('Sign in to chat.', false);
-  // Use current game room id or create a lobby room
-  const roomId = (state.game && state.game.roomId) || ('lobby_' + user.id);
+  // In an online game, chat through the server game room (networked + translated);
+  // otherwise fall back to a local per-user lobby room.
+  const roomId = (state.isOnline && state.gameId) ? state.gameId : ('lobby_' + user.id);
   openChat(roomId, gameLabel || 'Game Chat');
 }
 
