@@ -157,7 +157,22 @@ async function main() {
     assert(leaked === null, 'a non-participant must NOT be able to post to the game chat');
     log('guard: a non-participant cannot inject chat into the game room ✓');
 
-    // === 4) TRANSLATE PROXY: graceful + no-op + auth + validation. ===============
+    // === 4) POST-GAME "gg": chat still reaches the opponent after the game ends. =
+    const goA = once(sa, 'game_over', 8000);
+    const goB = once(sb, 'game_over', 8000);
+    sa.emit('resign', { gameId });
+    await Promise.all([goA, goB]);
+    const ggB = once(sb, 'chat', 6000);
+    sa.emit('chat', { gameId, text: 'gg wp', lang: 'en', name: a.username });
+    const gg = await ggB;
+    assert(gg && gg.from === a.id && gg.text === 'gg wp', `post-game "gg" should still reach the opponent, got ${JSON.stringify(gg)}`);
+    // ...but once the game is gone AND a non-participant tries, still blocked.
+    const ggLeak = maybe(sb, 'chat', (d) => d && d.from === c.id, 1200);
+    sc.emit('chat', { gameId, text: 'still nope', lang: 'en', name: c.username });
+    assert((await ggLeak) === null, 'a non-participant must NOT post to a finished game either');
+    log('post-game: "gg" after the result reaches the opponent; outsiders still blocked ✓');
+
+    // === 5) TRANSLATE PROXY: graceful + no-op + auth + validation. ===============
     // Graceful (no LIBRETRANSLATE_URL configured) -> original text, disabled flag.
     const tr = await (await post('/api/translate', { q: 'Hola', source: 'es', target: 'en' }, a.token)).json();
     assert(tr.translatedText === 'Hola' && tr.translated === false && tr.disabled === true,

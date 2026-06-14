@@ -3094,6 +3094,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Capture the finished game's id so the rematch button can reference it after
     // state.gameId is cleared below. eligible was set when this 1v1 match started.
     rematchState.gameId = state.gameId;
+    // Keep chat networked to this game for a short post-game window so "gg" on the
+    // result screen still reaches the opponent (mirrors the server's recentGames TTL).
+    if (state.gameId) { chatState.postGameId = state.gameId; chatState.postGameUntil = Date.now() + POST_GAME_CHAT_MS; }
     const me = state.user;
     let winnerColor = null;
     if (data.winnerId) {
@@ -6476,7 +6479,14 @@ function ctSyncAvatar(u) {
 const chatState = {
   messages: {},  // roomId -> [{sender, text, ts}]
   activeRoom: null,
+  // Post-game "gg" window: after an online game ends, its room id stays networked
+  // for a short window (matches the server's RECENT_GAME_TTL_MS) so messages still
+  // reach the opponent on the result screen.
+  postGameId: null,
+  postGameUntil: 0,
 };
+// Keep this in step with server/game.js RECENT_GAME_TTL_MS (120s).
+const POST_GAME_CHAT_MS = 120000;
 
 function getChatMessages(roomId) {
   try {
@@ -6494,9 +6504,12 @@ function saveChatMessages(roomId, messages) {
 }
 
 // A chat room is "online" (networked through the socket) when it's the current
-// server game. Other rooms (lobby, pass-and-play) stay local/localStorage-only.
+// server game OR a just-finished game still inside the post-game "gg" window.
+// Other rooms (lobby, pass-and-play) stay local/localStorage-only.
 function isOnlineChatRoom(roomId) {
-  return !!(state.isOnline && state.gameId && roomId === state.gameId);
+  if (state.isOnline && state.gameId && roomId === state.gameId) return true;
+  if (roomId && chatState.postGameId === roomId && Date.now() < chatState.postGameUntil) return true;
+  return false;
 }
 
 // In-memory translation cache: 'source|target|text' -> translated string (or null

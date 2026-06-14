@@ -1146,10 +1146,18 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
         socket.emit('rate_limited', { event: 'chat', retryInMs: 1000 });
         return;
       }
-      const game = activeGames.get(gameId); if (!game) return;
+      // Accept chat for an ACTIVE game, or a just-finished one still inside the
+      // post-game window (recentGames, RECENT_GAME_TTL_MS) so "gg" after the result
+      // screen reaches the opponent — both sockets stay in the room until they
+      // disconnect, so io.to(gameId) still delivers.
+      const game = activeGames.get(gameId);
+      const recent = game ? null : recentGames.get(gameId);
+      if (!game && !recent) return;
+      const whiteUid = game ? game.white : recent.whiteUid;
+      const blackUid = game ? game.black : recent.blackUid;
       // Only the two players in THIS game may post to its room (the sender doesn't
       // have to be in the socket room to emit to it, so guard explicitly).
-      if (game.white !== uid && game.black !== uid) return;
+      if (uid !== whiteUid && uid !== blackUid) return;
       if (typeof text !== 'string' || text.length > 200) return;
       const cleanText = text.replace(/[\u0000-\u001F\u007F<>]/g, '');
       if (!cleanText) return;
