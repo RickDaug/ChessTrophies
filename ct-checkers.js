@@ -586,7 +586,12 @@
       closeModal('ck-matchmaking');
       toast('No checkers opponent found right now — try again.');
     }, 120000);
-    joinCheckersQueue(mode, s.size, s.rules, (ctState() && ctState().selectedTc) || 'unlimited');
+    // Checkers is UNTIMED end-to-end: the server buckets the checkers queue by
+    // (size, rules, mode) only and never builds a clock, and there's no clock UI.
+    // So send 'unlimited' explicitly rather than leaking the last-chosen CHESS time
+    // control (state.selectedTc) — which the server would silently ignore anyway,
+    // misrepresenting the game as timed.
+    joinCheckersQueue(mode, s.size, s.rules, 'unlimited');
   }
   function stopMatchmaking() {
     waitingMatch = false;
@@ -613,7 +618,8 @@
       toast('Server unavailable — a checkers challenge needs a connection.');
       return;
     }
-    inviteCheckersChallenge(friendId, R.size, R.rules, (ctState() && ctState().selectedTc) || 'unlimited');
+    // Untimed (see joinCheckers note) — never leak the chess time control.
+    inviteCheckersChallenge(friendId, R.size, R.rules, 'unlimited');
     waitingMatch = true;
     var body = $('#ck-challenge-wait-body');
     if (body) body.textContent = 'Waiting for ' + (name || 'your friend') + ' to accept your ' +

@@ -91,7 +91,10 @@ async function main() {
     }, { timeout: 8000 }).catch(() => fail('lobby arena card did not show the live arena'));
     log('lobby arena card shows the live arena ✓');
 
-    // 2) Click it -> arena screen.
+    // 2) Click it -> arena screen. The arena card lives inside the collapse-by-
+    // default "More ways to play" group, so expand it before clicking.
+    await page.click('#lobby-more-toggle');
+    await page.waitForSelector('#lobby-arena-card', { state: 'visible', timeout: 5000 });
     await page.click('#lobby-arena-card');
     await page.waitForSelector('#screen-arena.active', { timeout: 5000 });
     await page.waitForFunction(() => document.querySelectorAll('#arena-list .card').length >= 3, { timeout: 6000 })

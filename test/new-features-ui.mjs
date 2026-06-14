@@ -90,6 +90,11 @@ async function main() {
     // --- GAUNTLET (last — it leaves us in a game): open -> Challenge starts it -
     await page.evaluate(() => window.CT.showScreen('lobby'));
     await page.waitForSelector('#screen-lobby.active', { timeout: 5000 });
+    // The secondary cards (incl. gauntlet) live inside the collapse-by-default
+    // "More ways to play" group — expand it before clicking, or the card is present
+    // in the DOM but not visible/clickable.
+    await page.click('#lobby-more-toggle');
+    await page.waitForSelector('#lobby-gauntlet-card', { state: 'visible', timeout: 5000 });
     await page.click('#lobby-gauntlet-card');
     await page.waitForSelector('#screen-gauntlet.active', { timeout: 5000 });
     // Fresh ladder: every rung paints, but only the NEXT (rung 0) is a clickable

@@ -4,6 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import http from 'http';
+import crypto from 'crypto';
 import { Server as IO } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { Redis } from 'ioredis';
@@ -31,7 +32,7 @@ async function initSentry() {
 function captureException(err) { try { if (Sentry) Sentry.captureException(err); } catch (e) {} }
 await initSentry();
 
-import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, verifyEmailCode, resendEmailVerification } from './auth.js';
+import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, deleteAccount, verifyEmailCode, resendEmailVerification } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
 // `db` is still imported directly only to close the SQLite handle on shutdown
 // (no-op when running on Postgres); `getProgress` is a pure flags-JSON parser
@@ -45,6 +46,7 @@ import { mountPush, logPushStatus, sendPushToUser } from './push.js';
 import { mountPuzzles } from './puzzles.js';
 import { mountArena, startArenaScheduler, logArenaStatus, liveArena, arenaEnabled, recentChampions } from './arena.js';
 import { mountAnalytics, analyticsStats, logAnalyticsStatus } from './analytics.js';
+import { mountClientErrors } from './client-errors.js';
 import { geoFromReq } from './geo.js';
 import { retentionCurves } from './cohorts.js';
 import { mountChallenges } from './challenges.js';
@@ -53,6 +55,19 @@ import { attachSocketHandlers, notifyUser, getOnlineUserCount, seasonInfo, previ
 import { botEngineReady, botEngineDiag } from './bot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Constant-time admin-key check. Fail-closed when ADMIN_KEY is unset, and use
+// crypto.timingSafeEqual (mirroring auth.js's email-code compare) so a wrong key
+// can't be recovered byte-by-byte via response timing. timingSafeEqual throws on
+// unequal-length buffers, so we gate on length first.
+function adminKeyOk(provided) {
+  const expected = process.env.ADMIN_KEY;
+  if (!expected) return false; // fail closed: no key configured → forbidden
+  const a = Buffer.from(String(provided), 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 const app = express();
 const httpServer = http.createServer(app);
 
@@ -122,8 +137,13 @@ function rankedEnabled() {
   return true; // default ON
 }
 
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many auth attempts. Please try again later.' } });
-const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many requests. Please slow down.' } });
+// Escape hatch for load testing ONLY: when LOAD_TEST_NO_RATELIMIT=1 the auth/api
+// limiters become no-ops so a harness can sign up many synthetic users from one
+// IP. Off by default — never set this in production.
+const RL_DISABLED = process.env.LOAD_TEST_NO_RATELIMIT === '1';
+if (RL_DISABLED) console.warn('[ratelimit] DISABLED via LOAD_TEST_NO_RATELIMIT — do NOT use in production');
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many auth attempts. Please try again later.' } });
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many requests. Please slow down.' } });
 
 app.disable('x-powered-by');
 // Behind Railway's (single) reverse proxy: trust the first hop so req.ip and the
@@ -178,6 +198,16 @@ mountArena(app);
 // POST /api/events, rate-limited per visitor+IP. Powers the admin funnel/daily
 // traffic block in /api/admin/stats. Backend-agnostic via the store facade.
 mountAnalytics(app);
+
+// Client-side error sink — PUBLIC (first-session crashes happen pre-auth + for
+// guests), rate-limited per IP. Lands reports in the logs and forwards to Sentry
+// (when configured) so a JS exception that white-screens a new visitor is no
+// longer invisible. See server/client-errors.js.
+mountClientErrors(app, {
+  report: (info) => captureException(new Error(
+    '[client] ' + info.message + (info.source ? ' @ ' + info.source + ':' + (info.line ?? '?') : '')
+  )),
+});
 
 // Shareable "beat the Computer" challenge links — the growth loop. PUBLIC
 // create/fetch/result (guests included), rate-limited. See server/challenges.js.
@@ -301,6 +331,17 @@ app.post('/api/auth/change-password', authLimiter, requireAuth, async (req, res,
     // Return a fresh token (changePassword bumped token_version, revoking the old
     // one) so the client can keep THIS session signed in.
     res.json({ ok: true, token: (r && r.token) || undefined });
+  } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+// Permanently delete the authenticated user's account. Requires the current
+// password as confirmation; erases PII, revokes all sessions, and drops the
+// social graph (the anonymized row is retained so game/leaderboard FKs stay valid).
+app.post('/api/me/delete', authLimiter, requireAuth, async (req, res, next) => {
+  try {
+    const password = requireStringField(req.body || {}, 'password', { min: 1, max: 128 });
+    await deleteAccount(req.userId, password);
+    res.json({ ok: true });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
@@ -767,7 +808,13 @@ app.post('/api/progress', requireAuth, async (req, res, next) => {
       if (typeof body.themePieces !== 'string') throw new Error('themePieces must be a string.');
       themePieces = body.themePieces.slice(0, 32);
     }
-    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles, showcase, achievements, streakTrophies, trophyPoints, themeBoard, themePieces });
+    // Preferred UI language (short ISO code) — follows the account across devices.
+    let language;
+    if (body.language !== undefined) {
+      if (typeof body.language !== 'string') throw new Error('language must be a string.');
+      language = body.language.slice(0, 8);
+    }
+    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles, showcase, achievements, streakTrophies, trophyPoints, themeBoard, themePieces, language });
     res.json(result);
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
@@ -808,7 +855,7 @@ app.post('/api/share/track', async (req, res, next) => {
 app.get('/api/admin/stats', async (req, res, next) => {
   try {
     const provided = req.get('x-admin-key') || req.query.key || '';
-    if (!process.env.ADMIN_KEY || provided !== process.env.ADMIN_KEY) {
+    if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const now = Date.now();
@@ -1116,7 +1163,7 @@ app.get('/api/admin/stats', async (req, res, next) => {
 app.get('/api/admin/user/:id', async (req, res, next) => {
   try {
     const provided = req.get('x-admin-key') || req.query.key || '';
-    if (!process.env.ADMIN_KEY || provided !== process.env.ADMIN_KEY) {
+    if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const id = String(req.params.id || '');
@@ -1148,7 +1195,7 @@ app.get('/api/admin/user/:id', async (req, res, next) => {
 app.get('/api/admin/export', async (req, res, next) => {
   try {
     const provided = req.get('x-admin-key') || req.query.key || '';
-    if (!process.env.ADMIN_KEY || provided !== process.env.ADMIN_KEY) {
+    if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const type = String(req.query.type || 'events');
@@ -1206,7 +1253,7 @@ async function dailyCountSeries(table, days) {
 app.get('/api/admin/users', async (req, res, next) => {
   try {
     const provided = req.get('x-admin-key') || req.query.key || '';
-    if (!process.env.ADMIN_KEY || provided !== process.env.ADMIN_KEY) {
+    if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const sort = typeof req.query.sort === 'string' ? req.query.sort : 'elo';

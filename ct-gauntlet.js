@@ -163,13 +163,13 @@
     var sub = $('lobby-gauntlet-sub');
     var pill = $('lobby-gauntlet-pill');
     if (isComplete()) {
-      if (title) title.textContent = '⚔️ Bot Gauntlet';
-      if (sub) sub.textContent = '🏆 Complete — replay any challenger.';
+      if (title) title.textContent = '⚔️ Beat the bots';
+      if (sub) sub.textContent = '🏆 Complete — you beat every bot! Replay any challenger.';
       if (pill) pill.textContent = 'Replay';
     } else {
       var t = currentTarget();
-      if (title) title.textContent = '⚔️ Bot Gauntlet';
-      if (sub) sub.textContent = t ? ('Next: ' + t.name + ' ' + t.emoji + ' (' + t.elo + ')') : 'Climb the ladder of bots.';
+      if (title) title.textContent = '⚔️ Beat the bots';
+      if (sub) sub.textContent = t ? ('Next up: ' + t.name + ' ' + t.emoji + ' — each bot is tougher than the last') : 'A line-up of computers, each tougher than the last.';
       if (pill) pill.textContent = 'Climb';
     }
     card.style.display = '';
