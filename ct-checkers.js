@@ -539,9 +539,13 @@
   }
   function clampElo(v) { v = Number(v); if (!isFinite(v)) return 1200; return Math.max(100, Math.min(2800, Math.round(v / 100) * 100)); }
   function aiNameForElo(e) {
-    if (e >= 2500) return 'Grandmaster'; if (e >= 2300) return 'Master';
-    if (e >= 2000) return 'Expert'; if (e >= 1700) return 'Strong';
-    if (e >= 1400) return 'Intermediate'; if (e >= 1100) return 'Club'; return 'Beginner';
+    // Honest strength tiers. The bot is a depth-limited search engine (no opening
+    // book / endgame tablebases), realistically club-to-expert strength — so the
+    // top labels are "Candidate Master" / "Expert", NOT "Master"/"Grandmaster"
+    // (those would overstate it).
+    if (e >= 2300) return 'Candidate Master'; if (e >= 2000) return 'Expert';
+    if (e >= 1700) return 'Strong'; if (e >= 1400) return 'Intermediate';
+    if (e >= 1100) return 'Club'; return 'Beginner';
   }
 
   // --- RANKED matchmaking ---------------------------------------------------

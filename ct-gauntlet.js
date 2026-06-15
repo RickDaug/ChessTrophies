@@ -41,7 +41,7 @@
     { name: 'Queen Mab',      elo: 1850, emoji: '👑', blurb: 'Regal and ruthless; her queen roams wherever she pleases.' },
     { name: 'Knightmare',     elo: 2050, emoji: '🌙', blurb: 'Strikes from the shadows with attacks you never saw coming.' },
     { name: 'Castle Crasher',  elo: 2250, emoji: '💥', blurb: 'Sacrifices for the initiative and crashes through your king.' },
-    { name: 'Grandmaster X',  elo: 2400, emoji: '⭐', blurb: 'The final boss. Precise, relentless, and very hard to surprise.' },
+    { name: 'Magnus the Cat',  elo: 2400, emoji: '⭐', blurb: 'The final boss — a fictional feline. Precise, relentless, and very hard to surprise.' },
   ];
 
   // ---- helpers ---------------------------------------------------------------
