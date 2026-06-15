@@ -115,7 +115,8 @@ CREATE TABLE IF NOT EXISTS users (
   elo_checkers_8 INTEGER NOT NULL DEFAULT 1200,
   elo_checkers_10 INTEGER NOT NULL DEFAULT 1200,
   checkers8_games INTEGER NOT NULL DEFAULT 0,
-  checkers10_games INTEGER NOT NULL DEFAULT 0
+  checkers10_games INTEGER NOT NULL DEFAULT 0,
+  last_notified_at BIGINT NOT NULL DEFAULT 0
 );
 -- Idempotent for pre-existing Postgres databases created before last_seen.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen BIGINT NOT NULL DEFAULT 0;
@@ -133,6 +134,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS arena_wins INTEGER NOT NULL DEFAULT 0
 ALTER TABLE users ADD COLUMN IF NOT EXISTS trophy_points INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS geo_country TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS geo_region TEXT NOT NULL DEFAULT '';
+-- Re-engagement cooldown (ms of last re-engagement notification; 0 = never).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_notified_at BIGINT NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS friendships (
   user_id TEXT NOT NULL,
@@ -640,6 +643,43 @@ export async function listPushSubs(userId) {
 // Prune a dead subscription by endpoint (push service returned 404/410 Gone).
 export async function removeDeadSub(endpoint) {
   await pool.query('DELETE FROM push_subscriptions WHERE endpoint = $1', [endpoint]);
+}
+
+// --- Re-engagement candidate selection (async mirror of db.js) --------------
+// Raw candidate rows for the PURE selector (server/reengage.js): reachable
+// (push sub OR verified email) AND either idle since `sinceMs` OR holding a live
+// daily streak. The pure function applies the thresholds + cooldown. Row shapes
+// match selectReengagementTargets' expectations.
+export async function listReengagementCandidates({ sinceMs = 0, limit = 1000 } = {}) {
+  const { rows } = await pool.query(
+    `SELECT u.id AS id, u.email AS email, u.email_verified AS email_verified,
+            u.last_seen AS last_seen, u.last_notified_at AS last_notified_at,
+            COALESCE(ps.current_streak, 0) AS current_streak,
+            COALESCE(ps.last_day_key, '') AS streak_last_day_key,
+            (SELECT COUNT(1) FROM push_subscriptions s WHERE s.user_id = u.id) AS sub_count
+       FROM users u
+       LEFT JOIN puzzle_streaks ps ON ps.user_id = u.id
+      WHERE u.last_seen >= $1
+         OR COALESCE(ps.current_streak, 0) > 0
+      ORDER BY u.last_seen DESC
+      LIMIT $2`,
+    [sinceMs, limit]
+  );
+  return rows.map(r => ({
+    id: r.id,
+    email: r.email,
+    emailVerified: !!r.email_verified,
+    hasPushSub: Number(r.sub_count) > 0,
+    lastSeen: Number(r.last_seen),
+    lastNotifiedAt: Number(r.last_notified_at),
+    currentStreak: Number(r.current_streak),
+    streakLastDayKey: r.streak_last_day_key,
+  }));
+}
+
+// Stamp the re-engagement cooldown for a user (async mirror of db.js).
+export async function markReengaged(userId, now = Date.now()) {
+  await pool.query('UPDATE users SET last_notified_at = $1 WHERE id = $2', [now, userId]);
 }
 
 // Return the YYYY-MM-DD before `dayKey` (UTC), to detect a consecutive streak.
