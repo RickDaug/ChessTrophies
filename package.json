@@ -70,6 +70,7 @@
     "test:reconnect": "node test/reconnect.mjs",
     "test:progress-sync-http": "node test/progress-sync-http.mjs",
     "test:csp": "node test/csp.mjs",
+    "test:ratelimit-store": "node test/ratelimit-store.mjs",
     "test:drag-check": "node test/drag-check.mjs",
     "test:elo-strength": "node test/elo-strength.mjs",
     "test:endgame": "node test/endgame.mjs",

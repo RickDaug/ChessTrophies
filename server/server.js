@@ -53,6 +53,7 @@ import { mountChallenges } from './challenges.js';
 import { mountLeagues } from './leagues.js';
 import { attachSocketHandlers, notifyUser, getOnlineUserCount, seasonInfo, previousSeasonId } from './game.js';
 import { botEngineReady, botEngineDiag } from './bot.js';
+import { redisStoreOption } from './redis-rate-limit-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -77,6 +78,16 @@ const httpServer = http.createServer(app);
 //   - the hosted web site (Vercel) is a different origin from this backend (Railway);
 //   - the native Capacitor app's WebView runs on a localhost scheme (https://localhost
 //     on Android, capacitor://localhost on iOS) and is fully CORS-gated too.
+// ── BACKEND ORIGIN: SOURCE-OF-TRUTH (CORS side) ─────────────────────────────
+// The backend's own origin (the railway.app entry below) AND the web origins it
+// trusts are duplicated across the stack and MUST stay in sync, or login/sockets
+// silently break on a host change:
+//   1. config.js BACKEND_URL — the client's API/socket target (one literal).
+//   2. index.html CSP `connect-src` — allows https:// + wss:// of the backend.
+//   3. THIS list — CORS allowlist (web origins allowed to call this backend) +
+//      the backend's own origin.
+// Migrating the backend host means updating ALL THREE. See config.js for the
+// canonical note.
 const DEFAULT_WEB_ORIGINS = [
   'https://www.playchesstrophies.com',
   'https://playchesstrophies.com',
@@ -142,11 +153,19 @@ function rankedEnabled() {
 // IP. Off by default — never set this in production.
 const RL_DISABLED = process.env.LOAD_TEST_NO_RATELIMIT === '1';
 if (RL_DISABLED) console.warn('[ratelimit] DISABLED via LOAD_TEST_NO_RATELIMIT — do NOT use in production');
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many auth attempts. Please try again later.' } });
-const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many requests. Please slow down.' } });
+// SHARED rate-limit store: with REDIS_URL set the server runs as N replicas, so
+// the default per-process MemoryStore would make every limit per-replica (a
+// 20/15min auth cap becomes N×20 across replicas — a brute-force ceiling that
+// scales WITH the fleet). Back the limiters with the EXISTING redis client when
+// available so the limit is global; otherwise fall back to MemoryStore (single
+// instance, unchanged behaviour). The store fails OPEN on a Redis hiccup, so a
+// transient Redis problem degrades rate limiting but never 500s a request.
+if (redisClient) console.log('[ratelimit] using shared Redis store (limits are global across replicas)');
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many auth attempts. Please try again later.' }, ...redisStoreOption(redisClient, 'rl:auth:') });
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many requests. Please slow down.' }, ...redisStoreOption(redisClient, 'rl:api:') });
 // Chat auto-translation proxies to an upstream (LibreTranslate); cap it tighter
 // than the general API so a flood of chat can't hammer the upstream / our egress.
-const translateLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many translation requests. Please slow down.' } });
+const translateLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false, skip: () => RL_DISABLED, message: { error: 'Too many translation requests. Please slow down.' }, ...redisStoreOption(redisClient, 'rl:translate:') });
 
 app.disable('x-powered-by');
 // Behind Railway's (single) reverse proxy: trust the first hop so req.ip and the
@@ -166,7 +185,10 @@ app.use((req, res, next) => {
 });
 
 // Health
-app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'distribution-2026-06-09', litestream: HAS_LITESTREAM, backupsConfigured: !!process.env.LITESTREAM_REPLICA_URL, sentry: !!Sentry, pushConfigured: !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT), botReady: botEngineReady(), multiInstance: !!process.env.REDIS_URL, ...(req.query.diag ? { botDiag: botEngineDiag() } : {}) }));
+// `durable` is the honest single-bit answer to "can this DB survive a redeploy?":
+// true iff Postgres is the backend OR a Litestream replica is configured AND the
+// binary is present. SQLite-on-ephemeral-storage with no replica = false.
+app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'distribution-2026-06-09', litestream: HAS_LITESTREAM, backupsConfigured: !!process.env.LITESTREAM_REPLICA_URL, durable: store.usingPostgres || (HAS_LITESTREAM && !!process.env.LITESTREAM_REPLICA_URL), dbBackend: store.usingPostgres ? 'postgres' : 'sqlite', sentry: !!Sentry, pushConfigured: !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT), botReady: botEngineReady(), multiInstance: !!process.env.REDIS_URL, ...(req.query.diag ? { botDiag: botEngineDiag() } : {}) }));
 
 // Public runtime config (NO auth). The client reads this to decide whether to
 // show ranked matchmaking UI. Server enforcement is separate (socket handlers),
@@ -1356,6 +1378,34 @@ if (store.usingPostgres) {
   }
 } else {
   console.log('[db] SQLite backend active (default; set DB_BACKEND=postgres + DATABASE_URL to scale to Postgres)');
+}
+
+// DURABILITY HONESTY: SQLite on ephemeral container storage with NO configured
+// backup replica is NOT durable — a redeploy/restart can lose the volume (and an
+// un-checkpointed data.db-wal). Make that posture LOUD instead of silent:
+//   durable path = Postgres  OR  a configured + present Litestream replica.
+// Litestream is installed best-effort (Dockerfile), so a failed download yields
+// an image with NO backups; if LITESTREAM_REPLICA_URL is set but the binary is
+// missing, that's a MISCONFIG (you asked for backups but they can't run) and we
+// shout about it. We warn — we do NOT crash boot — UNLESS the operator opts in
+// to strict mode with REQUIRE_DURABLE_DB=1 (then an undurable prod boot exits).
+const DURABLE_DB = store.usingPostgres || (HAS_LITESTREAM && !!process.env.LITESTREAM_REPLICA_URL);
+const IS_PROD = process.env.NODE_ENV === 'production';
+if (!DURABLE_DB && IS_PROD) {
+  console.warn('[durability] WARNING: running SQLite in production with NO configured backup replica.');
+  console.warn('[durability]   The DB lives on ephemeral storage — a redeploy/restart can LOSE ALL DATA.');
+  console.warn('[durability]   Durable options: (a) Postgres — set DB_BACKEND=postgres + DATABASE_URL;');
+  console.warn('[durability]                    (b) Litestream — set LITESTREAM_REPLICA_URL + S3 creds.');
+  if (process.env.LITESTREAM_REPLICA_URL && !HAS_LITESTREAM) {
+    console.warn('[durability]   MISCONFIG: LITESTREAM_REPLICA_URL is set but the litestream binary is MISSING');
+    console.warn('[durability]   from this image (the best-effort Dockerfile install likely failed) — backups are NOT running.');
+  }
+  if (process.env.REQUIRE_DURABLE_DB === '1') {
+    console.error('[durability] REQUIRE_DURABLE_DB=1 and the DB is not durable — refusing to start. Configure Postgres or Litestream.');
+    process.exit(1);
+  }
+} else if (DURABLE_DB && IS_PROD) {
+  console.log(`[durability] OK — durable backend: ${store.usingPostgres ? 'Postgres' : 'SQLite + Litestream replica'}`);
 }
 
 // Start the rolling arena scheduler AFTER the schema is ensured (above). Inert
