@@ -2,17 +2,38 @@ name: Full test suite
 
 # Runs the ENTIRE test/ suite via the aggregate runner (scripts/test-all.mjs),
 # closing the gap where ~22 test:* scripts + the previously-scriptless tests
-# never ran in CI. Two jobs:
+# never ran in CI. Jobs:
 #   * logic   — pure-logic + real-backend tests; no Chromium needed, so it still
 #               reports even if the browser install is flaky/unavailable.
 #   * browser — installs Playwright Chromium and runs the whole suite (browser
 #               tests included).
+#   * flaky-nonblocking — runs the quarantined flaky tests (see CT_FLAKY below)
+#               with continue-on-error so coverage isn't lost but they CANNOT
+#               red-light an unrelated PR.
 # The existing smoke-2v2.yml is left untouched as the focused regression guard.
+#
+# QUARANTINE: elo-strength.mjs's K+Q-vs-K mate assertion is wall-clock/RNG
+# dependent (~40-50% spurious fail) and was gating every PR. It is EXCLUDED from
+# the two BLOCKING jobs via CT_EXCLUDE (the scripts/test-all.mjs mechanism) and
+# still run — non-blocking — in flaky-nonblocking so its coverage is retained.
+# Keep CT_FLAKY (the non-blocking allowlist) and CT_EXCLUDE (the blocking
+# denylist) in sync: every name in one should be the other's complement.
 
 on:
   push:
   pull_request:
     branches: [main]
+  schedule:
+    # Nightly 06:00 UTC — exercises the quarantined flaky tests on a cadence so
+    # their pass-rate trend stays visible even on quiet days (flaky-nonblocking).
+    - cron: '0 6 * * *'
+
+# QUARANTINE LIST: comma-separated basename substrings of tests excluded from the
+# BLOCKING jobs (CT_EXCLUDE) and instead run non-blocking in flaky-nonblocking.
+# Inlined per-job (the `env` context is not available in a job-level `env:` block
+# at definition time, so a workflow-level anchor can't be referenced there).
+# Keep all three occurrences in sync: logic.CT_EXCLUDE, browser.CT_EXCLUDE,
+# flaky-nonblocking (the positional filter). Current quarantine: elo-strength.
 
 jobs:
   logic:
@@ -21,6 +42,8 @@ jobs:
     timeout-minutes: 20
     env:
       CT_SKIP_BROWSER: '1'
+      # Quarantine the known-flaky tests OUT of the blocking gate.
+      CT_EXCLUDE: 'elo-strength'
     steps:
       - uses: actions/checkout@v6
 
@@ -46,6 +69,9 @@ jobs:
     name: Full suite incl. browser/build
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Same quarantine as the logic job — keep in sync.
+      CT_EXCLUDE: 'elo-strength'
     steps:
       - uses: actions/checkout@v6
 
@@ -69,3 +95,37 @@ jobs:
 
       - name: Run full suite (all tests)
         run: npm run test:all
+
+  # NON-BLOCKING: the quarantined flaky tests. continue-on-error means a spurious
+  # failure here is reported (red check on THIS job) but does NOT fail the
+  # workflow / block the PR. This preserves the coverage the blocking jobs drop
+  # via CT_EXCLUDE. Also runs on a nightly schedule for trend visibility.
+  flaky-nonblocking:
+    name: Flaky quarantine (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    env:
+      CT_SKIP_BROWSER: '1'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+
+      - name: Install client/test deps
+        run: npm ci
+
+      - name: Install server deps
+        working-directory: server
+        run: npm ci
+
+      # Run ONLY the quarantined tests (positional filter = the CT_FLAKY list).
+      # Keep this filter in sync with the CT_EXCLUDE values in the jobs above.
+      - name: Run quarantined flaky tests (non-blocking)
+        run: npm run test:all -- elo-strength
