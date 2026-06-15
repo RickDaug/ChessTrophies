@@ -13,7 +13,13 @@
      execute. All formerly-inline scripts are externalized and all on* handlers
      are wired via addEventListener / delegation. NOTE: style-src intentionally
      KEEPS 'unsafe-inline' because the app generates HTML with many inline
-     style="" attributes; removing that is a separate CSS refactor. -->
+     style="" attributes; removing that is a separate CSS refactor.
+     ── BACKEND ORIGIN: SOURCE-OF-TRUTH (CSP side) ──
+     The chesstrophies-production.up.railway.app origin in `connect-src` below
+     (BOTH the https:// and wss:// entries) is duplicated in config.js
+     (BACKEND_URL) and server/server.js (DEFAULT_WEB_ORIGINS). All three MUST
+     stay in sync — a backend host change here without the others silently
+     blocks login + sockets. See config.js for the canonical note. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://chesstrophies-production.up.railway.app wss://chesstrophies-production.up.railway.app; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';" />
 <meta name="theme-color" content="#f5c451" />
 <title>ChessTrophies</title>

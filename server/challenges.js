@@ -136,6 +136,14 @@ export function mountChallenges(app) {
   // that bounces real browsers into the SPA at `/?c=<id>`.
   app.get('/c/:id', async (req, res) => {
     res.set('Content-Type', 'text/html; charset=utf-8');
+    // Minimal CSP for this API-served HTML. The share card is a tiny no-JS page
+    // (meta-refresh + OG/Twitter meta + a single OG image), so a strict policy is
+    // safe here and closes the gap left by helmet({contentSecurityPolicy:false}):
+    // no scripts at all, images only from self + the canonical site origin.
+    // NOTE: deliberately NOT applied to the SPA's sendFile(index.html) — that page
+    // ships its own <meta> CSP and a conflicting header could break the live app.
+    res.set('Content-Security-Policy',
+      "default-src 'none'; img-src 'self' " + SITE + " data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
     try {
       const id = String(req.params.id).slice(0, 32);
       const row = await store.get('SELECT * FROM challenges WHERE id = ?', [id]);
