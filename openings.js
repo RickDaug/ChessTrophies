@@ -70,7 +70,9 @@
     {
       id: 'ruy-lopez',
       name: 'Ruy López',
-      eco: 'C70',
+      // Closed Ruy mainline (…Nf6 O-O Be7 Re1 b5) is C84/C88 — NOT C70 (which is
+      // the Morphy Defence Deferred / open lines without …Be7 Re1).
+      eco: 'C84',
       userColor: 'w',
       desc: 'The Spanish: pressure c6 to undermine Black’s center and king-side.',
       line: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6', 'O-O', 'Be7', 'Re1', 'b5'],
@@ -78,7 +80,9 @@
     {
       id: 'sicilian-open',
       name: 'Sicilian Defense — Open',
-      eco: 'B90',
+      // Najdorf with 6.Be2 e5 is the Classical/Opočenský B92 — NOT B90 (which is
+      // the English Attack / 6.Be3 family).
+      eco: 'B92',
       userColor: 'b',
       desc: 'Black fights for the center asymmetrically and plays for the win.',
       line: ['e4', 'c5', 'Nf3', 'd6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'a6', 'Be2', 'e5'],
@@ -94,7 +98,9 @@
     {
       id: 'qgd',
       name: "Queen's Gambit Declined",
-      eco: 'D37',
+      // Classical Bg5 QGD (4.Bg5 Be7 5.e3 O-O) is the Orthodox Defence D63 — NOT
+      // D37 (which is the modern 4.Nf3 …line WITHOUT the Bg5 pin).
+      eco: 'D63',
       userColor: 'b',
       desc: 'Decline the gambit and build a rock-solid classical structure.',
       line: ['d4', 'd5', 'c4', 'e6', 'Nc3', 'Nf6', 'Bg5', 'Be7', 'e3', 'O-O', 'Nf3', 'h6'],
