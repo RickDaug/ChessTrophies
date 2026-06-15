@@ -74,9 +74,14 @@ jobs:
       - name: Postgres smoke (boot + auth + progress sync + leaderboard)
         run: node test/pg-smoke.mjs
 
-      # Run the pure-HTTP server-backed tests against Postgres too (db-pg.js
-      # transaction for account deletion, password_resets/email_verifications,
-      # ON CONFLICT in leagues, analytics aggregates, …). The runner resets the
-      # schema between tests. All six verified passing on real PG locally.
-      - name: Postgres — pure-HTTP suite (account/auth/challenges/leagues/analytics)
+      # Run the pure-HTTP server-backed tests against Postgres too. The set was
+      # broadened beyond the original six (account deletion / auth-recovery /
+      # client-errors / challenges / leagues / analytics) to also exercise
+      # progress-sync (the JSON column + json/jsonb_array_length trophy
+      # aggregates — the exact dialect drift this workflow exists to catch),
+      # session/auth, win-streaks, the public profile, email verification,
+      # cohort/retention rollups, and the admin hard-delete scrub. The runner
+      # DROPs + recreates the public schema between each test. See test/pg-run.mjs
+      # for why direct-SQLite-seeding tests (billing, push, rankings) are excluded.
+      - name: Postgres — pure-HTTP suite (account/auth/progress/profile/streak/admin/…)
         run: node test/pg-run.mjs

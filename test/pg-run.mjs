@@ -26,7 +26,29 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const SERVER_DIR = path.join(ROOT, 'server');
 
-const DEFAULT = ['account-deletion', 'auth-recovery', 'client-errors', 'challenges', 'leagues', 'analytics'];
+// The PG-compatible pure-HTTP set. Every test here boots the server over HTTP
+// only (no `new Database()` / better-sqlite3 seeding), so it runs UNCHANGED
+// against db-pg.js when DB_BACKEND=postgres. Each exercises distinct
+// dialect-sensitive SQL the SQLite suite alone never proves on Postgres:
+//   account-deletion  — the multi-table delete TRANSACTION + cascade scrub
+//   auth-recovery     — password_resets insert/consume + bcrypt round-trip
+//   client-errors     — client_error sink + per-IP rate window
+//   challenges        — challenge create/result with ON CONFLICT
+//   leagues           — league_members upsert (ON CONFLICT DO UPDATE)
+//   analytics         — analytics_events aggregate rollups
+//   progress-sync-http— setProgress/getProgress JSON columns + the trophy
+//                       profile aggregates (the json/jsonb_array_length family —
+//                       the exact dialect drift postgres.yml exists to catch)
+//   session           — auth/session token issue + /api/me read path
+//   streak            — win-streak counters + streak_victims writes
+//   public-profile    — the public profile read (JSON achievements/showcase)
+//   verify-email      — email_verifications insert/consume (self-sets EXPOSE_VERIFY_TOKEN)
+//   cohorts           — analytics cohort/retention aggregate queries
+//   admin-delete      — admin hard-delete scrub across referencing tables
+const DEFAULT = [
+  'account-deletion', 'auth-recovery', 'client-errors', 'challenges', 'leagues', 'analytics',
+  'progress-sync-http', 'session', 'streak', 'public-profile', 'verify-email', 'cohorts', 'admin-delete',
+];
 const tests = process.argv.slice(2).filter(Boolean);
 const list = tests.length ? tests : DEFAULT;
 
