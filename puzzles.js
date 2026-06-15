@@ -472,6 +472,18 @@
       } catch (e) { /* fall through as incorrect */ }
     }
 
+    // PLAYABLE OFF-LINE MOVE (non-mate puzzles): if the player makes a legal move
+    // that is NOT the scripted one but is also NOT a blunder, don't tell them
+    // they're "wrong". Mirror the OPENING TRAINER's honest framing: acknowledge it
+    // as playable, but ask them to follow this puzzle's scripted line. We only do
+    // this for non-mate puzzles (mate puzzles already accept any mate above, and a
+    // non-mating move there genuinely fails the objective). RUSH keeps its strict
+    // strike rule (a real solve sprint), so this leniency is daily/trainer only.
+    if (!correct && expected && mode !== 'rush' && isPlayableOffLineMove(from, to, promo)) {
+      acknowledgePlayableMove(from, to, promo);
+      return;
+    }
+
     if (correct) {
       var mv = state.chess.move({ from: from, to: to, promotion: promo });
       state.lastMove = { from: from, to: to };
@@ -496,6 +508,97 @@
       // WRONG move: PUNISH THEN RETRY.
       punishWrongMove(from, to, promo);
     }
+  }
+
+  // Is a legal, non-scripted solver move SOUND (not a blunder) on a NON-MATE
+  // puzzle? We compare, from the SOLVER's point of view, the eval after the
+  // player's move against the eval after the scripted move using the in-app
+  // engine (CT_AI.evaluate, white-positive centipawns, mate ≈ ±99999). If the
+  // player's move keeps essentially the same advantage as the scripted line
+  // (within a CONSERVATIVE margin) it's "playable"; if it throws material/the win
+  // it stays a wrong move and gets punished as before.
+  //
+  // Conservative by design — never accept an actual blunder as playable:
+  //   • Mate puzzles are excluded (the scripted final move mates; the unique-mate
+  //     branch already handles legitimate alternative mates, and a non-mating move
+  //     there really does fail the puzzle's objective).
+  //   • If the engine is unavailable, return false (fall back to strict checking).
+  var PLAYABLE_MARGIN_CP = 90; // ≈ less than a third of a pawn slack
+  function isPlayableOffLineMove(from, to, promo) {
+    try {
+      if (!window.CT_AI || typeof window.CT_AI.evaluate !== 'function' || !window.Chess) return false;
+      var p = state.puzzle;
+      if (!p || p.theme === 'mate') return false;
+      // Only relax on the puzzle's FINAL solver move would be too narrow; relax on
+      // ANY solver ply, but only when the scripted move itself isn't a checkmate
+      // (a forced mate line must be followed exactly).
+      var fenNow = state.chess.fen();
+      var solverIsWhite = (state.solverColor === 'w');
+      var sign = solverIsWhite ? 1 : -1;
+
+      // Eval after the SCRIPTED move (the baseline the puzzle expects).
+      var expected = expectedSolverUci();
+      var tExp = new window.Chess(fenNow);
+      var expMv = tExp.move({ from: expected.slice(0, 2), to: expected.slice(2, 4), promotion: expected.length > 4 ? expected.slice(4) : undefined });
+      if (!expMv) return false;
+      if (tExp.in_checkmate()) return false; // scripted move mates → must be exact
+      var evalExp = sign * window.CT_AI.evaluate(tExp.fen(), 2);
+
+      // Eval after the PLAYER's move.
+      var tUsr = new window.Chess(fenNow);
+      var usrMv = tUsr.move({ from: from, to: to, promotion: promo });
+      if (!usrMv) return false;
+      var evalUsr = sign * window.CT_AI.evaluate(tUsr.fen(), 2);
+
+      // Playable iff the player's move keeps essentially the scripted advantage
+      // (loses no more than the small margin). This rejects moves that drop
+      // material or surrender a winning eval, but accepts a genuinely equivalent
+      // alternative.
+      return (evalExp - evalUsr) <= PLAYABLE_MARGIN_CP;
+    } catch (e) { return false; }
+  }
+
+  // Acknowledge a sound off-line move WITHOUT punishing it: play it briefly so the
+  // player sees it land, then revert and ask them to follow the puzzle's scripted
+  // line (so the rest of the recorded solution stays on rails). Mirrors the
+  // opening trainer's "that's playable — but this drill follows one line" pattern.
+  // Does NOT record a fail and does NOT lower the rating.
+  function acknowledgePlayableMove(from, to, promo) {
+    clearSelection();
+    var beforeFen = state.chess.fen();
+    var mv = state.chess.move({ from: from, to: to, promotion: promo });
+    if (!mv) { punishWrongMove(from, to, promo); return; }
+    state.lastMove = { from: from, to: to };
+    state.busy = true;
+    state.hintSquares = null;
+    renderBoard();
+    var expSan = sanForUci(beforeFen, expectedSolverUci());
+    setStatus('That’s playable — but this puzzle follows one line. It continues ' + (expSan || '…') + '.', 'bad');
+    refs.btnHint.disabled = true;
+    setTimeout(function () {
+      if (!state) return;
+      state.chess = new window.Chess(beforeFen);
+      state.busy = false;
+      state.selected = null;
+      state.targets = null;
+      state.lastMove = null;
+      // Leave a hint on the scripted move so they can stay in the line.
+      var e = expectedSolverUci();
+      state.hintSquares = e ? [e.slice(0, 2), e.slice(2, 4)] : null;
+      refs.btnHint.disabled = false;
+      renderBoard();
+      setStatus('Play ' + (expSan || 'the puzzle move') + ' to follow this line.', 'bad');
+    }, 900);
+  }
+
+  // SAN label for a UCI token from a given FEN (best-effort, for status text).
+  function sanForUci(fen, uci) {
+    if (!uci) return null;
+    try {
+      var c = new window.Chess(fen);
+      var m = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci.slice(4) : undefined });
+      return m ? m.san : null;
+    } catch (e) { return null; }
   }
 
   // A wrong move during a rush run: count a strike, end the run at the limit,
