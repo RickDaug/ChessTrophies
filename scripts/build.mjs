@@ -73,6 +73,27 @@ const COPY_ASSETS = [
 // Canonical production origin used for SEO canonical/OG URLs + the sitemap.
 const SITE = 'https://www.playchesstrophies.com';
 
+// First-load weight: assets that must NOT be in the SW precache ASSETS list.
+// These are emitted into dist/ and served fine, but precaching them bloats the
+// FIRST visit's install (the activation funnel) with bytes a normal landing/play
+// session never needs. sw.js's runtime fetch handler still caches them on demand
+// (network-first for HTML, cache-first for images), so nothing is lost — only the
+// up-front install cost. Keep this list tight + justified; do NOT exclude anything
+// on the landing/first-paint path.
+//   - admin.html (~89 KB): owner-only analytics dashboard, not linked from index.
+//   - icon-1024.png (~155 KB): NOT referenced by manifest.json (only 192/512 are)
+//     and not used at first paint — effectively dead weight in the precache.
+//   - og-image.png (~362 KB): social-share card image, consumed by crawlers via
+//     the server's /c/:id OG meta — never rendered in the app's first paint.
+//   - robots.txt: crawler-only; pointless to hold in an offline app-shell cache.
+// NOTE: there is a build-smoke assertion that these stay OUT of the precache list.
+const PRECACHE_EXCLUDE = new Set([
+  'admin.html',
+  'icon-1024.png',
+  'og-image.png',
+  'robots.txt',
+]);
+
 const log = (...a) => console.log('[build]', ...a);
 
 // Parse the ordered local <script src="..."> list from index.html. Skips the
@@ -293,6 +314,10 @@ async function rewriteServiceWorker() {
     // runtime-cached; precaching all 19 would bloat the install for files most
     // users never use.
     .filter((rel) => !rel.split(path.sep).join('/').startsWith('sets/'))
+    // EXCLUDE the first-load-weight assets (admin dashboard, unused 1024 icon,
+    // social OG image, robots.txt) — see PRECACHE_EXCLUDE above. Still served +
+    // runtime-cached on demand by sw.js; just not in the up-front install set.
+    .filter((rel) => !PRECACHE_EXCLUDE.has(rel.split(path.sep).join('/')))
     .sort();
 
   const assets = [
