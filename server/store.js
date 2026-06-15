@@ -113,6 +113,13 @@ export async function adminListUsers(opts) {
   return sqlite.adminListUsers(opts);
 }
 
+// Admin HARD delete: permanently remove a user + all referencing rows. dryRun
+// previews counts. See db.js/db-pg.js adminDeleteUserHard. IRREVERSIBLE.
+export async function adminDeleteUserHard(userId, opts) {
+  if (usingPostgres) return (await loadPg()).adminDeleteUserHard(userId, opts);
+  return sqlite.adminDeleteUserHard(userId, opts);
+}
+
 // Idempotent per-platform share counter (admin "shares" stat).
 export async function incShareCount(platform) {
   if (usingPostgres) return (await loadPg()).incShareCount(platform);

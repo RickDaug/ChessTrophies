@@ -567,6 +567,69 @@ export async function deleteAccountData(userId) {
   });
 }
 
+// ADMIN HARD DELETE — permanently removes a user row AND every referencing row
+// (games, stats, social graph, owned leagues, analytics, …). Mirrors db.js
+// adminDeleteUserHard (the SQLite path prod runs on). IRREVERSIBLE. `dryRun:true`
+// returns per-table counts without deleting. Table names are fixed literals.
+const HARD_DELETE_OPS = [
+  ['friendships', 'user_id = $1 OR friend_id = $1'],
+  ['friend_requests', 'from_id = $1 OR to_id = $1'],
+  ['blocks', 'blocker_id = $1 OR blocked_id = $1'],
+  ['games', 'white_id = $1 OR black_id = $1'],
+  ['team_games', 'white_p1_id = $1 OR white_p2_id = $1 OR black_p1_id = $1 OR black_p2_id = $1'],
+  ['password_resets', 'user_id = $1'],
+  ['email_verifications', 'user_id = $1'],
+  ['push_subscriptions', 'user_id = $1'],
+  ['puzzle_solves', 'user_id = $1'],
+  ['puzzle_streaks', 'user_id = $1'],
+  ['puzzle_ratings', 'user_id = $1'],
+  ['puzzle_attempts', 'user_id = $1'],
+  ['rush_scores', 'user_id = $1'],
+  ['streak_victims', 'winner_id = $1 OR victim_id = $1'],
+  ['season_stats', 'user_id = $1'],
+  ['arena_scores', 'user_id = $1'],
+  ['analytics_events', 'user_id = $1'],
+  ['league_members', 'user_id = $1'],
+];
+
+export async function adminDeleteUserHard(userId, { dryRun = false } = {}) {
+  if (!userId) throw new Error('userId required');
+  const ex = await pool.query('SELECT 1 FROM users WHERE id = $1', [userId]);
+  const exists = ex.rowCount > 0;
+
+  if (dryRun) {
+    const counts = {};
+    for (const [t, where] of HARD_DELETE_OPS) {
+      try { const r = await pool.query(`SELECT COUNT(*)::int AS n FROM ${t} WHERE ${where}`, [userId]); counts[t] = r.rows[0].n; }
+      catch { counts[t] = 0; }
+    }
+    try { const r = await pool.query('SELECT COUNT(*)::int AS n FROM leagues WHERE owner_id = $1', [userId]); counts.leagues = r.rows[0].n; } catch { counts.leagues = 0; }
+    counts.users = exists ? 1 : 0;
+    return { dryRun: true, userId, found: exists, counts };
+  }
+
+  const deleted = await transaction(async (client) => {
+    const out = {};
+    // Owned leagues: drop members then the league.
+    const owned = await client.query('SELECT id FROM leagues WHERE owner_id = $1', [userId]);
+    let lg = 0;
+    for (const row of owned.rows) {
+      await client.query('DELETE FROM league_members WHERE league_id = $1', [row.id]);
+      const d = await client.query('DELETE FROM leagues WHERE id = $1', [row.id]);
+      lg += d.rowCount;
+    }
+    if (lg) out.leagues = lg;
+    for (const [t, where] of HARD_DELETE_OPS) {
+      const d = await client.query(`DELETE FROM ${t} WHERE ${where}`, [userId]);
+      if (d.rowCount) out[t] = d.rowCount;
+    }
+    const du = await client.query('DELETE FROM users WHERE id = $1', [userId]);
+    out.users = du.rowCount;
+    return out;
+  });
+  return { dryRun: false, userId, found: exists, deleted };
+}
+
 // All push subscriptions for a user (for fan-out).
 export async function listPushSubs(userId) {
   if (!userId) return [];

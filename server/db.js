@@ -493,6 +493,73 @@ export function deleteAccountData(userId) {
   tx(userId);
 }
 
+// ADMIN HARD DELETE — permanently removes a user row AND every row that
+// references it (games, puzzle/season/arena stats, social graph, leagues owned,
+// analytics, …). Unlike deleteAccountData (a GDPR soft-anonymize that KEEPS the
+// row + games), this leaves no trace — used for scrubbing TEST accounts so counts
+// and game history reflect only real users. IRREVERSIBLE.
+//
+// `dryRun:true` returns the per-table counts that WOULD be removed without
+// deleting anything (preview before committing). Table names below are fixed
+// internal literals (never user input), so interpolating them is safe.
+const HARD_DELETE_OPS = [
+  ['friendships', 'user_id = ? OR friend_id = ?', 2],
+  ['friend_requests', 'from_id = ? OR to_id = ?', 2],
+  ['blocks', 'blocker_id = ? OR blocked_id = ?', 2],
+  ['games', 'white_id = ? OR black_id = ?', 2],
+  ['team_games', 'white_p1_id = ? OR white_p2_id = ? OR black_p1_id = ? OR black_p2_id = ?', 4],
+  ['password_resets', 'user_id = ?', 1],
+  ['email_verifications', 'user_id = ?', 1],
+  ['push_subscriptions', 'user_id = ?', 1],
+  ['puzzle_solves', 'user_id = ?', 1],
+  ['puzzle_streaks', 'user_id = ?', 1],
+  ['puzzle_ratings', 'user_id = ?', 1],
+  ['puzzle_attempts', 'user_id = ?', 1],
+  ['rush_scores', 'user_id = ?', 1],
+  ['streak_victims', 'winner_id = ? OR victim_id = ?', 2],
+  ['season_stats', 'user_id = ?', 1],
+  ['arena_scores', 'user_id = ?', 1],
+  ['analytics_events', 'user_id = ?', 1],
+  ['league_members', 'user_id = ?', 1],
+];
+
+export function adminDeleteUserHard(userId, { dryRun = false } = {}) {
+  if (!userId) throw new Error('userId required');
+  const exists = !!db.prepare('SELECT 1 FROM users WHERE id = ?').get(userId);
+
+  if (dryRun) {
+    const counts = {};
+    for (const [t, where, n] of HARD_DELETE_OPS) {
+      try { counts[t] = db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE ${where}`).get(...Array(n).fill(userId)).n; }
+      catch { counts[t] = 0; }
+    }
+    try { counts.leagues = db.prepare('SELECT COUNT(*) AS n FROM leagues WHERE owner_id = ?').get(userId).n; } catch { counts.leagues = 0; }
+    counts.users = exists ? 1 : 0;
+    return { dryRun: true, userId, found: exists, counts };
+  }
+
+  const tx = db.transaction((id) => {
+    const deleted = {};
+    // Leagues owned by this user: drop their member rows, then the league.
+    try {
+      const owned = db.prepare('SELECT id FROM leagues WHERE owner_id = ?').all(id).map(r => r.id);
+      let lg = 0;
+      for (const lid of owned) {
+        db.prepare('DELETE FROM league_members WHERE league_id = ?').run(lid);
+        lg += db.prepare('DELETE FROM leagues WHERE id = ?').run(lid).changes;
+      }
+      if (lg) deleted.leagues = lg;
+    } catch { /* table may predate leagues */ }
+    for (const [t, where, n] of HARD_DELETE_OPS) {
+      try { const c = db.prepare(`DELETE FROM ${t} WHERE ${where}`).run(...Array(n).fill(id)).changes; if (c) deleted[t] = c; }
+      catch { /* table may not exist on an older schema */ }
+    }
+    deleted.users = db.prepare('DELETE FROM users WHERE id = ?').run(id).changes;
+    return deleted;
+  });
+  return { dryRun: false, userId, found: exists, deleted: tx(userId) };
+}
+
 // All push subscriptions for a user (for fan-out). Returns [{endpoint,p256dh,auth}].
 export function listPushSubs(userId) {
   if (!userId) return [];

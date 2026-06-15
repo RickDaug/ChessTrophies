@@ -1230,6 +1230,27 @@ app.get('/api/admin/user/:id', async (req, res, next) => {
   } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 
+// ADMIN HARD DELETE (ADMIN_KEY-gated) — PERMANENTLY removes a user row + every
+// row that references it (games, stats, social graph, owned leagues, analytics).
+// This is NOT the GDPR soft-delete (/api/me/delete, which anonymizes + keeps the
+// row); it's for scrubbing TEST accounts so the data reflects only real users.
+// IRREVERSIBLE. Preview first with `?dryRun=1` (returns per-table counts, deletes
+// nothing). 404 if the id doesn't exist (and not a dry run).
+app.delete('/api/admin/user/:id', async (req, res, next) => {
+  try {
+    const provided = req.get('x-admin-key') || req.query.key || '';
+    if (!adminKeyOk(provided)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const id = String(req.params.id || '');
+    if (!id) return res.status(400).json({ error: 'User id required.' });
+    const dryRun = /^(1|true|yes)$/i.test(String(req.query.dryRun || ''));
+    const result = await store.adminDeleteUserHard(id, { dryRun });
+    if (!result.found && !dryRun) return res.status(404).json({ error: 'User not found.' });
+    res.json(result);
+  } catch (e) { if (!e.status) e.status = 500; next(e); }
+});
+
 // Raw-data CSV export (ADMIN_KEY-gated) for offline analysis in a spreadsheet / BI
 // tool. type = events | users | games. Bounded row cap; no raw IPs or PGNs.
 app.get('/api/admin/export', async (req, res, next) => {
