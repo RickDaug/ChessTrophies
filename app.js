@@ -784,7 +784,7 @@
     // gets a red/urgent treatment instead of the calm gold.
     const atRisk = current >= 1 && isYesterday && !isToday;
     const doneToday = current >= 1 && isToday;
-    let line, title, icon, border, bg, lineColor;
+    let line, title, icon, border, bg, lineColor, subLine = '';
     if (doneToday) {
       title = 'Daily Streak';
       line = current + '-day streak' + (best > current ? ' · best ' + best : '') + ' — see you tomorrow!';
@@ -795,6 +795,13 @@
       line = 'Play a game or solve today’s puzzle to keep your ' + current + '-day streak alive.';
       icon = '⚠️'; border = '#e0683c';
       bg = 'linear-gradient(135deg, rgba(224,104,60,.16), var(--panel))'; lineColor = '#e0683c';
+      // Guest return hook (audit HIGH): a guest who leaves has no reachable nudge
+      // — true scheduled guest re-engagement is deferred (no identity/email; see
+      // server/reengage.js). The clean unlock is conversion, so prompt an at-risk
+      // guest to sign up and turn on reminders. Copy-only; tapping the card still
+      // opens the daily puzzle. (Reachable scheduled nudges only exist for
+      // signed-in users with a push sub or verified email.)
+      try { if (state.user && state.user.isGuest) subLine = 'Sign up free to save your streak and get a reminder before it expires.'; } catch (e) {}
     } else {
       title = 'Daily Streak';
       line = 'Play a game or solve today’s puzzle to start a daily streak.';
@@ -808,6 +815,7 @@
           '<div style="flex:1;min-width:0">' +
             '<div class="pc-title" style="font-weight:800;font-size:16px">' + escapeHTML(title) + '</div>' +
             '<div class="small" style="margin-top:4px;color:' + lineColor + ';font-weight:700">' + escapeHTML(line) + '</div>' +
+            (subLine ? '<div class="small muted" style="margin-top:4px">' + escapeHTML(subLine) + '</div>' : '') +
           '</div>' +
           '<div class="pc-go" style="font-size:18px;color:' + lineColor + ';opacity:.7">›</div>' +
         '</div>' +
