@@ -43,6 +43,7 @@
     "test:public-profile": "node test/public-profile.mjs",
     "test:profile-viewer-ui": "node test/profile-viewer-ui.mjs",
     "test:puzzles": "node test/puzzles.mjs",
+    "test:content-correctness": "node test/content-correctness.mjs",
     "test:a11y": "node test/a11y.mjs",
     "test:board-theme": "node test/board-theme.mjs",
     "test:theme-sync": "node test/theme-sync.mjs",
