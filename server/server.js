@@ -45,6 +45,7 @@ import { mountStore, logStoreStatus } from './entitlements.js';
 import { mountPush, logPushStatus, sendPushToUser } from './push.js';
 import { mountPuzzles } from './puzzles.js';
 import { mountArena, startArenaScheduler, logArenaStatus, liveArena, arenaEnabled, recentChampions } from './arena.js';
+import { startReengagementScheduler, logReengageStatus } from './reengage.js';
 import { mountAnalytics, analyticsStats, logAnalyticsStatus } from './analytics.js';
 import { mountClientErrors } from './client-errors.js';
 import { geoFromReq } from './geo.js';
@@ -1424,6 +1425,15 @@ startArenaScheduler(io, {
   },
 });
 
+// Start the re-engagement sender (audit BLOCKER fix). Hourly tick that selects
+// streak-at-risk + inactive (d1/d3/d7) users via the PURE selector in
+// reengage.js and dispatches a push (or comeback email) with a per-user
+// cooldown. Env-gated: a complete no-op until VAPID (push) or RESEND_API_KEY
+// (email) is configured, and failure-isolated so it can never crash boot. Passed
+// the shared Redis client so, under multi-instance, a SET NX lock makes exactly
+// one replica send each tick (no double-sends).
+startReengagementScheduler({ redis: redisClient });
+
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`ChessTrophies server listening on :${PORT}`);
@@ -1443,6 +1453,8 @@ httpServer.listen(PORT, () => {
   logPushStatus();
   // ...and whether arena tournaments are scheduling (ARENA_ENABLED).
   logArenaStatus();
+  // ...and whether the re-engagement sender is live (push and/or email).
+  logReengageStatus();
 });
 
 // --- Graceful shutdown + global error handlers ---------------------------------

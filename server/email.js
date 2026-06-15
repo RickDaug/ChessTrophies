@@ -61,3 +61,39 @@ export async function sendResetEmail(email, token) {
     `This link/code expires in 30 minutes. If you didn't request this, you can ignore this email.`;
   return sendEmail({ to: email, subject: 'Reset your ChessTrophies password', text });
 }
+
+// Re-engagement / comeback email. Sent by the reengage scheduler to a user we
+// can't reach via push (no subscription) but who has a VERIFIED email. `reason`
+// is one of the reengage reasons ('streak_at_risk' | 'inactive_d1/d3/d7') and
+// picks the copy. Best-effort; returns false (never throws) when email is not
+// configured or sending failed. Mirrors the other senders' no-op contract.
+export async function sendComebackEmail(email, reason) {
+  if (!process.env.RESEND_API_KEY) return false; // No provider configured -> no-op.
+  const appUrl = (process.env.APP_URL || '').replace(/\/+$/, '');
+  const cta = appUrl ? `Play now: ${appUrl}` : 'Open ChessTrophies and play a game.';
+  let subject, lead;
+  switch (reason) {
+    case 'streak_at_risk':
+      subject = 'Keep your ChessTrophies streak alive!';
+      lead = "Your daily streak is about to break — solve today's puzzle to keep it going.";
+      break;
+    case 'inactive_d1':
+      subject = 'Your board is waiting';
+      lead = 'A quick game or daily puzzle is one click away. Come back and play!';
+      break;
+    case 'inactive_d3':
+      subject = 'We miss you at the board';
+      lead = "It's been a few days — jump back in for a game or the daily puzzle.";
+      break;
+    case 'inactive_d7':
+    default:
+      subject = 'Ready for a comeback?';
+      lead = 'Your rivals have been busy. Come back, play a game, and climb the board again.';
+      break;
+  }
+  const text =
+    `${lead}\n\n` +
+    `${cta}\n\n` +
+    `You're getting this because you turned on ChessTrophies updates. You can stop these anytime from your profile.`;
+  return sendEmail({ to: email, subject: `ChessTrophies — ${subject}`, text });
+}
