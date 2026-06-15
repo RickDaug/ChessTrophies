@@ -786,18 +786,18 @@
     const doneToday = current >= 1 && isToday;
     let line, title, icon, border, bg, lineColor;
     if (doneToday) {
-      title = 'Daily Puzzle Streak';
+      title = 'Daily Streak';
       line = current + '-day streak' + (best > current ? ' · best ' + best : '') + ' — see you tomorrow!';
       icon = '🔥'; border = 'var(--accent)';
       bg = 'linear-gradient(135deg, rgba(245,196,81,.10), var(--panel))'; lineColor = 'var(--accent)';
     } else if (atRisk) {
       title = '🔥 ' + current + '-day streak ends tonight!';
-      line = 'Solve today’s puzzle now to keep your ' + current + '-day streak alive.';
+      line = 'Play a game or solve today’s puzzle to keep your ' + current + '-day streak alive.';
       icon = '⚠️'; border = '#e0683c';
       bg = 'linear-gradient(135deg, rgba(224,104,60,.16), var(--panel))'; lineColor = '#e0683c';
     } else {
-      title = 'Daily Puzzle Streak';
-      line = 'Solve today’s puzzle to start a daily streak.';
+      title = 'Daily Streak';
+      line = 'Play a game or solve today’s puzzle to start a daily streak.';
       icon = '🔥'; border = 'var(--accent)';
       bg = 'linear-gradient(135deg, rgba(245,196,81,.10), var(--panel))'; lineColor = 'var(--accent)';
     }
@@ -1464,6 +1464,9 @@
     state._netHandlersRegistered = false;
     showNav(false);
     showScreen('auth');
+    // Returning (expired) users want to sign in, so open the login form for them —
+    // the auth front door now starts collapsed for first-time visitors.
+    { const _lt = $('#screen-auth .tab[data-tab="login"]'); if (_lt) _lt.click(); }
     toast(msg || 'Your session expired — please sign in again.');
   }
 
@@ -1635,10 +1638,22 @@
       // Show the nav and prep lobby state, then optionally drop straight into a game.
       enterApp();
       if (opts.challenge) {
-        // Accepted a shared challenge: play that exact bot difficulty (not the ramp).
+        // Accepted a shared challenge. Normally play that exact bot difficulty (the
+        // social-proof "beat what your friend beat" framing). BUT a brand-new guest's
+        // VERY FIRST game shouldn't be a 2000-ELO bot on move one — that's an instant
+        // crush and a terrible first impression. Clamp the first-ever game to a
+        // beatable level (cap at the easiest ramp step), keeping the challenge
+        // framing; subsequent games play the real challenger ELO.
+        const firstEver = !(state.user.flags && state.user.flags.guestGames);
+        const RAMP_FLOOR = 800;
+        const playElo = firstEver ? Math.min(opts.challenge.elo, RAMP_FLOOR) : opts.challenge.elo;
+        // Keep the original challenge ELO recorded so the challenge tally / framing
+        // still reflects the real challenge; only the first game's AI is eased.
         state._challenge = { id: opts.challenge.id, elo: opts.challenge.elo };
-        toast('Challenge accepted — beat the Computer! ⚔️', true);
-        startPracticeGame(opts.challenge.elo);
+        toast(firstEver && playElo < opts.challenge.elo
+          ? 'Challenge accepted — warming up vs the Computer first! ⚔️'
+          : 'Challenge accepted — beat the Computer! ⚔️', true);
+        startPracticeGame(playElo);
       } else if (opts.playNow) {
         const firstGame = !(state.user.flags && state.user.flags.guestGames);
         const lvl = guestPracticeElo(($('#practice-elo') && $('#practice-elo').value) || 1200);
@@ -4481,9 +4496,11 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Session "games finished" signal — gates ad/upsell clutter until the user has
     // completed at least one game (covers guests, who have no persisted record).
     state._sessionGamesFinished = (state._sessionGamesFinished || 0) + 1;
-    // NOTE: the DAILY STREAK is now earned by SOLVING the daily puzzle
-    // (window.CT_onPuzzleSolved -> recordDailyPlay), not by finishing a game.
-    // Finishing a game no longer advances the streak.
+    // DAILY STREAK: advances on finishing a game OR solving the daily puzzle —
+    // whichever a player actually does that day. recordDailyPlay() is idempotent
+    // per calendar day, so doing both (or several games) only counts once. It's
+    // called near the end of finishGame (after stats persist) so the streak reflects
+    // the completed game; see the recordDailyPlay() call below the persist block.
     // Game ended — drop any disconnect/reconnect status banners + their timers.
     netBanner(null);
     oppBanner(null);
@@ -4852,8 +4869,12 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     var _rvBtn2 = $('#btn-result-review'); if (_rvBtn2) _rvBtn2.style.display = '';
     // Guest CTA: show after EVERY guest game (not just wins — the ~80% who lose
     // their first game previously got no prompt + no reason to return). Copy is
-    // framed by context (loss-aversion): a win/trophy → "save your win", a live
-    // daily streak → "keep your N-day streak", else "track your progress".
+    // framed by context (loss-aversion) around value props that ACTUALLY work at
+    // launch: a win/trophy → "save your win", a live daily streak → "keep your
+    // N-day streak", else → "save your progress across devices". It deliberately
+    // does NOT promise online human play — ranked 1v1/2v2 is gated off pre-launch
+    // and casual online has no opponents yet, so pitching it would be a broken
+    // promise the moment they sign up.
     var _gBtn = $('#btn-result-guest-signup');
     var _newTrophyCount = (typeof unlocked !== 'undefined' ? unlocked.length : 0) + (typeof moreUnlocks !== 'undefined' ? moreUnlocks.length : 0);
     var _isGuest = !!(state.user && state.user.isGuest);
@@ -4870,13 +4891,16 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       var _showGuestCta = _isGuest;
       if (_showGuestCta) {
         var _gStreak = (state.user.playStreak && state.user.playStreak.streak) || 0;
+        // Value props that work TODAY: keep your win/trophies, keep your streak, or
+        // save progress + sync across devices. No "play real people" promise — that
+        // mode isn't live yet (see comment above).
         _gBtn.textContent = (myWon || _newTrophyCount > 0)
           ? '🏆 Save your win — create a free account'
           : (_gStreak > 1
               ? 'Keep your ' + _gStreak + '-day streak — create a free account'
               : (_firstGame
-                  ? 'Play real people — create a free account'
-                  : 'Track your progress — create a free account'));
+                  ? 'Save your progress on every device — create a free account'
+                  : 'Save your trophies & streak — create a free account'));
       }
       _gBtn.style.display = _showGuestCta ? '' : 'none';
       // Analytics: the guest signup CTA is actually being shown.
@@ -4892,14 +4916,16 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       var _canReplay = !!(state.gameMode === 'practice' && typeof state._offlineReplay === 'function' && state.opponent && state.opponent.isAI);
       _paBtn.style.display = _canReplay ? '' : 'none';
     }
-    // RETENTION BRIDGE: a finished game does NOT advance the daily streak (that's
-    // earned by the daily puzzle) — so a fresh player who only plays games never
-    // discovers the come-back-tomorrow loop. Bridge them into today's puzzle when
-    // it's still unsolved. Works for guests too (their streak persists locally).
+    // RETENTION BRIDGE: surface today's daily puzzle as a second activity after a
+    // game, so a fresh player discovers the come-back-tomorrow loop. The finished
+    // game already counts toward the daily streak (recordDailyPlay runs at the end
+    // of finishGame), so this is a bonus nudge, not the only way to keep the streak.
+    // _solvedToday reads BEFORE this game's recordDailyPlay fires, so it reflects
+    // whether the streak was already counted today (puzzle or earlier game).
     var _dailyBtn = $('#btn-result-daily');
     if (_dailyBtn) {
-      var _solvedToday = !!(state.user && state.user.playStreak && state.user.playStreak.lastDate === todayKey());
-      var _showDaily = puzzlesAvailable() && !_solvedToday;
+      var _doneToday = !!(state.user && state.user.playStreak && state.user.playStreak.lastDate === todayKey());
+      var _showDaily = puzzlesAvailable() && !_doneToday;
       _dailyBtn.style.display = _showDaily ? '' : 'none';
     }
     // GROWTH LOOP: if this was a received challenge, tally it server-side; then show
@@ -4976,6 +5002,13 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       state.user.flags.guestGames = (state.user.flags.guestGames || 0) + 1;
       saveGuest();
     }
+
+    // DAILY STREAK from a finished game (idempotent per day, so it never
+    // double-counts with the daily puzzle or another game the same day). Runs for
+    // guests and signed-in users alike, AFTER the stats/guest persistence above so
+    // the record it saves includes this game. recordDailyPlay() re-renders the
+    // lobby streak card and syncs progress to the server.
+    try { recordDailyPlay(); } catch (e) {}
 
     if (_mateDelay > 0) {
       // Hold the modal briefly so the board mate animation reads first.

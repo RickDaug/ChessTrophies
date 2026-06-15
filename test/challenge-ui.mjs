@@ -78,19 +78,23 @@ async function main() {
     assert(ui.csp.length === 0, 'script-src CSP violations: ' + JSON.stringify(ui.csp));
     log(`landing: "${ui.title}" / "${ui.body}" / proof "${ui.proof}" ✓`);
 
-    // 2) Accept -> guest bot game at the EXACT challenge difficulty.
+    // 2) Accept -> guest bot game. A brand-new visitor's VERY FIRST game is EASED
+    //    (clamped to a beatable 800) so a 1500 challenge bot doesn't crush them on
+    //    move one — but the challenge context (id + real 1500 elo) is still tracked
+    //    so the social-proof framing + tally stay intact (funnel finding #5).
     await page.click('#btn-challenge-accept');
     await page.waitForFunction(() => {
       const s = window.CT.state;
       return s.user && s.user.isGuest && s.opponent && s.opponent.isAI && s._challenge &&
         document.getElementById('screen-game')?.classList.contains('active');
     }, { timeout: 10000 }).catch(() => fail('Accept did not start a guest game'));
-    const g = await page.evaluate(() => ({ elo: window.CT.state.opponent.elo, chId: window.CT.state._challenge && window.CT.state._challenge.id, guest: !!window.CT.state.user.isGuest }));
-    assert(g.elo === 1500, `the bot should be at the challenge elo 1500, got ${g.elo}`);
+    const g = await page.evaluate(() => ({ elo: window.CT.state.opponent.elo, chId: window.CT.state._challenge && window.CT.state._challenge.id, chElo: window.CT.state._challenge && window.CT.state._challenge.elo, guest: !!window.CT.state.user.isGuest }));
+    assert(g.elo === 800, `a first-ever guest's challenge bot should be eased to 800 (was 1500), got ${g.elo}`);
     assert(g.chId === 'cstub', `challenge context should be tracked, got ${g.chId}`);
+    assert(g.chElo === 1500, `the real challenge elo (1500) should still be recorded for framing/tally, got ${g.chElo}`);
     assert(g.guest, 'the new visitor should be playing as a guest (no signup)');
     assert(errors.length === 0, 'page errors:\n' + errors.join('\n'));
-    log('accept: dropped into a guest bot game at elo 1500, challenge tracked ✓');
+    log('accept: first-ever guest eased to 800 while the 1500 challenge stays tracked ✓');
 
     log('PASS — challenge link → landing (with social proof) → accept → guest game at the right difficulty');
   } finally {
