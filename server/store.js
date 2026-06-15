@@ -270,6 +270,18 @@ export async function removeDeadSub(endpoint) {
   return sqlite.removeDeadSub(endpoint);
 }
 
+// --- Re-engagement (backend-agnostic wrappers) -----------------------------
+
+export async function listReengagementCandidates(opts) {
+  if (usingPostgres) return (await loadPg()).listReengagementCandidates(opts);
+  return sqlite.listReengagementCandidates(opts);
+}
+
+export async function markReengaged(userId, now) {
+  if (usingPostgres) return (await loadPg()).markReengaged(userId, now);
+  return sqlite.markReengaged(userId, now);
+}
+
 // --- Generic single-statement helpers --------------------------------------
 //
 // For ad-hoc parameterized SQL in HTTP route handlers (friends/blocks/etc.)

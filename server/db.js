@@ -147,6 +147,10 @@ ensureColumn('users', 'trophy_points', 'INTEGER', '0');
 // safe: only the coarse derived strings are stored, never the raw IP.
 ensureColumn('users', 'geo_country', 'TEXT', "''");
 ensureColumn('users', 'geo_region', 'TEXT', "''");
+// Re-engagement cooldown: ms timestamp of the last re-engagement notification we
+// sent this user (push or comeback email). 0 = never. Powers the per-user
+// cooldown in server/reengage.js so nobody is nudged twice inside the window.
+ensureColumn('users', 'last_notified_at', 'INTEGER', '0');
 // Tag game rows by type/variant so the existing `games` table can also record
 // checkers games. Existing rows default to chess (game_type='chess'), so the
 // historical data is unchanged. `variant` holds the checkers board size as a
@@ -571,6 +575,44 @@ export function listPushSubs(userId) {
 // and a dead endpoint is dead for everyone. No-op if not present.
 export function removeDeadSub(endpoint) {
   return db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint);
+}
+
+// --- Re-engagement candidate selection -------------------------------------
+// Return the raw candidate rows the PURE selector (server/reengage.js) needs to
+// decide who to nudge: reachable (has a push sub OR a verified email) AND either
+// idle since `sinceMs` (the long-churn cap) OR holding a live daily streak. The
+// pure function applies the actual thresholds + cooldown; this just narrows the
+// scan so we don't load every user. Shapes match what selectReengagementTargets
+// expects. `limit` caps the scan (newest activity first).
+export function listReengagementCandidates({ sinceMs = 0, limit = 1000 } = {}) {
+  const rows = db.prepare(
+    `SELECT u.id AS id, u.email AS email, u.email_verified AS email_verified,
+            u.last_seen AS last_seen, u.last_notified_at AS last_notified_at,
+            COALESCE(ps.current_streak, 0) AS current_streak,
+            COALESCE(ps.last_day_key, '') AS streak_last_day_key,
+            (SELECT COUNT(1) FROM push_subscriptions s WHERE s.user_id = u.id) AS sub_count
+       FROM users u
+       LEFT JOIN puzzle_streaks ps ON ps.user_id = u.id
+      WHERE u.last_seen >= ?
+         OR COALESCE(ps.current_streak, 0) > 0
+      ORDER BY u.last_seen DESC
+      LIMIT ?`
+  ).all(sinceMs, limit);
+  return rows.map(r => ({
+    id: r.id,
+    email: r.email,
+    emailVerified: !!r.email_verified,
+    hasPushSub: r.sub_count > 0,
+    lastSeen: r.last_seen,
+    lastNotifiedAt: r.last_notified_at,
+    currentStreak: r.current_streak,
+    streakLastDayKey: r.streak_last_day_key,
+  }));
+}
+
+// Stamp the re-engagement cooldown for a user (the ms `now` we just notified at).
+export function markReengaged(userId, now = Date.now()) {
+  return db.prepare('UPDATE users SET last_notified_at = ? WHERE id = ?').run(now, userId);
 }
 
 // --- Victim Wall / revenge loop --------------------------------------------
