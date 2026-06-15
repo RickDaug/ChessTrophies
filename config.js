@@ -17,6 +17,17 @@
   'use strict';
 
   // The hosted backend (Railway). Any off-origin web host (Vercel) talks here.
+  //
+  // ── BACKEND ORIGIN: SOURCE-OF-TRUTH ───────────────────────────────────────
+  // This origin is duplicated in THREE places that MUST stay in sync, or login
+  // and realtime sockets silently break when the host changes:
+  //   1. THIS constant (BACKEND_URL) — the client's API/socket target.
+  //   2. index.html CSP `connect-src` — must allow https:// AND wss:// of it,
+  //      or the browser blocks the fetch/WebSocket.
+  //   3. server/server.js DEFAULT_WEB_ORIGINS — CORS allowlist (the reverse:
+  //      the WEB origins allowed to call this backend).
+  // If you migrate the backend host, update ALL THREE. (No build step injects
+  // this — it is intentionally a plain literal so it works on a static host.)
   var BACKEND_URL = 'https://chesstrophies-production.up.railway.app';
 
   try {

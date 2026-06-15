@@ -43,6 +43,29 @@ async function main() {
   assert(fs.existsSync(path.join(DIST, 'ct-ai.js')), 'dist/ct-ai.js missing (worker importScripts needs it)');
   assert(fs.existsSync(path.join(DIST, 'chess960.js')), 'dist/chess960.js missing (worker importScripts needs it)');
 
+  // First-load weight: assert the heavy/admin-only assets are EXCLUDED from the
+  // generated SW precache ASSETS list (they are still emitted into dist/ and
+  // runtime-cached on demand — they must just not bloat the up-front install).
+  // Parse the ASSETS array out of the built (minified) dist/sw.js.
+  {
+    const swSrc = fs.readFileSync(path.join(DIST, 'sw.js'), 'utf8');
+    const m = swSrc.match(/ASSETS\s*=\s*\[([\s\S]*?)\]/);
+    assert(m, 'could not find ASSETS list in dist/sw.js');
+    const precached = new Set(
+      [...m[1].matchAll(/["']([^"']+)["']/g)].map((x) => x[1].replace(/^\.\//, ''))
+    );
+    for (const f of ['admin.html', 'icon-1024.png', 'og-image.png', 'robots.txt']) {
+      assert(!precached.has(f) && !precached.has('./' + f),
+        `expected "${f}" to be EXCLUDED from the SW precache list (first-load weight), but it is present`);
+      // The asset must still be emitted into dist/ (excluded from precache != deleted),
+      // so runtime caching can serve it on demand.
+      assert(fs.existsSync(path.join(DIST, f)), `dist/${f} should still be emitted (only excluded from precache)`);
+    }
+    // Sanity: the app shell IS still precached.
+    assert(precached.has('index.html') || precached.has('./index.html'), 'index.html missing from precache list');
+    log(`precache assets: ${precached.size} (admin.html + heavy unused images correctly excluded)`);
+  }
+
   // 2) Serve dist/ WITH the CSP intact. Only the cross-origin stubs below let
   //    the test run offline; the app code + CSP under test are unchanged.
   const srv = http.createServer((req, res) => {
