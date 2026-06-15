@@ -47,6 +47,7 @@
     "test:arena-ui": "node test/arena-ui.mjs",
     "test:i18n": "node test/i18n.mjs",
     "test:chat-translate": "node test/chat-translate.mjs",
+    "test:admin-delete": "node test/admin-delete.mjs",
     "test:guest-funnel": "node test/guest-funnel.mjs",
     "test:analytics": "node test/analytics.mjs",
     "test:client-errors": "node test/client-errors.mjs",
