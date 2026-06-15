@@ -25,6 +25,18 @@ Out of scope for Phase 1:
 - Added Helmet and rate limiting for `/api/*` and auth endpoints.
 - Added CORS origin parsing and a generic 500 error handler.
 - Added websocket chat + matchmaking rate limiting and control-character stripping.
+- Rate limiters use a shared **Redis-backed store** (built on the existing ioredis client, no new dependency) when `REDIS_URL` is set, so limits are GLOBAL across replicas instead of per-process; falls back to the in-memory store on a single instance. The store fails OPEN on a Redis hiccup (degrades limiting, never 500s a request).
+- API-served HTML (`/c/:id` share card) now sends a strict per-response CSP (`default-src 'none'`, no scripts) — closes the gap left by `helmet({contentSecurityPolicy:false})`. The SPA's own `sendFile(index.html)` deliberately keeps its `<meta>` CSP (a conflicting header could break the live app).
+
+## Data durability (SQLite vs Postgres / Litestream)
+The default backend is **SQLite at `DATABASE_PATH`**. On an ephemeral container filesystem (e.g. Railway without a persistent volume) this is **NOT durable** — a redeploy/restart can lose the DB, including an un-checkpointed `data.db-wal`. The posture is now made loud, not silent:
+- **Startup:** `server.js` logs a multi-line `[durability] WARNING` when running SQLite in production with no configured backup replica (and a `MISCONFIG` line if `LITESTREAM_REPLICA_URL` is set but the litestream binary is missing — the Dockerfile install is best-effort).
+- **`/health`:** reports `durable` (true only for Postgres OR a configured+present Litestream replica), `dbBackend`, and the existing `litestream`/`backupsConfigured` fields.
+- **Strict opt-in:** set `REQUIRE_DURABLE_DB=1` to make an undurable production boot **exit non-zero** instead of warning.
+- **Durable options:** (a) **Postgres** — `DB_BACKEND=postgres` + `DATABASE_URL`; or (b) **Litestream** — `LITESTREAM_REPLICA_URL` + S3/R2/B2 credentials (continuous replication to object storage; see `server/docker-entrypoint.sh`).
+
+## Backend origin: single source-of-truth
+The backend origin (`chesstrophies-production.up.railway.app`) is duplicated in three places that MUST stay in sync or login/sockets silently break on a host change: `config.js` (`BACKEND_URL`), `index.html` CSP `connect-src` (https:// + wss://), and `server/server.js` `DEFAULT_WEB_ORIGINS` (CORS). Each carries a cross-referencing "SOURCE-OF-TRUTH" comment; `config.js` holds the canonical note.
 
 ## Known gaps and rationale
 - CSP still uses `'unsafe-inline'` for scripts/styles because the current UI relies on inline event wiring and existing CSS helpers.
