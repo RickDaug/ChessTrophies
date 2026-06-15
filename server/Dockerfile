@@ -15,13 +15,28 @@ ARG LITESTREAM_VERSION=0.3.13
 # extract fails, the image builds without litestream and the entrypoint falls back
 # to plain `node server.js` (backups simply unavailable). tar extracts the whole
 # archive (the binary) rather than naming a member, which is more robust.
+#
+# HONESTY: a failed install must not be invisible. On failure we print a LOUD,
+# multi-line build-log warning so the broken-durability image is obvious in the
+# build output. At RUNTIME, server.js cross-checks (HAS_LITESTREAM via existsSync
+# on the binary) and emits a loud startup warning + surfaces `durable:false` on
+# /health when prod is on SQLite with no working backup — so a silently-missing
+# binary can't masquerade as a backed-up deploy.
 RUN ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)" \
     && case "$ARCH" in arm64) LS_ARCH=arm64 ;; *) LS_ARCH=amd64 ;; esac \
     && ( wget -qO /tmp/litestream.tar.gz "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-v${LITESTREAM_VERSION}-linux-${LS_ARCH}.tar.gz" \
          && tar -C /usr/local/bin -xzf /tmp/litestream.tar.gz \
          && rm -f /tmp/litestream.tar.gz \
          && litestream version ) \
-    || echo "[docker] WARNING: Litestream install failed — building WITHOUT backups (entrypoint runs plain node server.js)."
+    || ( echo "==================================================================" ; \
+         echo "[docker] WARNING: Litestream install FAILED." ; \
+         echo "[docker]   This image has NO SQLite backup tool. If you run SQLite" ; \
+         echo "[docker]   (DB_BACKEND != postgres) the data.db is NOT durable —" ; \
+         echo "[docker]   a redeploy/restart can LOSE ALL DATA." ; \
+         echo "[docker]   Durable options: DB_BACKEND=postgres + DATABASE_URL, or" ; \
+         echo "[docker]   rebuild with a reachable Litestream release URL." ; \
+         echo "[docker]   server.js will also warn at startup + report durable:false on /health." ; \
+         echo "==================================================================" )
 
 WORKDIR /app
 
