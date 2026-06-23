@@ -156,6 +156,30 @@
     controls.appendChild(refs.btnUndo);
     controls.appendChild(refs.btnNext);
     refs.playView.appendChild(controls);
+
+    // ----- DAILY "done for today" panel -------------------------------------
+    // Shown only after the DAILY puzzle is solved. The daily has no "Next"
+    // (it's one per day), which left players — especially newcomers — unsure
+    // what to do next. This makes the end-of-daily explicit and points them
+    // straight at the other things to play.
+    refs.dailyDone = el('div', 'ctp-dailydone');
+    refs.dailyDone.style.display = 'none';
+    refs.dailyDoneTitle = el('div', 'ctp-dd-title', '✅ Daily puzzle complete!');
+    refs.dailyDoneMsg = el('div', 'ctp-dd-msg',
+      'That’s today’s puzzle done. A fresh one unlocks tomorrow — keep the streak alive!');
+    var ddActions = el('div', 'ctp-dd-actions');
+    refs.btnDdTrainer = el('button', 'ctp-btn ctp-dd-btn', '🧩 Keep training');
+    refs.btnDdRush = el('button', 'ctp-btn ctp-dd-btn', '⚡ Puzzle Rush');
+    refs.btnDdHome = el('button', 'ctp-btn ctp-dd-btn ctp-dd-home', '♟ Play a game');
+    refs.btnDdTrainer.type = 'button'; refs.btnDdRush.type = 'button'; refs.btnDdHome.type = 'button';
+    ddActions.appendChild(refs.btnDdTrainer);
+    ddActions.appendChild(refs.btnDdRush);
+    ddActions.appendChild(refs.btnDdHome);
+    refs.dailyDone.appendChild(refs.dailyDoneTitle);
+    refs.dailyDone.appendChild(refs.dailyDoneMsg);
+    refs.dailyDone.appendChild(ddActions);
+    refs.playView.appendChild(refs.dailyDone);
+
     wrap.appendChild(refs.playView);
 
     // ----- RUSH start / result view -----------------------------------------
@@ -184,6 +208,34 @@
     refs.btnNext.addEventListener('click', onNext);
     refs.btnRushStart.addEventListener('click', startRush);
     seg.addEventListener('click', onSegClick);
+    refs.btnDdTrainer.addEventListener('click', function () { hideDailyDone(); openTrainer(); });
+    refs.btnDdRush.addEventListener('click', function () { hideDailyDone(); openRush(); });
+    refs.btnDdHome.addEventListener('click', function () { hideDailyDone(); goHome(); });
+  }
+
+  // Leave the puzzles screen for the main lobby (the "Play" hub). CSP-safe:
+  // drive the existing bottom-nav item so the app's own showScreen runs.
+  function goHome() {
+    var nav = document.querySelector('#bottom-nav .nav-item[data-nav="lobby"]');
+    if (nav) { nav.click(); return; }
+    try { if (typeof window.CT_showScreen === 'function') window.CT_showScreen('lobby'); } catch (e) {}
+  }
+
+  function hideDailyDone() {
+    if (refs.dailyDone) refs.dailyDone.style.display = 'none';
+  }
+
+  // Show the end-of-daily panel, tailoring the message to the live streak.
+  function showDailyDone(streak) {
+    if (!refs.dailyDone) return;
+    if (typeof streak === 'number' && streak > 0) {
+      refs.dailyDoneMsg.textContent = 'That’s today’s puzzle done — ' + streak + '-day streak! 🔥 ' +
+        'Come back tomorrow for a new one. Until then, try these:';
+    } else {
+      refs.dailyDoneMsg.textContent = 'That’s today’s puzzle done. A fresh one unlocks tomorrow. ' +
+        'Want to keep playing? Try these:';
+    }
+    refs.dailyDone.style.display = '';
   }
 
   // Segmented control: switch between daily / trainer / rush.
@@ -208,6 +260,7 @@
   function showRushView(show) {
     if (refs.playView) refs.playView.style.display = show ? 'none' : '';
     if (refs.rushView) refs.rushView.style.display = show ? '' : 'none';
+    if (show) hideDailyDone();
   }
 
   function injectStyles() {
@@ -263,6 +316,13 @@
       '.ctp-rush-result{font-size:16px;font-weight:700;margin:8px 0;min-height:22px}',
       '.ctp-rush-result.win{color:#2e9e5b}',
       '.ctp-btn.ctp-rush-start{background:#b8484a;max-width:240px}',
+      // daily "done for today" panel
+      '.ctp-dailydone{margin-top:14px;padding:14px;border-radius:12px;background:rgba(46,158,91,.12);border:1px solid rgba(46,158,91,.35);text-align:center;animation:ctp-flash .5s ease}',
+      '.ctp-dd-title{font-weight:800;font-size:17px;color:#2e9e5b;margin-bottom:4px}',
+      '.ctp-dd-msg{font-size:14px;opacity:.9;line-height:1.45;margin-bottom:12px}',
+      '.ctp-dd-actions{display:flex;gap:8px;flex-wrap:wrap}',
+      '.ctp-dd-btn{flex:1;min-width:120px}',
+      '.ctp-dd-btn.ctp-dd-home{background:#2e9e5b}',
     ].join('\n');
     var style = el('style');
     style.id = 'ctp-styles';
@@ -380,6 +440,7 @@
                               // the proof-of-solve we POST to /solved for the
                               // server to re-verify against the stored solution.
     };
+    hideDailyDone();
     refs.title.textContent = p.title || 'Find the best move';
     refs.streak.style.display = 'none';
     updateBadges(p);
@@ -764,6 +825,10 @@
     }
 
     setStatus('Solved! Well done. ✓', 'win');
+    // DAILY: there's only one puzzle a day, so make the end explicit and point
+    // the player at what else they can do (refined with the streak once the
+    // server confirms it in recordSolved).
+    if (mode === 'daily') showDailyDone();
     // Fire the app callback if present.
     try {
       if (typeof window.CT_onPuzzleSolved === 'function') {
@@ -789,6 +854,10 @@
           if (!data) return;
           if (state && typeof data.currentStreak === 'number' && data.currentStreak > 0) {
             updateBadges(state.puzzle, data.currentStreak);
+            // Refine the daily "done" message with the confirmed streak.
+            if (mode === 'daily' && refs.dailyDone && refs.dailyDone.style.display !== 'none') {
+              showDailyDone(data.currentStreak);
+            }
           }
           // Show the new per-user puzzle rating + the climb.
           if (typeof data.puzzleRating === 'number') {
