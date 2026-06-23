@@ -970,7 +970,12 @@
       if (b.h) html += '<h2 class="lib-h">' + esc(b.h) + '</h2>';
       else if (b.p) html += '<p class="lib-p">' + esc(b.p) + '</p>';
     });
-    html += '<div class="lib-article-foot">You finished this lesson. Now go try the idea in a real game or a puzzle!</div>';
+    html += '<div class="lib-article-foot">You finished this lesson. Put the idea to work:</div>';
+    html += '<div class="lib-foot-actions">' +
+      '<button class="lib-foot-btn" data-libnext="puzzle">🧩 Try a puzzle</button>' +
+      '<button class="lib-foot-btn" data-libnext="play">♟ Play a game</button>' +
+      '<button class="lib-foot-btn lib-foot-back" data-libback="1">‹ More lessons</button>' +
+      '</div>';
     html += '</article>';
     return html;
   }
@@ -986,8 +991,25 @@
         markRead(a.id);
         container.innerHTML = articleHTML(a);
         container.scrollTop = 0;
-        var bk = container.querySelector('[data-libback]');
-        if (bk) bk.addEventListener('click', function () { renderLibrary(container); });
+        try { window.scrollTo(0, 0); } catch (e) {}
+        // Back to the lesson list (reset scroll so it opens at the top).
+        container.querySelectorAll('[data-libback]').forEach(function (bk) {
+          bk.addEventListener('click', function () {
+            renderLibrary(container);
+            container.scrollTop = 0;
+            try { window.scrollTo(0, 0); } catch (e) {}
+          });
+        });
+        // "What's next" CTAs — leave the article for a puzzle or a game so the
+        // reader isn't stranded at the end of the lesson. CSP-safe: nav via the
+        // bottom-nav items the app already wires (showScreen isn't global).
+        container.querySelectorAll('[data-libnext]').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var nav = b.getAttribute('data-libnext') === 'puzzle' ? 'puzzles' : 'lobby';
+            var item = document.querySelector('#bottom-nav .nav-item[data-nav="' + nav + '"]');
+            if (item) item.click();
+          });
+        });
       });
     });
   }
