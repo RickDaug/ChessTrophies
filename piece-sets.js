@@ -1,8 +1,9 @@
 /*
- * piece-sets.js — Premium themed piece/board SET engine (manifest + lazy loader).
+ * piece-sets.js — themed piece/board SET engine (manifest + lazy loader).
  *
- * A "set" = a full board palette + 12 themed SVG pieces (6 roles x 2 sides), sold
- * in the Store ($2.99, owned forever). See STORE_DESIGN.md for the art bible + data
+ * A "set" = a full board palette + 12 themed SVG pieces (6 roles x 2 sides). All
+ * sets are FREE for everyone to equip (no subscription, no purchase). A curated
+ * few also arrive as trophy rewards. See STORE_DESIGN.md for the art bible + data
  * shape. Heavy SVG lives in sets/<slug>.json and is fetched ONLY when a set is
  * previewed/equipped — the main bundle stays lean.
  *
@@ -10,9 +11,8 @@
  * falls back to the built-in Staunton renderer when no themed set is active or the
  * piece isn't available. Board colors are applied via CSS vars on <html>.
  *
- * Ownership is server-authoritative (entitlements); this client engine only renders
- * what the user owns/previews. Equipping a not-owned set is allowed for PREVIEW but
- * the Store gates the actual purchase server-side.
+ * enforcePremium() is a no-op (cosmetics are no longer gated). Premium is purely an
+ * optional supporter perk (removes ads + a profile badge).
  */
 (function () {
   'use strict';
@@ -126,16 +126,11 @@
       .catch(function () { return null; });
   }
 
-  // Themed sets are a PREMIUM perk OR a trophy reward. enforcePremium reverts a
-  // lapsed/cancelled member to Classic — but it must NOT strip a set the user
-  // earned with a trophy (those are theirs to keep regardless of subscription).
-  // Call setTrophyUnlocks() with the user's earned achievements BEFORE this.
-  function enforcePremium(isPremium) {
-    if (isPremium) return;
-    var persisted = null; try { persisted = localStorage.getItem(EQUIP_KEY); } catch (e) {}
-    var cur = activeSlug || persisted;
-    if (cur && !isTrophyUnlocked(cur)) { activeSlug = null; clearBoard(); persist(null); rerender(); }
-  }
+  // Themed sets are FREE for everyone now — equipping one is never gated by a
+  // subscription, so we NEVER strip an equipped set. Kept as a no-op (rather than
+  // removed) so existing callers in app.js don't need to change; a player's chosen
+  // set stays put regardless of premium status. (Premium is now ads/badge only.)
+  function enforcePremium(isPremium) { /* cosmetics are free — nothing to enforce */ }
 
   // Recompute which sets are unlocked from the user's earned achievement ids.
   // Returns the slugs that became unlocked since the last call (for a toast).

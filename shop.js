@@ -1,13 +1,11 @@
 /*
- * shop.js — Premium themed-set gallery (lives under Profile).
+ * shop.js — themed-set gallery (lives under Profile).
  *
- * MODEL: themed piece+board sets are a PREMIUM-SUBSCRIBER perk — included with the
- * subscription and usable only while it's active (a lapsed/cancelled member loses
- * access; enforced by CT_Sets.enforcePremium on login). NOT one-time purchases.
- *
- * Anyone can PREVIEW a set (temporary, non-persisted) to see it on the board.
- * Subscribers can EQUIP (persisted). Non-subscribers get an "Unlock with Premium"
- * CTA → the existing subscription upgrade flow (window.CT.openPremium).
+ * MODEL: themed piece+board sets are FREE for everyone — anyone can equip any set,
+ * no subscription required. A curated few also arrive as trophy rewards 🏆.
+ * Premium is now purely OPTIONAL support (removes ads + a profile badge); it no
+ * longer gates any cosmetic. The "Support the game" button opens the existing
+ * subscription flow (window.CT.openPremium) as a kind gesture, not a paywall.
  *
  * Depends on window.CT_Sets (piece-sets.js) + window.CT (showScreen/user/openPremium/toast).
  * CSP-safe: addEventListener + delegation only.
@@ -49,25 +47,23 @@
 
   function cardFor(m) {
     var slug = m.slug;
-    var premium = isPremium();
-    var unlocked = isUnlocked(slug);          // earned free via a trophy
+    var unlocked = isUnlocked(slug);          // earned as a trophy reward
     var info = unlockInfo(slug);              // { ach, label } if this set is trophy-earnable
-    var canEquip = premium || unlocked;
+    // Every set is FREE for everyone now — anyone can equip any set. Premium is
+    // optional (ads/badge/support), it no longer gates cosmetics.
+    var canEquip = true;
     var equipped = (window.CT_Sets && window.CT_Sets.activeSlug && window.CT_Sets.activeSlug() === slug);
     var card = document.createElement('div');
     card.className = 'card';
     card.style.cssText = 'padding:10px;display:flex;flex-direction:column;gap:8px';
-    var act, label;
-    if (canEquip) { act = 'equip'; label = equipped ? '✓ Equipped' : 'Equip'; }
-    else { act = 'preview'; label = equipped ? 'Previewing' : 'Preview'; }
-    var tag;
-    if (unlocked) tag = '<span style="color:var(--accent);font-weight:700;font-size:12px">🏆 Unlocked</span>';
-    else if (premium) tag = '<span style="color:#2e9e5b;font-weight:700;font-size:12px">Included</span>';
-    else if (info) tag = '<span style="color:var(--accent);font-weight:700;font-size:12px">🏆 / 🔒</span>';
-    else tag = '<span style="color:var(--accent);font-weight:700;font-size:12px">🔒 Premium</span>';
-    // For a still-locked but trophy-earnable set, spell out how to earn it free.
-    var sub = (!canEquip && info)
-      ? '<div class="small" style="color:var(--muted);line-height:1.3">🏆 ' + esc(info.label) + ' — or get it with Premium</div>'
+    var act = 'equip', label = equipped ? '✓ Equipped' : 'Equip';
+    var tag = unlocked
+      ? '<span style="color:var(--accent);font-weight:700;font-size:12px">🏆 Trophy</span>'
+      : '<span style="color:#2e9e5b;font-weight:700;font-size:12px">Free</span>';
+    // A trophy-earnable set still shows its milestone as a positive nudge — it's
+    // free to equip either way now, so this is a "nice to earn", never a gate.
+    var sub = (!unlocked && info)
+      ? '<div class="small" style="color:var(--muted);line-height:1.3">🏆 Also a trophy reward: ' + esc(info.label) + '</div>'
       : '';
     card.innerHTML =
       '<div class="ct-shop-preview" style="background:#0d1422"></div>' +
@@ -90,13 +86,17 @@
     var screen = $('#screen-store'); if (!screen) return;
     var body = screen.querySelector('.screen-body') || screen;
     var premium = isPremium();
-    var head = premium
-      ? '<div class="small" style="color:var(--muted);margin-bottom:10px">✨ Premium is active — equip any board &amp; piece set below. They stay yours while your membership is active. A few sets are also earnable free by winning trophies 🏆.</div>'
-      : '<div class="card" style="border:1px solid var(--accent);background:linear-gradient(135deg, rgba(245,196,81,.12), var(--panel));margin-bottom:12px;padding:12px">' +
-          '<div style="font-weight:800;margin-bottom:4px">🎨 Earn sets free, or unlock them all with Premium</div>' +
-          '<div class="small" style="color:var(--muted);margin-bottom:10px">Some board &amp; piece sets unlock free by earning trophies 🏆 — look for the requirement on each card. The full collection of ' + (window.CT_PIECE_SETS_MANIFEST ? window.CT_PIECE_SETS_MANIFEST.length : 19) + ' sets comes with Premium. Preview any set free below.</div>' +
-          '<button class="btn btn-block" data-shop-act="unlock" style="font-weight:700">Unlock all with Premium</button>' +
-        '</div>';
+    var count = (window.CT_PIECE_SETS_MANIFEST ? window.CT_PIECE_SETS_MANIFEST.length : 19);
+    // All sets are free for everyone. Show a friendly note + a purely OPTIONAL
+    // "support the game" button (subscribers get ad-free + a badge as a thank-you).
+    var supportLine = premium
+      ? '<div class="small" style="color:#2e9e5b;font-weight:700;margin-top:8px">💛 Thanks for supporting ChessTrophies — your Premium is active.</div>'
+      : '<button class="btn btn-block" data-shop-act="unlock" style="font-weight:700;margin-top:4px">💛 Support the game (optional)</button>';
+    var head = '<div class="card" style="border:1px solid var(--accent);background:linear-gradient(135deg, rgba(245,196,81,.12), var(--panel));margin-bottom:12px;padding:12px">' +
+        '<div style="font-weight:800;margin-bottom:4px">🎨 All ' + count + ' board &amp; piece sets are free</div>' +
+        '<div class="small" style="color:var(--muted)">Equip any set below — no subscription needed. A few also arrive as trophy rewards 🏆. If you’d like to support development you can subscribe to Premium (removes ads + a badge) — totally optional. 💛</div>' +
+        supportLine +
+      '</div>';
     body.innerHTML = head +
       '<div id="ct-shop-classic" style="margin-bottom:12px"></div>' +
       '<div id="ct-shop-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px"></div>';

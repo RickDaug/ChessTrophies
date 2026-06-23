@@ -3,11 +3,11 @@
  * trophy-cosmetics.mjs — verifies trophy-tied cosmetic (board/piece set) unlocks:
  *   1) CT_Sets.setTrophyUnlocks maps earned achievement ids -> unlocked set slugs,
  *      and reports only the NEWLY-unlocked slugs on each call;
- *   2) enforcePremium(false) KEEPS a trophy-unlocked set equipped but REVERTS a
- *      premium-only set (the lapsed-member gate, minus the earned sets);
+ *   2) enforcePremium(false) is a NO-OP — cosmetics are free for everyone, so it
+ *      KEEPS any equipped set (trophy-earned or not); nothing is ever stripped;
  *   3) CT_Sets.unlockForAchievement reverse-maps a trophy -> its reward set;
- *   4) the Store shows an "Equip" action for an unlocked set to a NON-premium user,
- *      and "Preview" for a still-locked premium-only set.
+ *   4) the Store shows an "Equip" action for EVERY set to a NON-premium user
+ *      (trophy-earned or not) and a free/trophy tag instead of a lock.
  *
  * Run:   node test/trophy-cosmetics.mjs   (needs Playwright Chromium). Exit 0 = PASS.
  */
@@ -73,16 +73,17 @@ async function main() {
       const rev = S.unlockForAchievement('gauntlet_t4');
       out.reverse = rev && rev.slug;
 
-      // 2a) enforcePremium KEEPS an unlocked set equipped.
+      // 2a) enforcePremium KEEPS a trophy-unlocked set equipped.
       await S.equip('dragons-slayers');
       S.enforcePremium(false);
       out.keptUnlocked = S.activeSlug();
 
-      // 2b) enforcePremium REVERTS a premium-only set for a non-subscriber.
-      S.setTrophyUnlocks([]); // nothing unlocked now
+      // 2b) enforcePremium also KEEPS a non-trophy set — cosmetics are free now,
+      //     so nothing is stripped for a non-subscriber.
+      S.setTrophyUnlocks([]); // nothing trophy-unlocked
       await S.equip('pirates-navy');
       S.enforcePremium(false);
-      out.revertedPremiumOnly = S.activeSlug(); // expect null
+      out.keptNonTrophy = S.activeSlug(); // expect 'pirates-navy' (kept, not stripped)
 
       return out;
     });
@@ -97,8 +98,8 @@ async function main() {
     log('reverse map: trophy -> reward set ✓');
 
     assert(r.keptUnlocked === 'dragons-slayers', `enforcePremium must KEEP a trophy-unlocked set, got ${r.keptUnlocked}`);
-    assert(r.revertedPremiumOnly === null, `enforcePremium must REVERT a premium-only set for a non-subscriber, got ${r.revertedPremiumOnly}`);
-    log('premium gate: keeps earned sets, reverts premium-only ✓');
+    assert(r.keptNonTrophy === 'pirates-navy', `enforcePremium must KEEP any set now (cosmetics are free), got ${r.keptNonTrophy}`);
+    log('cosmetics free: enforcePremium keeps every equipped set ✓');
 
     // 4) Store UI for a NON-premium user with the unlock earned.
     const ui = await page.evaluate(() => {
@@ -111,13 +112,13 @@ async function main() {
       return {
         unlockedAct: eq && eq.getAttribute('data-shop-act'),
         lockedAct: pv && pv.getAttribute('data-shop-act'),
-        headHasTrophy: /trophies/i.test((document.querySelector('#screen-store .screen-body') || document.querySelector('#screen-store') || {}).innerHTML || '')
+        headFree: /free/i.test((document.querySelector('#screen-store .screen-body') || document.querySelector('#screen-store') || {}).innerHTML || '')
       };
     });
-    assert(ui.unlockedAct === 'equip', `non-premium user should be able to EQUIP an unlocked set, got ${ui.unlockedAct}`);
-    assert(ui.lockedAct === 'preview', `non-premium user should only PREVIEW a premium-only set, got ${ui.lockedAct}`);
-    assert(ui.headHasTrophy, 'store header should mention trophy unlocks');
-    log('store UI: equip for earned set, preview for premium-only, header explains unlocks ✓');
+    assert(ui.unlockedAct === 'equip', `every set should be EQUIP-able now (trophy set), got ${ui.unlockedAct}`);
+    assert(ui.lockedAct === 'equip', `every set should be EQUIP-able now (non-trophy set), got ${ui.lockedAct}`);
+    assert(ui.headFree, 'store header should say all sets are free');
+    log('store UI: equip for every set, header says all sets free ✓');
 
     assert(errs.length === 0, `page errors during run: ${errs.join(' | ')}`);
     log('PASS — trophy-tied cosmetic unlocks behave as specified');
