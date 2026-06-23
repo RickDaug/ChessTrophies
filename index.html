@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<!-- Global error visibility — installs error/unhandledrejection handlers before
-     anything else. Externalized to a same-origin file so script-src can drop
-     'unsafe-inline'. Must stay the FIRST script and load synchronously. -->
-<script src="ct-onerror.js?v=20260606c"></script>
-<script src="ct-boot.js?v=20260607a"></script>
+<!-- Error handler + pre-paint boot splash, merged into ONE render-blocking
+     request (was ct-onerror.js + ct-boot.js — two round-trips). Installs the
+     error/unhandledrejection handlers before anything else, then sets the boot
+     marker before the body paints. Same-origin file so script-src keeps 'self'.
+     Must stay the FIRST script and load synchronously. -->
+<script src="ct-head.js?v=20260623a"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <!-- Content-Security-Policy: script-src is hardened to 'self' (+ cdnjs for
      socket.io) — NO 'unsafe-inline', so injected inline scripts/handlers can't
@@ -108,7 +109,7 @@
     font-display: swap; src: url('fonts/inter-latin-ext.woff2') format('woff2');
     unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
   }
-  /* Boot splash: shown (via ct-boot.js adding .ct-has-session before paint) only
+  /* Boot splash: shown (via ct-head.js adding .ct-has-session before paint) only
      for an already-signed-in user, so the sign-in form never flashes on refresh.
      app.js removes .ct-has-session once it shows the real screen. */
   html.ct-has-session #screen-auth { display: none !important; }
@@ -666,10 +667,16 @@
 </head>
 <body>
 
-  <!-- Boot splash (only visible for a signed-in user during refresh; see ct-boot.js) -->
+  <!-- Boot splash (only visible for a signed-in user during refresh; see ct-head.js) -->
   <div id="ct-splash" aria-hidden="true"><img src="icon-192.png" alt=""><div class="ct-spin"></div></div>
 
 <div id="app">
+
+<!-- Single <main> landmark wrapping the screen content (the bottom <nav> stays
+     outside it). display:contents so it generates NO box — the screens remain
+     flex children of #app and .screen{flex:1} still resolves, i.e. zero layout
+     change — while giving screen-reader/Lighthouse the required main landmark. -->
+<main style="display:contents">
 
   <!-- AUTH SCREEN -->
   <section id="screen-auth" class="screen active">
@@ -1494,6 +1501,8 @@
         <p id="friends-summary" style="color:var(--muted);font-size:13px;text-align:center;padding:20px 0;"></p>
       </div>
     </section>
+
+</main>
 
 <!-- BOTTOM NAV — 5 items for comfortable tap targets. Learn/Friends/Settings are
      reachable from within the screens (Profile shortcuts, Academy ⚙ Settings, lobby).
