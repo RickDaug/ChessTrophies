@@ -121,6 +121,11 @@ async function main() {
       await page.fill('#signup-username', `T${RUN}_${n}`);
       await page.fill('#signup-password', 'passw0rd');
       await page.fill('#signup-region', 'Smoketown');
+      // Skill is now tucked inside an optional <details> (front-door redesign,
+      // 2026-06-15), so the <select> is hidden until that disclosure is open.
+      // Expand it before selecting, or selectOption times out on a non-visible
+      // control (this is what made the smoke test stale).
+      await page.locator('#form-signup details').first().evaluate((d) => { d.open = true; });
       await page.selectOption('#signup-skill', '1200');
       await page.click('#form-signup button[type="submit"]');
       await page.waitForSelector('#screen-lobby.active', { timeout: 10000 });
