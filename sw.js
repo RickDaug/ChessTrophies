@@ -15,8 +15,9 @@ const ASSETS = [
   './ct-socket-fallback.js',
   './ct-sw-register.js',
   './manifest.json',
-  './icon.svg',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap'
+  './icon.svg'
+  // Inter is now self-hosted (fonts/inter-*.woff2) — picked up same-origin by the
+  // build's dist scan, so no cross-origin Google Fonts URL is precached anymore.
 ];
 
 self.addEventListener('install', (event) => {
