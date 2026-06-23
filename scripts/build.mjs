@@ -92,6 +92,9 @@ const PRECACHE_EXCLUDE = new Set([
   'icon-1024.png',
   'og-image.png',
   'robots.txt',
+  // Inter latin-ext (~85 KB): only fetched when an extended/accented glyph is on
+  // screen (unicode-range gated). The latin file (first-paint path) IS precached.
+  'fonts/inter-latin-ext.woff2',
 ]);
 
 const log = (...a) => console.log('[build]', ...a);
@@ -195,6 +198,16 @@ async function main() {
     await fsp.mkdir(path.join(DIST, 'vendor'), { recursive: true });
     for (const f of await fsp.readdir(vendorDir)) {
       await fsp.copyFile(path.join(vendorDir, f), path.join(DIST, 'vendor', f));
+    }
+  }
+  // fonts/ (self-hosted Inter woff2) — copy verbatim. The dist scan (step 6) then
+  // precaches them same-origin; the larger latin-ext file is kept OUT of the
+  // install set (PRECACHE_EXCLUDE) since it's only fetched for extended glyphs.
+  const fontsDir = path.join(ROOT, 'fonts');
+  if (fs.existsSync(fontsDir)) {
+    await fsp.mkdir(path.join(DIST, 'fonts'), { recursive: true });
+    for (const f of await fsp.readdir(fontsDir)) {
+      await fsp.copyFile(path.join(fontsDir, f), path.join(DIST, 'fonts', f));
     }
   }
   // sets/ (premium themed piece-set JSON, lazy-loaded by piece-sets.js) — copy
