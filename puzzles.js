@@ -196,6 +196,25 @@
     refs.rushView.appendChild(refs.rushBestLine);
     refs.rushView.appendChild(refs.rushResult);
     refs.rushView.appendChild(refs.btnRushStart);
+
+    // "What's next" CTAs shown only AFTER a run ends (alongside "Play again"),
+    // so the player isn't left at a dead end on the rush result screen — same
+    // pattern as the daily "done for today" panel.
+    refs.rushNext = el('div', 'ctp-rush-next');
+    refs.rushNext.style.display = 'none';
+    var rnLabel = el('div', 'ctp-rush-next-label', 'Or try something else:');
+    var rnActions = el('div', 'ctp-dd-actions');
+    refs.btnRnDaily = el('button', 'ctp-btn ctp-dd-btn', '🗓️ Daily puzzle');
+    refs.btnRnTrainer = el('button', 'ctp-btn ctp-dd-btn', '🧩 Trainer');
+    refs.btnRnHome = el('button', 'ctp-btn ctp-dd-btn ctp-dd-home', '♟ Play a game');
+    refs.btnRnDaily.type = 'button'; refs.btnRnTrainer.type = 'button'; refs.btnRnHome.type = 'button';
+    rnActions.appendChild(refs.btnRnDaily);
+    rnActions.appendChild(refs.btnRnTrainer);
+    rnActions.appendChild(refs.btnRnHome);
+    refs.rushNext.appendChild(rnLabel);
+    refs.rushNext.appendChild(rnActions);
+    refs.rushView.appendChild(refs.rushNext);
+
     wrap.appendChild(refs.rushView);
 
     mountEl.appendChild(wrap);
@@ -211,6 +230,9 @@
     refs.btnDdTrainer.addEventListener('click', function () { hideDailyDone(); openTrainer(); });
     refs.btnDdRush.addEventListener('click', function () { hideDailyDone(); openRush(); });
     refs.btnDdHome.addEventListener('click', function () { hideDailyDone(); goHome(); });
+    refs.btnRnDaily.addEventListener('click', function () { openDaily(); });
+    refs.btnRnTrainer.addEventListener('click', function () { openTrainer(); });
+    refs.btnRnHome.addEventListener('click', goHome);
   }
 
   // Leave the puzzles screen for the main lobby (the "Play" hub). CSP-safe:
@@ -323,6 +345,9 @@
       '.ctp-dd-actions{display:flex;gap:8px;flex-wrap:wrap}',
       '.ctp-dd-btn{flex:1;min-width:120px}',
       '.ctp-dd-btn.ctp-dd-home{background:#2e9e5b}',
+      // rush "what's next" CTAs (shown after a run ends)
+      '.ctp-rush-next{margin-top:16px;padding-top:14px;border-top:1px solid rgba(127,127,127,.25)}',
+      '.ctp-rush-next-label{font-size:13px;opacity:.7;margin-bottom:8px;font-weight:600}',
     ].join('\n');
     var style = el('style');
     style.id = 'ctp-styles';
@@ -1009,6 +1034,7 @@
     showRushView(true);
     if (refs.rushHud) refs.rushHud.style.display = 'none';
     if (refs.rushResult) { refs.rushResult.textContent = ''; refs.rushResult.className = 'ctp-rush-result'; }
+    if (refs.rushNext) refs.rushNext.style.display = 'none';
     refs.btnRushStart.textContent = 'Start Rush';
     refs.btnRushStart.disabled = false;
     refreshStreakBadge(); // refresh best line + rating
@@ -1086,6 +1112,7 @@
     refs.btnRushStart.textContent = 'Play again';
     refs.rushResult.textContent = (reason ? reason + ' ' : '') + 'You solved ' + finalScore + (finalScore === 1 ? ' puzzle.' : ' puzzles.');
     refs.rushResult.className = 'ctp-rush-result win';
+    if (refs.rushNext) refs.rushNext.style.display = '';
     submitRush(lines, finalScore);
   }
 
