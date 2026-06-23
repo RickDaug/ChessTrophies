@@ -6216,7 +6216,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     } catch (e) {}
   }
 
-  // Clear the boot splash marker (ct-boot.js) once we've decided what to show, so
+  // Clear the boot splash marker (ct-head.js) once we've decided what to show, so
   // the splash hides and normal screen control resumes.
   function doneBoot() {
     try { document.documentElement.classList.remove('ct-has-session'); } catch (e) {}

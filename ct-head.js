@@ -1,14 +1,20 @@
-// Global error visibility — surface field failures that would otherwise be silent.
-// Externalized from an inline <head> <script> so the CSP can use script-src 'self'
-// (no 'unsafe-inline'). Loaded synchronously as the FIRST script in <head> so it
-// installs these handlers before any other code runs.
-//
-// Beyond console.error, it ALSO reports to the server (POST /api/client-error) so a
-// JS exception that white-screens a brand-new visitor is no longer invisible to us
-// (the activation funnel was blind to first-session crashes). Fire-and-forget, like
-// ct-analytics: it NEVER throws, swallows all network errors, is capped per page
-// load + deduped so a render loop can't flood, and sends NO PII (message, source,
-// line/col, a truncated stack, path, anonymous visitorId).
+/* ct-head.js — the two render-blocking <head> scripts, merged into ONE request.
+ *
+ * Was: ct-onerror.js + ct-boot.js (two separate synchronous <head> <script>s).
+ * PageSpeed flagged each as a render-blocking request; combining them removes one
+ * network round-trip on the critical path while preserving order and timing:
+ *   1) the global error handler installs FIRST (before any other code runs), then
+ *   2) the boot-splash marker is set BEFORE the body paints.
+ * Both are independent synchronous IIFEs, so concatenation is behaviour-identical.
+ * Externalized (not inline) so the CSP keeps script-src 'self' (no 'unsafe-inline').
+ */
+
+// ── 1. Global error visibility ───────────────────────────────────────────────
+// Surface field failures that would otherwise be silent. Installed as the very
+// first thing so it catches errors from every later script. Beyond console.error
+// it reports to the server (POST /api/client-error) so a JS exception that
+// white-screens a brand-new visitor isn't invisible. Fire-and-forget: NEVER
+// throws, swallows all network errors, capped + deduped per page load, no PII.
 (function () {
   'use strict';
 
@@ -72,4 +78,32 @@
       report('unhandledrejection', msg, '', null, null, stk);
     } catch (_) {}
   });
+})();
+
+// ── 2. Boot splash (runs BEFORE the body paints) ─────────────────────────────
+// Prevents the sign-in screen from flashing for an already-signed-in user on
+// refresh: if a session exists, mark <html> so CSS hides the auth form and shows
+// a neutral splash until app.js picks the right screen. app.js clears the marker
+// once it has decided (see init()/doneBoot). A fallback timer clears it too, so a
+// JS failure can never leave the splash stuck.
+(function () {
+  'use strict';
+  try {
+    var raw = sessionStorage.getItem('chesstrophies_session_v1') ||
+              localStorage.getItem('chesstrophies_session_v1');
+    if (raw) {
+      var s = JSON.parse(raw);
+      // A token (real login), a guest flag, or a stored userId (offline) all mean
+      // "don't show the sign-in form first".
+      if (s && (s.token || s.guest || s.userId)) {
+        document.documentElement.classList.add('ct-has-session');
+      }
+    }
+  } catch (e) { /* storage blocked: fall through to normal sign-in screen */ }
+  // Safety net: never let the splash linger if app.js never runs.
+  try {
+    setTimeout(function () {
+      document.documentElement.classList.remove('ct-has-session');
+    }, 8000);
+  } catch (e) {}
 })();
