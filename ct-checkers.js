@@ -781,6 +781,23 @@
     if (rEl) rEl.innerHTML = rewards.join('');
     // Hide chess-only result controls (rematch/review/block) for checkers.
     hide('#rematch-ui'); hide('#btn-result-review'); hide('#btn-result-block');
+    // PLAY AGAIN: for vs-Computer (practice) games, offer a one-tap restart in the
+    // same board size + rules — reuses the shared #btn-result-playagain via the
+    // generic state._offlineReplay hook (same as chess practice). Previously a
+    // checkers result left only "Done", a dead end for the quickest replay path.
+    // Online/ranked games keep just "Done" (re-queue is a separate flow).
+    var paBtn = $('#btn-result-playagain');
+    if (paBtn) {
+      var st = ctState();
+      if (s.mode === 'practice' && s.opponent && s.opponent.isAI) {
+        var aiElo = s.opponent.aiElo, sz = s.size, rl = s.rules;
+        if (st) st._offlineReplay = function () { startPractice(aiElo, sz, rl); };
+        paBtn.style.display = '';
+      } else {
+        if (st) st._offlineReplay = null;
+        paBtn.style.display = 'none';
+      }
+    }
     openModal('result');
     var unlockedCount = (function(){ try { return rewards.filter(function(x){return /Trophy unlocked/.test(x);}).length; } catch(e){ return 0; } })();
     if (unlockedCount > 0) celebrate(unlockedCount >= 2 ? 'big' : 'normal');
