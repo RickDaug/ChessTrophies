@@ -829,6 +829,22 @@
          ad / premium cards so it's the first compelling thing a returning user sees. -->
     <div id="playstreak-card"></div>
 
+    <!-- Today's daily puzzle. Surfaced here (always visible, beside the streak
+         content) instead of buried in the collapsed "More ways to play" fold, so a
+         brand-new guest actually discovers the daily streak loop. renderLobby shows
+         it whenever the puzzles module loaded; tapping it opens the daily puzzle
+         (which shows the "done for today" panel if already solved). -->
+    <div id="lobby-daily-card" class="card lobby-secondary" data-act="open-daily" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
+      <div class="pc-row" style="display:flex;align-items:center;gap:12px">
+        <div class="pc-icon" style="font-size:26px">🧩</div>
+        <div style="flex:1;min-width:0">
+          <div class="pc-title" style="font-weight:800;font-size:16px">Today's Challenge</div>
+          <div class="muted small" style="margin-top:4px">Solve the daily puzzle to keep your streak alive.</div>
+        </div>
+        <div class="pill gold">Play</div>
+      </div>
+    </div>
+
     <!-- ===================== SECONDARY "MORE WAYS TO PLAY" =====================
          These feature entry-points used to stack above the Play action, each with
          the same loud gold accent, burying the primary CTA below the fold. They're
@@ -903,17 +919,6 @@
           <div class="muted small" style="margin-top:4px">Start a private group and see who comes out on top.</div>
         </div>
         <div class="pill gold">Open</div>
-      </div>
-    </div>
-
-    <div id="lobby-daily-card" class="card lobby-secondary" data-act="open-daily" style="cursor:pointer;display:none;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(125,212,255,.10), var(--panel))">
-      <div class="pc-row" style="display:flex;align-items:center;gap:12px">
-        <div class="pc-icon" style="font-size:26px">🧩</div>
-        <div style="flex:1;min-width:0">
-          <div class="pc-title" style="font-weight:800;font-size:16px">Today's Challenge</div>
-          <div class="muted small" style="margin-top:4px">Solve the daily puzzle to keep your streak alive.</div>
-        </div>
-        <div class="pill gold">Play</div>
       </div>
     </div>
 
