@@ -716,8 +716,14 @@
     if (!cur) { CT.showScreen('academy'); return; }
     const idx = LESSONS.findIndex(l => l.id === cur.lesson.id);
     const next = LESSONS[idx + 1];
-    if (next) startLesson(next);
-    else CT.showScreen('academy');
+    if (next) { startLesson(next); return; }
+    // Finished the LAST lesson — celebrate completing the whole curriculum instead
+    // of silently bouncing back to the list (matches the gauntlet's finish moment),
+    // and point the player at what to do next.
+    try { if (CT.ctCelebrate) CT.ctCelebrate('big'); } catch (e) {}
+    try { CT.toast('🎓 Curriculum complete — you finished every lesson! Try the Read & Learn library or play a game next.', true); } catch (e) {}
+    CT.showScreen('academy');
+    if (window.CT_renderAcademy) { try { window.CT_renderAcademy(); } catch (e) {} }
   }
   function resetLesson() {
     if (!acadCurrent) return;
