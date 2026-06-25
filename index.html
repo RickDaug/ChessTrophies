@@ -1668,6 +1668,10 @@
         </div>
       </div>
     </div>
+    <!-- Bot Gauntlet: keep the ladder loop one tap after a gauntlet game instead of
+         dumping the player at the lobby. JS sets the label (⚔️ Next: <bot> on a win,
+         🔁 Rematch <bot> after a loss, 🏆 back-to-gauntlet on completion) + shows it. -->
+    <button class="btn btn-block" id="btn-result-gauntlet-next" style="margin-top:10px;display:none;background:linear-gradient(135deg,#b98cff,#8a5cf0);border:none;color:#15101f">⚔️ Next challenger</button>
     <!-- Play again: offline-vs-Computer games only (online games use Rematch above).
          Keeps the core loop one tap — JS shows it + re-runs the same kind of game. -->
     <button class="btn btn-block" id="btn-result-playagain" style="margin-top:10px;display:none">↻ Play again</button>

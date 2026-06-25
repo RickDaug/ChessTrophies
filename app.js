@@ -4518,6 +4518,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Bot Gauntlet: if this was a gauntlet game, advance the ladder on a win of the
     // next rung, then celebrate + clear the context. Gauntlet games are practice
     // mode, so they never touch ELO; this just drives the ladder progress.
+    // Reset the gauntlet-continue CTA each game so a stale target never leaks into a
+    // later, non-gauntlet result modal.
+    state._gauntletNext = null;
     if (state._gauntlet && window.CT_Gauntlet) {
       try {
         const gres = window.CT_Gauntlet.onResult(myWon);
@@ -4527,6 +4530,17 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         }
         // Award any Gauntlet-family trophies the new rung count unlocked.
         reconcileMilestoneTrophies();
+        // Stash the next gauntlet action so the result modal can offer a one-tap
+        // continue (the top gauntlet dead-end was dumping the player at the lobby
+        // after each rung). After onResult(): a WIN advanced currentTarget() to the
+        // newly-unlocked rung; a LOSS leaves it on the rung just played (a retry);
+        // COMPLETE clears the target.
+        if (gres && gres.complete) {
+          state._gauntletNext = { complete: true };
+        } else {
+          var _gnext = window.CT_Gauntlet.currentTarget && window.CT_Gauntlet.currentTarget();
+          if (_gnext) state._gauntletNext = { char: _gnext, advanced: !!(gres && gres.advanced) };
+        }
       } catch (e) {}
       state._gauntlet = null;
     }
@@ -4922,7 +4936,25 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // Practice-mode AI games only. Gauntlet (also 'practice') nulls the closure so
       // its own ladder progression isn't shadowed by a generic replay.
       var _canReplay = !!(state.gameMode === 'practice' && typeof state._offlineReplay === 'function' && state.opponent && state.opponent.isAI);
-      _paBtn.style.display = _canReplay ? '' : 'none';
+      // Gauntlet games are also 'practice' but get their own ladder-continue button
+      // below, so don't also show the generic Play-again for them.
+      _paBtn.style.display = (_canReplay && !state._gauntletNext) ? '' : 'none';
+    }
+    // GAUNTLET CONTINUE: after a gauntlet game, keep the ladder loop one tap instead
+    // of sending the player back to the lobby to re-find the next challenger. Win ->
+    // "Next: <new bot>"; loss -> "Rematch <same bot>"; complete -> back to the ladder.
+    var _gnBtn = $('#btn-result-gauntlet-next');
+    if (_gnBtn) {
+      var _gn = state._gauntletNext;
+      if (_gn && _gn.complete) {
+        _gnBtn.textContent = '🏆 You beat them all — back to the gauntlet';
+        _gnBtn.style.display = '';
+      } else if (_gn && _gn.char) {
+        _gnBtn.textContent = (_gn.advanced ? '⚔️ Next: ' : '🔁 Rematch ') + _gn.char.name + ' ' + _gn.char.emoji;
+        _gnBtn.style.display = '';
+      } else {
+        _gnBtn.style.display = 'none';
+      }
     }
     // RETENTION BRIDGE: surface today's daily puzzle as a second activity after a
     // game, so a fresh player discovers the come-back-tomorrow loop. The finished
@@ -5090,6 +5122,15 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   { const _dl = $('#btn-result-daily'); if (_dl) _dl.addEventListener('click', () => {
     closeModal('result');
     openDailyPuzzle();
+  }); }
+  { const _gn = $('#btn-result-gauntlet-next'); if (_gn) _gn.addEventListener('click', () => {
+    var info = state._gauntletNext;
+    clearNetUI();
+    closeModal('result');
+    try {
+      if (info && info.char && typeof startGauntletGame === 'function') startGauntletGame(info.char);
+      else showScreen('gauntlet'); // completion (or no target) -> back to the ladder
+    } catch (e) { showScreen('lobby'); }
   }); }
   { const _gb = $('#btn-result-guest-signup'); if (_gb) _gb.addEventListener('click', () => {
     // Send the guest to the auth screen with Create-account preselected so their
