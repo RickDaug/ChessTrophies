@@ -5041,11 +5041,32 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     checkAchievementsFor(oppUser, { justWon: true });
   }
 
+  // Streak-trophy tier art (assets/trophies/). CT_trophyRarity (trophy-extras.js)
+  // maps a streak number to a rarity tier; only bronze/silver/gold have dedicated
+  // art, so higher tiers (platinum/diamond/mythic) keep the 🏆 emoji — we never
+  // show a "lower" metal for a rarer tier. Inline onerror handlers are CSP-blocked
+  // (script-src 'self'), so there is no load-failure fallback: the asset ships with
+  // the build (build-smoke covers dist/), and missing-tier cases return the emoji.
+  var STREAK_TROPHY_ART = { bronze: 'trophy-bronze.png', silver: 'trophy-silver.png', gold: 'trophy-gold.png' };
+  function streakTrophyArtHTML(streakNumber, px) {
+    const emoji = `<div style="font-size:${px}px;line-height:1">🏆</div>`;
+    try {
+      if (!window.CT_trophyRarity) return emoji;
+      const r = window.CT_trophyRarity(streakNumber);
+      const file = r && STREAK_TROPHY_ART[r.tier];
+      if (!file) return emoji;
+      const s = Math.round(px * 1.35);
+      return `<img src="assets/trophies/${file}" alt="${escapeHTML(r.label)} streak trophy" ` +
+        `width="${s}" height="${s}" ` +
+        `style="display:block;width:${s}px;height:${s}px;object-fit:contain;` +
+        `filter:drop-shadow(0 3px 8px ${r.glow})">`;
+    } catch (e) { return emoji; }
+  }
   function trophyRewardHTML(trophy) {
     const victims = trophy.victims.map(v => `<li><span>${escapeHTML(v.username)}</span><span class="muted small">${timeAgo(v.when)}</span></li>`).join('');
     return `<div class="card" style="background: linear-gradient(135deg, rgba(245,196,81,.18), var(--panel-2)); border-color: var(--accent)">
       <div class="row" style="gap:12px">
-        <div style="font-size:34px">🏆</div>
+        ${streakTrophyArtHTML(trophy.streakNumber, 34)}
         <div>
           <div style="font-weight:800">7-Win Streak Trophy #${trophy.streakNumber}</div>
           <div class="muted small">For defeating 7 opponents in a row.</div>
@@ -6103,7 +6124,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const body = $('#trophy-detail-body');
     body.innerHTML = `
       <div class="center">
-        <div style="font-size:48px">🏆</div>
+        <div style="display:flex;justify-content:center">${streakTrophyArtHTML(trophy.streakNumber, 48)}</div>
         <h2 style="margin-top:6px">7-Win Streak Trophy #${trophy.streakNumber}</h2>
         <div class="muted small" style="margin-top:4px">${new Date(trophy.awardedAt).toLocaleString()}</div>
       </div>
