@@ -1734,6 +1734,23 @@
   </div>
 </div>
 
+<!-- ARENA CHAMPION: shown when the player WINS an arena (server fires arena_champion).
+     Was a toast-only dead-end; this gives the win a real moment + a next action. The
+     points/name line is filled and all buttons are wired in ct-arena.js (no inline JS). -->
+<div class="modal-overlay" id="modal-arena-champion">
+  <div class="modal">
+    <div class="handle"></div>
+    <div style="text-align:center">
+      <div style="font-size:46px;line-height:1">🏆</div>
+      <h2 style="margin-top:8px">Arena champion!</h2>
+      <p class="muted" id="arena-champion-line" style="margin:6px 0 16px">You topped the arena.</p>
+    </div>
+    <button class="btn btn-block" id="btn-arena-champ-again">⏱️ Back to the arena</button>
+    <button class="btn btn-block btn-secondary" id="btn-arena-champ-daily" style="margin-top:8px">🧩 Daily puzzle</button>
+    <button class="btn btn-block btn-ghost" id="btn-arena-champ-close" style="margin-top:8px">Maybe later</button>
+  </div>
+</div>
+
 <!-- Challenge landing: shown when a visitor opens a ?c=<id> share link. They can
      play the same Computer difficulty as a guest (no signup), then loop back. -->
 <div class="modal-overlay" id="modal-challenge">
