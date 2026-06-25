@@ -531,6 +531,7 @@
     document.getElementById('lesson-side').textContent = (lesson.side === 'w' ? 'White' : 'Black') + ' to move';
     document.getElementById('lesson-feedback').textContent = '';
     document.getElementById('lesson-next').style.display = 'none';
+    hidePostSolveCtas();
     // Set the concept teaching text
     const conceptEl = document.getElementById('lesson-concept');
     if (conceptEl) conceptEl.textContent = getConcept(lesson);
@@ -665,8 +666,14 @@
         CT.toast('Lesson complete! 🎉', true);
         if (window.CT_syncProgress) window.CT_syncProgress();
       }
-      // Reveal Next button
+      // Reveal Next button + the "Practice this now" CTA + a rank-progress nudge.
+      // The practice CTA routes the player into the daily-puzzle streak loop so a
+      // solved lesson hands off into the come-back-tomorrow habit instead of just
+      // queueing the next lesson.
       document.getElementById('lesson-next').style.display = '';
+      const practiceBtn = document.getElementById('lesson-practice');
+      if (practiceBtn) practiceBtn.style.display = '';
+      showRankNudge();
       // Show the payoff: play the opponent's forced/typical reply so the point of
       // the tactic (the queen actually falling, etc.) plays out on the board.
       // Completion/credit above is unchanged — this is purely a visual follow-up.
@@ -710,6 +717,36 @@
     }, 600);
   }
 
+  // Hide the post-solve CTAs (practice + rank nudge) so they never bleed into the
+  // next lesson or a reset. The Next button is toggled by its own callers.
+  function hidePostSolveCtas() {
+    const p = document.getElementById('lesson-practice');
+    if (p) p.style.display = 'none';
+    const n = document.getElementById('lesson-rank-nudge');
+    if (n) { n.style.display = 'none'; n.textContent = ''; }
+  }
+  // "N lessons to <next rank>" nudge using the RANKS table. Hidden at the top rank.
+  function showRankNudge() {
+    const el = document.getElementById('lesson-rank-nudge');
+    if (!el) return;
+    const u = CT.user;
+    const done = (u && u.lessonsCompleted) ? u.lessonsCompleted.length : 0;
+    const next = RANKS.find(r => r.min > done);
+    if (!next) { el.style.display = 'none'; el.textContent = ''; return; }
+    const remaining = next.min - done;
+    el.textContent = remaining + (remaining === 1 ? ' lesson' : ' lessons') + ' to ' + next.name;
+    el.style.display = '';
+  }
+  // "Practice this now" — reuse the existing bottom-nav route into today's daily
+  // puzzle (activates #screen-puzzles + calls CT_Puzzles.openDaily), which is the
+  // same path app.js wires for the nav item. This hands a solved lesson into the
+  // daily streak loop. Falls back to the lobby if puzzles aren't present.
+  function goPractice() {
+    const nav = document.getElementById('nav-puzzles');
+    if (nav) { nav.click(); return; }
+    if (CT.showScreen) CT.showScreen('lobby');
+  }
+
   // Lesson controls
   function nextLesson() {
     const cur = acadCurrent;
@@ -717,13 +754,13 @@
     const idx = LESSONS.findIndex(l => l.id === cur.lesson.id);
     const next = LESSONS[idx + 1];
     if (next) { startLesson(next); return; }
-    // Finished the LAST lesson — celebrate completing the whole curriculum instead
-    // of silently bouncing back to the list (matches the gauntlet's finish moment),
-    // and point the player at what to do next.
+    // Finished the LAST lesson — celebrate completing the whole curriculum and open a
+    // real completion modal with two next-step CTAs (ranked game / Read & Learn)
+    // instead of the old silent celebrate+toast that dead-ended on the lesson list.
     try { if (CT.ctCelebrate) CT.ctCelebrate('big'); } catch (e) {}
-    try { CT.toast('🎓 Curriculum complete — you finished every lesson! Try the Read & Learn library or play a game next.', true); } catch (e) {}
     CT.showScreen('academy');
     if (window.CT_renderAcademy) { try { window.CT_renderAcademy(); } catch (e) {} }
+    if (CT.openModal) { try { CT.openModal('academy-complete'); } catch (e) {} }
   }
   function resetLesson() {
     if (!acadCurrent) return;
@@ -735,6 +772,7 @@
     acadCurrent.hintStage = 0;
     document.getElementById('lesson-feedback').textContent = '';
     document.getElementById('lesson-next').style.display = 'none';
+    hidePostSolveCtas();
     renderLessonBoard();
   }
   // Graduated hints: each press escalates.
@@ -906,6 +944,35 @@
     if (btnDemo) btnDemo.addEventListener('click', watchExample);
     const btnBack = document.getElementById('lesson-back');
     if (btnBack) btnBack.addEventListener('click', () => CT.showScreen('academy'));
+    const btnPractice = document.getElementById('lesson-practice');
+    if (btnPractice) btnPractice.addEventListener('click', goPractice);
+
+    // Curriculum-complete modal CTAs. Each routes via the same globals/entry points
+    // the rest of the app uses (no inline handlers — CSP forbids them).
+    const btnAcPlay = document.getElementById('btn-academy-complete-play');
+    if (btnAcPlay) btnAcPlay.addEventListener('click', () => {
+      if (CT.closeModal) CT.closeModal('academy-complete');
+      CT.showScreen('lobby');
+      // Reuse the lobby's ranked entry point; it handles the "ranked coming soon"
+      // case itself, so we never dead-end if the seasonal switch is off.
+      const find = document.getElementById('btn-find-match');
+      if (find) find.click();
+    });
+    const btnAcLearn = document.getElementById('btn-academy-complete-learn');
+    if (btnAcLearn) btnAcLearn.addEventListener('click', () => {
+      if (CT.closeModal) CT.closeModal('academy-complete');
+      CT.showScreen('academy');
+      // showScreen activates the academy screen, which itself re-runs
+      // CT_renderAcademy (and rebuilds #academy-content). Defer the tab click to the
+      // next tick so we click the FRESH library tab, not a node that got replaced.
+      setTimeout(() => {
+        const wrap = document.getElementById('academy-content');
+        const libTab = wrap && wrap.querySelector('.learn-tab[data-ltab="library"]');
+        if (libTab) libTab.click();
+      }, 0);
+    });
+    const btnAcClose = document.getElementById('btn-academy-complete-close');
+    if (btnAcClose) btnAcClose.addEventListener('click', () => { if (CT.closeModal) CT.closeModal('academy-complete'); });
 
     const btnAcademy = document.getElementById('btn-academy');
     if (btnAcademy) btnAcademy.addEventListener('click', () => { CT.showScreen('academy'); renderAcademy(); });

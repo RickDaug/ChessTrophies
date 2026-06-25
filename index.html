@@ -1404,6 +1404,11 @@
       <button class="btn btn-secondary" id="lesson-reset" style="flex:1">Reset</button>
       <button class="btn btn-secondary" id="lesson-solution" style="flex:1">Solution</button>
     </div>
+    <!-- On a correct answer JS reveals these together: keep practising the skill the
+         lesson just taught (routes into the daily-puzzle streak loop) and an optional
+         progress nudge toward the next rank. Both hidden until the lesson is solved. -->
+    <button class="btn btn-block" id="lesson-practice" style="display:none;margin-top:10px;background:linear-gradient(135deg,#f5c451,#e0a83c);border:none;color:#2a2410">⚡ Practice this now</button>
+    <p class="muted small center" id="lesson-rank-nudge" style="display:none;margin:8px 0 0"></p>
     <button class="btn btn-block" id="lesson-next" style="display:none;margin-top:10px">Next lesson →</button>
   </section>
 
@@ -1703,6 +1708,25 @@
     <div id="delete-account-err" class="small" style="color:var(--danger);min-height:18px;margin:6px 2px"></div>
     <button class="btn btn-block" id="btn-delete-account-confirm" style="background:var(--danger);border:none">Delete forever</button>
     <button class="btn btn-block btn-ghost" id="btn-delete-account-cancel" style="margin-top:8px">Cancel</button>
+  </div>
+</div>
+
+<!-- ACADEMY CURRICULUM COMPLETE: celebratory modal shown when the player finishes
+     the LAST lesson (was a silent celebrate+toast that dead-ended). Both CTAs route
+     via the same globals other entry points use; wired in academy.js (no inline JS).
+     TODO: award a "Grandmaster" trophy here as a follow-up (needs app.js changes,
+     intentionally out of scope for this UX fix). -->
+<div class="modal-overlay" id="modal-academy-complete">
+  <div class="modal">
+    <div class="handle"></div>
+    <div style="text-align:center">
+      <div style="font-size:46px;line-height:1">🎓</div>
+      <h2 style="margin-top:8px">Curriculum complete!</h2>
+      <p class="muted" style="margin:6px 0 16px">You finished every Academy lesson — from your first pawn move to checkmate patterns. Now put it to work.</p>
+    </div>
+    <button class="btn btn-block" id="btn-academy-complete-play">♟ Play a ranked game</button>
+    <button class="btn btn-block btn-secondary" id="btn-academy-complete-learn" style="margin-top:8px">📖 Read &amp; Learn</button>
+    <button class="btn btn-block btn-ghost" id="btn-academy-complete-close" style="margin-top:8px">Maybe later</button>
   </div>
 </div>
 
