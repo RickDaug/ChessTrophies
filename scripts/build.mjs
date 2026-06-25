@@ -210,6 +210,22 @@ async function main() {
       await fsp.copyFile(path.join(fontsDir, f), path.join(DIST, 'fonts', f));
     }
   }
+  // assets/ (static art: trophy tier images, etc.) — copy the whole tree
+  // recursively so nested dirs like assets/trophies/ come through. EXCLUDED from
+  // the SW precache (step 6) like sets/: these are shown on demand (e.g. the
+  // win/trophy screen), not on the landing/first-paint path, so precaching them
+  // would bloat the install. sw.js still runtime-caches them (cache-first images).
+  const assetsDir = path.join(ROOT, 'assets');
+  if (fs.existsSync(assetsDir)) {
+    const files = await listDistFiles(assetsDir); // relative paths, recursive
+    for (const rel of files) {
+      const dest = path.join(DIST, 'assets', rel);
+      await fsp.mkdir(path.dirname(dest), { recursive: true });
+      await fsp.copyFile(path.join(assetsDir, rel), dest);
+    }
+    log(`copied ${files.length} static asset(s) -> dist/assets/`);
+  }
+
   // sets/ (premium themed piece-set JSON, lazy-loaded by piece-sets.js) — copy
   // verbatim. EXCLUDED from the SW precache (step 6) so they don't bloat install;
   // they're fetched on demand and runtime-cached when a user previews/equips a set.
@@ -327,6 +343,10 @@ async function rewriteServiceWorker() {
     // runtime-cached; precaching all 19 would bloat the install for files most
     // users never use.
     .filter((rel) => !rel.split(path.sep).join('/').startsWith('sets/'))
+    // EXCLUDE static art under assets/ (trophy tier images, …) — shown on demand
+    // on the win/trophy screen, not first paint; runtime-cached cache-first when
+    // displayed. Same first-load-weight rationale as the sets/ exclusion above.
+    .filter((rel) => !rel.split(path.sep).join('/').startsWith('assets/'))
     // EXCLUDE the first-load-weight assets (admin dashboard, unused 1024 icon,
     // social OG image, robots.txt) — see PRECACHE_EXCLUDE above. Still served +
     // runtime-cached on demand by sw.js; just not in the up-front install set.
