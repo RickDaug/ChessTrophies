@@ -1673,6 +1673,10 @@
         </div>
       </div>
     </div>
+    <!-- Progress nudge: the nearest within-reach trophy ("1 win from First Blood"),
+         shown after every game so a finished session has a concrete reason to start
+         the next one. JS fills + shows it (hidden when no near-term trophy applies). -->
+    <p class="muted small center" id="result-next-trophy" style="display:none;margin:8px 0 2px"></p>
     <!-- Bot Gauntlet: keep the ladder loop one tap after a gauntlet game instead of
          dumping the player at the lobby. JS sets the label (⚔️ Next: <bot> on a win,
          🔁 Rematch <bot> after a loss, 🏆 back-to-gauntlet on completion) + shows it. -->

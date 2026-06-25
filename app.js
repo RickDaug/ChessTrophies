@@ -4956,6 +4956,21 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         _gnBtn.style.display = 'none';
       }
     }
+    // PROGRESS NUDGE: after every game, surface the nearest within-reach trophy so a
+    // finished session has a concrete reason to play the next one. Stats/achievements
+    // for THIS game were already applied above, so it points at the next goal.
+    var _ntEl = $('#result-next-trophy');
+    if (_ntEl) {
+      var _nudge = nearestTrophyNudge(state.user);
+      if (_nudge) {
+        var _u = NEAREST_UNIT[_nudge.def.type] || 'step';
+        _ntEl.textContent = '🎯 ' + _nudge.remaining + ' ' + _u + (_nudge.remaining === 1 ? '' : 's') +
+          ' from ' + _nudge.def.name + ' ' + _nudge.def.icon;
+        _ntEl.style.display = '';
+      } else {
+        _ntEl.style.display = 'none';
+      }
+    }
     // RETENTION BRIDGE: surface today's daily puzzle as a second activity after a
     // game, so a fresh player discovers the come-back-tomorrow loop. The finished
     // game already counts toward the daily streak (recordDailyPlay runs at the end
@@ -5924,6 +5939,28 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       case 'checkers_games': { const ck = u.checkers || {}; return (ck.wins || 0) + (ck.losses || 0) + (ck.draws || 0); }
     }
     return null; // fast / duo / elo / checkers_elo: no clean 0-based bar
+  }
+  // Result-screen progress nudge: the nearest UNEARNED tiered trophy the player is
+  // within reach of, restricted to monotonic cumulative counters (so "N more X" is
+  // always accurate — streak/elo reset or have no clean bar and are excluded) and to
+  // near-term goals (<=5 to go) so it reads as "almost there", the strongest day-7
+  // pull. Returns { def, remaining } or null.
+  var NEAREST_UNIT = { wins: 'win', games: 'game', mate: 'checkmate', gauntlet: 'rung', arena: 'arena win', checkers_games: 'checkers game', invites: 'invite' };
+  function nearestTrophyNudge(u) {
+    if (!u || !ACHIEVEMENT_TIERS.length) return null;
+    var best = null;
+    for (var i = 0; i < ACHIEVEMENT_TIERS.length; i++) {
+      var a = ACHIEVEMENT_TIERS[i];
+      if (a.hidden || !NEAREST_UNIT[a.type]) continue;
+      if (hasAchievement(u, a.id)) continue;           // one-time milestone already earned
+      if (!a.threshold || a.threshold <= 0) continue;
+      var cur = trophyCurrent(u, a);
+      if (cur == null) continue;
+      var remaining = a.threshold - cur;
+      if (remaining <= 0 || remaining > 5) continue;    // only near-term, motivating goals
+      if (!best || remaining < best.remaining) best = { def: a, remaining: remaining };
+    }
+    return best;
   }
   // Trophy "score": rarer/harder trophies are worth more. Hidden + embarrassing
   // feats carry a small flat bonus on top of their tier.
