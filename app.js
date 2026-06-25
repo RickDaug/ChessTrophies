@@ -4646,8 +4646,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // Update counter stats used by tiered achievements
       const wasMate = (reason === 'checkmate');
       if (myWon && wasMate) me.mateWins = (me.mateWins || 0) + 1;
-      const myChecks = (state.checkCount && state.checkCount[state.userColor]) || 0;
-      if (myWon && myChecks >= 3) me.comebackWins = (me.comebackWins || 0) + 1;
+      // checkCount[color] counts how many times THAT color was put IN CHECK (it is
+      // incremented for the side-to-move whenever a move leaves them in check), so
+      // checkCount[userColor] = the number of times WE were checked this game.
+      // Winning despite being checked 3+ times is the Comeback trophy (come_t1:
+      // "Win after being checked 3+ times"). Named to avoid the easy misread that
+      // this counts checks WE gave — it counts checks we RECEIVED.
+      const timesIWasChecked = (state.checkCount && state.checkCount[state.userColor]) || 0;
+      if (myWon && timesIWasChecked >= 3) me.comebackWins = (me.comebackWins || 0) + 1;
       // Half-move count -> full-move count (divide by 2, round up). state.history is plies.
       const fullMoves = Math.ceil(state.history.length / 2);
 
@@ -4656,7 +4662,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         justWon: myWon,
         mateWin: myWon && wasMate,
         moves: fullMoves,
-        gameCheckCount: myChecks,
+        gameCheckCount: timesIWasChecked,
       });
       unlocked.filter(Boolean).forEach(a => {
         const color = tierColor(a.tier || 1);
