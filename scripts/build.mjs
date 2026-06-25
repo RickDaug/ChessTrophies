@@ -41,8 +41,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
 
-// New cache-buster stamp for files this build rewrites (index.html tags).
-const STAMP = 'b' + new Date().toISOString().slice(0, 10).replace(/-/g, '');
+// New cache-buster stamp for files this build rewrites (index.html tags) AND the
+// SW CACHE name. Must be unique PER DEPLOY, not per day: it was date-only
+// ('bYYYYMMDD'), so two deploys on the same day produced an identical CACHE name
+// and identical ?v= busters — meaning a same-day redeploy (or an in-place static
+// asset swap, since images are cache-first) never rotated the SW cache and stale
+// assets kept serving until the next day. Second-granular timestamp fixes that:
+// every build gets a fresh CACHE name, so activate-cleanup evicts the old one.
+const STAMP = 'b' + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
 
 // The contiguous, order-safe trailing tail to concatenate into app.bundle.js.
 // NOTE: the checkers scripts (checkers.js, checkers-ai.js, ct-checkers.js) are

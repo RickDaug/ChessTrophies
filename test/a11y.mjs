@@ -154,6 +154,15 @@ async function main() {
     const selected = await page.evaluate(() => window.CT.state.selected);
     assert(selected === mv.from, 'Enter did not select the from-square');
     await page.$eval(`#board [data-sq="${mv.to}"]`, el => el.focus());
+    // The first Enter (select) queues a requestAnimationFrame that restores roving
+    // focus to the FROM square. On slow/contended CI that rAF can fire AFTER this
+    // .focus() and steal focus back to `from`, so the next Enter lands on `from`
+    // and hits the deselect branch instead of moving — the source of the flaky
+    // "Enter-to-move did not register a move". Flush a couple frames to let the
+    // stale rAF run, then re-assert focus on `to` so the move is deterministic.
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await page.$eval(`#board [data-sq="${mv.to}"]`, el => el.focus());
+    await page.waitForFunction((to) => document.activeElement?.dataset?.sq === to, mv.to, { timeout: 2000 });
     await page.keyboard.press('Enter');
     const moved = await page.waitForFunction((from) => {
       const s = window.CT.state;
