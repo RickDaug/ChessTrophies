@@ -196,9 +196,18 @@
     active = false;
     var name = (data && data.name) || 'the arena';
     var pts = (data && data.points) || 0;
-    toast('🏆 Champion! You won ' + name + ' with ' + pts + ' points!', true);
     setStatus('🏆 You won ' + name + '! A new arena starts shortly.');
     render();
+    // Give the win a real moment with a next action, instead of a toast that just
+    // vanishes (the old arena dead-end). Falls back to the toast if the modal /
+    // openModal isn't available.
+    var line = $('arena-champion-line');
+    if (line) line.textContent = 'You won ' + name + ' with ' + pts + (pts === 1 ? ' point' : ' points') + '. A new arena starts shortly.';
+    if (window.CT && window.CT.openModal && document.getElementById('modal-arena-champion')) {
+      window.CT.openModal('arena-champion');
+    } else {
+      toast('🏆 Champion! You won ' + name + ' with ' + pts + ' points!', true);
+    }
   }
 
   // app.js tells us when an arena game starts / ends.
@@ -234,6 +243,24 @@
     if (joinBtn) joinBtn.addEventListener('click', function () { active ? leave() : join(); });
     var back = $('btn-arena-back');
     if (back) back.addEventListener('click', function () { if (window.CT && window.CT.showScreen) window.CT.showScreen('lobby'); });
+    // Arena-champion modal CTAs (CSP-safe — wired here, no inline handlers). Each
+    // closes the modal then routes via the same globals the rest of the app uses.
+    var champAgain = $('btn-arena-champ-again');
+    if (champAgain) champAgain.addEventListener('click', function () {
+      if (window.CT && window.CT.closeModal) window.CT.closeModal('arena-champion');
+      if (window.CT && window.CT.showScreen) window.CT.showScreen('arena');
+    });
+    var champDaily = $('btn-arena-champ-daily');
+    if (champDaily) champDaily.addEventListener('click', function () {
+      if (window.CT && window.CT.closeModal) window.CT.closeModal('arena-champion');
+      var nav = document.getElementById('nav-puzzles'); // reuse the bottom-nav daily-puzzle route
+      if (nav) nav.click();
+      else if (window.CT && window.CT.showScreen) window.CT.showScreen('lobby');
+    });
+    var champClose = $('btn-arena-champ-close');
+    if (champClose) champClose.addEventListener('click', function () {
+      if (window.CT && window.CT.closeModal) window.CT.closeModal('arena-champion');
+    });
     // Lobby card is refreshed by app.js's lobby render via renderLobbyCard().
   }
 

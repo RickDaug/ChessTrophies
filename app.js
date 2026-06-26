@@ -4518,6 +4518,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Bot Gauntlet: if this was a gauntlet game, advance the ladder on a win of the
     // next rung, then celebrate + clear the context. Gauntlet games are practice
     // mode, so they never touch ELO; this just drives the ladder progress.
+    // Reset the gauntlet-continue CTA each game so a stale target never leaks into a
+    // later, non-gauntlet result modal.
+    state._gauntletNext = null;
     if (state._gauntlet && window.CT_Gauntlet) {
       try {
         const gres = window.CT_Gauntlet.onResult(myWon);
@@ -4527,6 +4530,17 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         }
         // Award any Gauntlet-family trophies the new rung count unlocked.
         reconcileMilestoneTrophies();
+        // Stash the next gauntlet action so the result modal can offer a one-tap
+        // continue (the top gauntlet dead-end was dumping the player at the lobby
+        // after each rung). After onResult(): a WIN advanced currentTarget() to the
+        // newly-unlocked rung; a LOSS leaves it on the rung just played (a retry);
+        // COMPLETE clears the target.
+        if (gres && gres.complete) {
+          state._gauntletNext = { complete: true };
+        } else {
+          var _gnext = window.CT_Gauntlet.currentTarget && window.CT_Gauntlet.currentTarget();
+          if (_gnext) state._gauntletNext = { char: _gnext, advanced: !!(gres && gres.advanced) };
+        }
       } catch (e) {}
       state._gauntlet = null;
     }
@@ -4632,8 +4646,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // Update counter stats used by tiered achievements
       const wasMate = (reason === 'checkmate');
       if (myWon && wasMate) me.mateWins = (me.mateWins || 0) + 1;
-      const myChecks = (state.checkCount && state.checkCount[state.userColor]) || 0;
-      if (myWon && myChecks >= 3) me.comebackWins = (me.comebackWins || 0) + 1;
+      // checkCount[color] counts how many times THAT color was put IN CHECK (it is
+      // incremented for the side-to-move whenever a move leaves them in check), so
+      // checkCount[userColor] = the number of times WE were checked this game.
+      // Winning despite being checked 3+ times is the Comeback trophy (come_t1:
+      // "Win after being checked 3+ times"). Named to avoid the easy misread that
+      // this counts checks WE gave — it counts checks we RECEIVED.
+      const timesIWasChecked = (state.checkCount && state.checkCount[state.userColor]) || 0;
+      if (myWon && timesIWasChecked >= 3) me.comebackWins = (me.comebackWins || 0) + 1;
       // Half-move count -> full-move count (divide by 2, round up). state.history is plies.
       const fullMoves = Math.ceil(state.history.length / 2);
 
@@ -4642,7 +4662,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         justWon: myWon,
         mateWin: myWon && wasMate,
         moves: fullMoves,
-        gameCheckCount: myChecks,
+        gameCheckCount: timesIWasChecked,
       });
       unlocked.filter(Boolean).forEach(a => {
         const color = tierColor(a.tier || 1);
@@ -4922,7 +4942,40 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // Practice-mode AI games only. Gauntlet (also 'practice') nulls the closure so
       // its own ladder progression isn't shadowed by a generic replay.
       var _canReplay = !!(state.gameMode === 'practice' && typeof state._offlineReplay === 'function' && state.opponent && state.opponent.isAI);
-      _paBtn.style.display = _canReplay ? '' : 'none';
+      // Gauntlet games are also 'practice' but get their own ladder-continue button
+      // below, so don't also show the generic Play-again for them.
+      _paBtn.style.display = (_canReplay && !state._gauntletNext) ? '' : 'none';
+    }
+    // GAUNTLET CONTINUE: after a gauntlet game, keep the ladder loop one tap instead
+    // of sending the player back to the lobby to re-find the next challenger. Win ->
+    // "Next: <new bot>"; loss -> "Rematch <same bot>"; complete -> back to the ladder.
+    var _gnBtn = $('#btn-result-gauntlet-next');
+    if (_gnBtn) {
+      var _gn = state._gauntletNext;
+      if (_gn && _gn.complete) {
+        _gnBtn.textContent = '🏆 You beat them all — back to the gauntlet';
+        _gnBtn.style.display = '';
+      } else if (_gn && _gn.char) {
+        _gnBtn.textContent = (_gn.advanced ? '⚔️ Next: ' : '🔁 Rematch ') + _gn.char.name + ' ' + _gn.char.emoji;
+        _gnBtn.style.display = '';
+      } else {
+        _gnBtn.style.display = 'none';
+      }
+    }
+    // PROGRESS NUDGE: after every game, surface the nearest within-reach trophy so a
+    // finished session has a concrete reason to play the next one. Stats/achievements
+    // for THIS game were already applied above, so it points at the next goal.
+    var _ntEl = $('#result-next-trophy');
+    if (_ntEl) {
+      var _nudge = nearestTrophyNudge(state.user);
+      if (_nudge) {
+        var _u = NEAREST_UNIT[_nudge.def.type] || 'step';
+        _ntEl.textContent = '🎯 ' + _nudge.remaining + ' ' + _u + (_nudge.remaining === 1 ? '' : 's') +
+          ' from ' + _nudge.def.name + ' ' + _nudge.def.icon;
+        _ntEl.style.display = '';
+      } else {
+        _ntEl.style.display = 'none';
+      }
     }
     // RETENTION BRIDGE: surface today's daily puzzle as a second activity after a
     // game, so a fresh player discovers the come-back-tomorrow loop. The finished
@@ -5090,6 +5143,15 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   { const _dl = $('#btn-result-daily'); if (_dl) _dl.addEventListener('click', () => {
     closeModal('result');
     openDailyPuzzle();
+  }); }
+  { const _gn = $('#btn-result-gauntlet-next'); if (_gn) _gn.addEventListener('click', () => {
+    var info = state._gauntletNext;
+    clearNetUI();
+    closeModal('result');
+    try {
+      if (info && info.char && typeof startGauntletGame === 'function') startGauntletGame(info.char);
+      else showScreen('gauntlet'); // completion (or no target) -> back to the ladder
+    } catch (e) { showScreen('lobby'); }
   }); }
   { const _gb = $('#btn-result-guest-signup'); if (_gb) _gb.addEventListener('click', () => {
     // Send the guest to the auth screen with Create-account preselected so their
@@ -5883,6 +5945,28 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       case 'checkers_games': { const ck = u.checkers || {}; return (ck.wins || 0) + (ck.losses || 0) + (ck.draws || 0); }
     }
     return null; // fast / duo / elo / checkers_elo: no clean 0-based bar
+  }
+  // Result-screen progress nudge: the nearest UNEARNED tiered trophy the player is
+  // within reach of, restricted to monotonic cumulative counters (so "N more X" is
+  // always accurate — streak/elo reset or have no clean bar and are excluded) and to
+  // near-term goals (<=5 to go) so it reads as "almost there", the strongest day-7
+  // pull. Returns { def, remaining } or null.
+  var NEAREST_UNIT = { wins: 'win', games: 'game', mate: 'checkmate', gauntlet: 'rung', arena: 'arena win', checkers_games: 'checkers game', invites: 'invite' };
+  function nearestTrophyNudge(u) {
+    if (!u || !ACHIEVEMENT_TIERS.length) return null;
+    var best = null;
+    for (var i = 0; i < ACHIEVEMENT_TIERS.length; i++) {
+      var a = ACHIEVEMENT_TIERS[i];
+      if (a.hidden || !NEAREST_UNIT[a.type]) continue;
+      if (hasAchievement(u, a.id)) continue;           // one-time milestone already earned
+      if (!a.threshold || a.threshold <= 0) continue;
+      var cur = trophyCurrent(u, a);
+      if (cur == null) continue;
+      var remaining = a.threshold - cur;
+      if (remaining <= 0 || remaining > 5) continue;    // only near-term, motivating goals
+      if (!best || remaining < best.remaining) best = { def: a, remaining: remaining };
+    }
+    return best;
   }
   // Trophy "score": rarer/harder trophies are worth more. Hidden + embarrassing
   // feats carry a small flat bonus on top of their tier.

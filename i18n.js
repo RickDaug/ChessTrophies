@@ -72,7 +72,7 @@
     // Welcome / auth screen
     'auth.tagline': 'Play the computer, solve daily puzzles, build streaks, earn trophies.',
     'auth.playNow': '▶ Play now',
-    'auth.playNowHint': 'No sign-up needed — start a game vs the computer in one tap.',
+    'auth.playNowHint': 'No sign-up — jump straight into a game vs the computer.',
     'auth.accountPrompt': 'Want to save your progress across devices?',
     'auth.tabSignIn': 'Sign in',
     'auth.tabCreate': 'Create account',
@@ -96,7 +96,7 @@
     'auth.languageLabel': 'Language',
     'auth.or': 'or',
     'auth.continueGuest': 'Continue as guest',
-    'auth.guestHint': 'No sign-up. Your progress is saved on this device — create an account to keep it across devices.',
+    'auth.guestHint': 'No sign-up — go to the home screen to explore. Progress saves on this device; create an account to keep it across devices.',
     'auth.crossDevice': 'Your account is securely stored on our servers, so your rating and trophies follow you across devices. Usernames are unique across every platform.',
 
     // Settings ("options") menu
