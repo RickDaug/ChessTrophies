@@ -62,12 +62,17 @@ async function main() {
                      'tools/fen-board-viewer.html', 'tools/fen-board-viewer.js']) {
       assert(fs.existsSync(path.join(DIST, f)), `dist/${f} missing (free-tools pipeline broke)`);
     }
+    // Endgame trainer pages + shared stepper + hub.
+    assert(fs.existsSync(path.join(DIST, 'endgames', 'index.html')), 'dist/endgames/index.html (hub) missing');
+    assert(fs.existsSync(path.join(DIST, 'endgames', 'endgame-stepper.js')), 'dist/endgames/endgame-stepper.js missing');
+    const endgamePages = fs.readdirSync(path.join(DIST, 'endgames')).filter((f) => f.endsWith('.html') && f !== 'index.html');
+    assert(endgamePages.length >= 6, `expected >=6 endgame pages, got ${endgamePages.length}`);
     // Sitemap folds in every surface.
     const sitemap = fs.readFileSync(path.join(DIST, 'sitemap.xml'), 'utf8');
-    for (const frag of ['/openings/', '/tools/', 'elo-rating-calculator.html', 'fen-board-viewer.html']) {
+    for (const frag of ['/openings/', '/tools/', 'elo-rating-calculator.html', 'fen-board-viewer.html', '/endgames/']) {
       assert(sitemap.includes(frag), `sitemap.xml missing "${frag}"`);
     }
-    log(`SEO surfaces ok — ${learnPages.length} learn + ${openingPages.length} openings + tools, all in sitemap`);
+    log(`SEO surfaces ok — ${learnPages.length} learn + ${openingPages.length} openings + ${endgamePages.length} endgames + tools, all in sitemap`);
   }
 
   // First-load weight: assert the heavy/admin-only assets are EXCLUDED from the

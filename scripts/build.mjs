@@ -42,6 +42,7 @@ import { fileURLToPath } from 'node:url';
 // without bloating this build script.
 import { generate as generateOpeningPages } from './seo/openings-pages.mjs';
 import { generate as generateToolPages } from './seo/tools-pages.mjs';
+import { generate as generateEndgamePages } from './seo/endgames-pages.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -302,8 +303,8 @@ async function main() {
   const seo = await generateSeoPages();
   log('');
   log(`SEO: generated ${seo.count} learn page(s) -> dist/learn/<slug>.html + dist/learn/index.html`);
-  log(`SEO: generated ${seo.extraCount} extra page(s) -> dist/openings/ + dist/tools/`);
-  log(`SEO: sitemap.xml lists ${seo.totalUrls} URL(s) (home + /learn/ + articles + openings + tools)`);
+  log(`SEO: generated ${seo.extraCount} extra page(s) -> dist/openings/ + dist/tools/ + dist/endgames/`);
+  log(`SEO: sitemap.xml lists ${seo.totalUrls} URL(s) (home + /learn/ + articles + openings + tools + endgames)`);
 
   // --- Size report ----------------------------------------------------------
   const allRows = [...report];
@@ -717,7 +718,7 @@ async function generateSeoPages() {
   // dist/ subtree and hands back the URLs to list in the sitemap.
   const extraUrls = [];
   let extraCount = 0;
-  for (const gen of [generateOpeningPages, generateToolPages]) {
+  for (const gen of [generateOpeningPages, generateToolPages, generateEndgamePages]) {
     const r = await gen({ DIST, SITE });
     if (r && Array.isArray(r.urls)) extraUrls.push(...r.urls);
     if (r && typeof r.count === 'number') extraCount += r.count;
