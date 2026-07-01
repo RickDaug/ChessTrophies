@@ -83,6 +83,86 @@
 }
 </script>
 
+<!-- FAQPage + SiteNavigationElement structured data. Mirrors the on-page
+     "Learn & tools" links and the honest FAQ below the hero. Pure JSON data
+     in a type="application/ld+json" block — not executable JS, CSP-safe. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "Is ChessTrophies free to play?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Ranked games, trophies, daily puzzles, the bot gauntlet, the opening trainer, the Learn library and checkers are all free to play. An optional Premium tier only removes ads and adds a supporter badge — it never gates gameplay or the themed board and piece sets."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Do I need an account to play?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. You can tap Play now and start a game against the computer instantly as a guest. Creating a free account saves your rating, trophies and progress so they follow you across devices."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I play chess online with friends?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. ChessTrophies has ranked 1v1 and 2v2 online chess, plus live arena tournaments where you play a series of games against other people."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does ChessTrophies have checkers?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. You can play full checkers and international draughts, including the 8×8 and 10×10 boards, alongside chess."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do chess trophies work?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Trophies record your achievements — including who you beat while on a winning streak. As you win ranked games and keep streaks alive, you unlock and hold trophies that show up on your profile."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I play ChessTrophies on mobile?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. ChessTrophies runs in any modern mobile or desktop web browser, with a touch-friendly board and drag-and-drop pieces — no app install required."
+      }
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SiteNavigationElement",
+  "name": [
+    "Chess lessons",
+    "Chess openings explained",
+    "Free chess tools",
+    "ELO rating calculator",
+    "FEN board viewer"
+  ],
+  "url": [
+    "https://www.playchesstrophies.com/learn/",
+    "https://www.playchesstrophies.com/openings/",
+    "https://www.playchesstrophies.com/tools/",
+    "https://www.playchesstrophies.com/tools/elo-rating-calculator.html",
+    "https://www.playchesstrophies.com/tools/fen-board-viewer.html"
+  ]
+}
+</script>
+
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -206,6 +286,32 @@
   .tabs { display: flex; background: var(--panel); padding: 4px; border-radius: 12px; margin: 20px 0 16px; }
   .tab { flex: 1; padding: 10px; text-align: center; border-radius: 8px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: 14px; transition: all .15s; }
   .tab.active { background: var(--panel-2); color: var(--text); }
+
+  /* HOME SEO — below-the-fold crawlable content on the auth screen. Sits at the
+     bottom of the .screen flex column, full width, purely static HTML/CSS. */
+  .home-seo { margin: 34px 0 0; padding-top: 26px; text-align: left; }
+  /* On-brand walnut checker hairline as a section divider. */
+  .home-seo .home-seo-rule {
+    height: 6px; margin: 0 0 22px; border-radius: 3px;
+    background-image: linear-gradient(90deg, var(--dark-sq) 0 25%, var(--light-sq) 25% 50%, var(--dark-sq) 50% 75%, var(--light-sq) 75% 100%);
+    background-size: 24px 6px; background-repeat: repeat-x; opacity: .8;
+  }
+  .home-seo h2 { font-size: 20px; line-height: 1.3; color: var(--text); text-transform: none; letter-spacing: -0.2px; }
+  .home-seo h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin: 22px 0 10px; }
+  .home-seo p { color: var(--muted); font-size: 14px; line-height: 1.65; margin: 12px 0; }
+  .home-seo a { color: var(--accent); text-decoration: none; }
+  .home-seo a:hover { text-decoration: underline; }
+  .home-seo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0 4px; }
+  .home-seo-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px; transition: border-color .15s, transform .12s; }
+  .home-seo-card:hover { border-color: rgba(245, 196, 81, .35); }
+  .home-seo-card h4 { margin: 0 0 6px; font-size: 14px; font-weight: 700; color: var(--text); }
+  .home-seo-card p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+  .home-seo-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 0; }
+  .home-seo-links a { display: inline-flex; align-items: center; padding: 8px 12px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); font-size: 13px; font-weight: 600; }
+  .home-seo-links a:hover { border-color: rgba(245, 196, 81, .35); text-decoration: none; }
+  .home-seo a:focus-visible, .home-seo-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+  @media (max-width: 460px) { .home-seo-grid { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { .home-seo-card { transition: none; } }
 
   /* HEADER */
   .top-bar { display: flex; align-items: center; justify-content: space-between; padding: 14px 4px 18px; }
@@ -782,6 +888,70 @@
       New to chess? Read our free
       <a href="/learn/" style="color:var(--accent)">chess lessons &amp; strategy guides</a>.
     </p>
+
+    <!-- ===================== HOME SEO CONTENT (below the fold) =====================
+         Static, crawlable content for search engines and curious scrollers. It
+         sits far under the "Play now" hero, so newcomers still meet the funnel
+         first. English-only brand/content copy (no data-i18n, by convention).
+         Pure HTML/CSS — no scripts, no on* handlers. Uses <h2>/<h3>/<h4> so the
+         page keeps exactly one <h1> (the "ChessTrophies" hero). -->
+    <section class="home-seo" aria-labelledby="home-seo-title">
+      <div class="home-seo-rule" aria-hidden="true"></div>
+      <h2 id="home-seo-title">Play chess online free — ranked games, trophies, puzzles &amp; checkers</h2>
+      <p>
+        ChessTrophies is a free online chess platform you can play right in your browser.
+        Jump into ranked 1v1 and 2v2 online chess, climb a real ELO ladder, and earn trophies
+        that record your achievements — including a trophy system that logs who you beat while
+        on a winning streak. There is nothing to install and no account required to start:
+        tap Play now and you are in a game against the computer in one tap.
+      </p>
+      <p>
+        Beyond ranked play, there are daily puzzles and streaks to keep your tactics sharp, a
+        bot gauntlet to test yourself against a ladder of computer opponents, an opening trainer
+        and a Learn library to grow your game, and live arena tournaments when you want to
+        compete. Prefer draughts? ChessTrophies also has full checkers, including the 8×8 and
+        10×10 boards. Create a free account and your rating, trophies and progress follow you
+        across every device.
+      </p>
+
+      <h3>What you can do</h3>
+      <div class="home-seo-grid">
+        <div class="home-seo-card">
+          <h4>Ranked play &amp; ELO</h4>
+          <p>Play ranked 1v1 and 2v2 online chess and climb an ELO ladder that adjusts with every result.</p>
+        </div>
+        <div class="home-seo-card">
+          <h4>Trophies</h4>
+          <p>Earn trophies for real achievements — including a record of who you beat during a winning streak.</p>
+        </div>
+        <div class="home-seo-card">
+          <h4>Daily puzzles</h4>
+          <p>Sharpen your tactics with a fresh puzzle every day and build a daily solving streak.</p>
+        </div>
+        <div class="home-seo-card">
+          <h4>Opening Trainer</h4>
+          <p>Learn and drill chess openings with the opening trainer and the free Learn library.</p>
+        </div>
+        <div class="home-seo-card">
+          <h4>Arena tournaments</h4>
+          <p>Join live arena tournaments and play a run of games against other people in real time.</p>
+        </div>
+        <div class="home-seo-card">
+          <h4>Checkers &amp; Draughts</h4>
+          <p>Play full checkers and international draughts, including the 8×8 and 10×10 boards.</p>
+        </div>
+      </div>
+
+      <h3>Learn &amp; tools</h3>
+      <p>Free guides and browser tools to help you improve, whatever your rating:</p>
+      <div class="home-seo-links">
+        <a href="/learn/">Chess lessons</a>
+        <a href="/openings/">Chess openings explained</a>
+        <a href="/tools/">Free chess tools</a>
+        <a href="/tools/elo-rating-calculator.html">ELO rating calculator</a>
+        <a href="/tools/fen-board-viewer.html">FEN board viewer</a>
+      </div>
+    </section>
   </section>
 
   <!-- LOBBY -->

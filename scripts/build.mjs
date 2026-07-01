@@ -36,6 +36,12 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+// Additional SEO surfaces. Each is a self-contained generator that writes its
+// own dist/ subtree and returns { urls, count } so generateSeoPages() can fold
+// its pages into sitemap.xml. Kept as separate modules so the content grows
+// without bloating this build script.
+import { generate as generateOpeningPages } from './seo/openings-pages.mjs';
+import { generate as generateToolPages } from './seo/tools-pages.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -296,7 +302,8 @@ async function main() {
   const seo = await generateSeoPages();
   log('');
   log(`SEO: generated ${seo.count} learn page(s) -> dist/learn/<slug>.html + dist/learn/index.html`);
-  log(`SEO: sitemap.xml lists ${seo.count + 2} URL(s) (home + /learn/ + ${seo.count} articles)`);
+  log(`SEO: generated ${seo.extraCount} extra page(s) -> dist/openings/ + dist/tools/`);
+  log(`SEO: sitemap.xml lists ${seo.totalUrls} URL(s) (home + /learn/ + articles + openings + tools)`);
 
   // --- Size report ----------------------------------------------------------
   const allRows = [...report];
@@ -654,12 +661,23 @@ async function generateSeoPages() {
 
   await fsp.writeFile(path.join(DIST, 'learn', 'index.html'), learnIndexHtml(entries), 'utf8');
 
-  // sitemap.xml — homepage + /learn/ hub + every article page.
+  // Extra SEO surfaces (opening guides + free tools). Each module writes its own
+  // dist/ subtree and hands back the URLs to list in the sitemap.
+  const extraUrls = [];
+  let extraCount = 0;
+  for (const gen of [generateOpeningPages, generateToolPages]) {
+    const r = await gen({ DIST, SITE });
+    if (r && Array.isArray(r.urls)) extraUrls.push(...r.urls);
+    if (r && typeof r.count === 'number') extraCount += r.count;
+  }
+
+  // sitemap.xml — homepage + /learn/ hub + every article page + the extra surfaces.
   const lastmod = new Date().toISOString().slice(0, 10);
   const urls = [
     { loc: `${SITE}/`, priority: '1.0' },
     { loc: `${SITE}/learn/`, priority: '0.8' },
     ...entries.map((e) => ({ loc: `${SITE}/learn/${e.slug}.html`, priority: '0.6' })),
+    ...extraUrls,
   ];
   const xml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
@@ -673,7 +691,7 @@ async function generateSeoPages() {
     '\n</urlset>\n';
   await fsp.writeFile(path.join(DIST, 'sitemap.xml'), xml, 'utf8');
 
-  return { count: entries.length };
+  return { count: entries.length, extraCount, totalUrls: urls.length };
 }
 
 function uniqueRawJsBytes(localFiles, runtime) {
