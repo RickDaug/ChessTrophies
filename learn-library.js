@@ -911,6 +911,236 @@
         { h: 'Make kings, and respect the flying king' },
         { p: 'Crowning a man is one of the surest ways to take over a game, so push toward promotion while blocking your opponent from doing the same. In the 8×8 game a king is a strong two-way fighter. In the 10×10 game a single flying king can dominate the whole board from a safe distance, so racing to the first flying king is often the entire plan.' }
       ]
+    },
+    {
+      id: 'ck-how-to-play-checkers',
+      cat: 'Checkers',
+      icon: '⛂',
+      title: 'How to Play Checkers: Rules for Beginners',
+      blurb: 'Everything you need to start a game of classic 8×8 checkers, from setup to crowning a king.',
+      mins: 6,
+      body: [
+        { h: 'Setting up the board' },
+        { p: 'Classic checkers, called American or English draughts, is played on the same 8×8 board as chess, but only the dark squares are ever used. Turn the board so each player has a dark square on their far left. Give each side twelve pieces, and place them on the dark squares of the three rows closest to that player. The two empty rows across the middle are where the fighting begins.' },
+        { h: 'How the pieces move' },
+        { p: 'An ordinary piece, called a man, moves one square diagonally forward toward the opponent. It never moves straight, sideways, or backward, and it never moves onto a light square. Because everything happens on the diagonals, a man always stays on the dark colour it started on. On a quiet turn with no capture available, you simply slide one man forward into an empty neighbouring square.' },
+        { h: 'Jumping and forced captures' },
+        { p: 'You capture by jumping. If an enemy man sits on a diagonal square right in front of yours, and the square just beyond it is empty, you leap over the enemy piece, land on that empty square, and remove the piece you jumped. If your landing square puts you next to another jumpable enemy piece, you must continue the same turn, chaining as many jumps as the position allows. Here is the rule beginners forget: capturing is mandatory. If a jump is available you must take it, though when several separate jumps exist you may choose which one to play.' },
+        { h: 'Kinging and crowning' },
+        { p: 'When one of your men reaches the far back row, the opponent’s edge, it is immediately crowned and becomes a king. Players show this by stacking a second captured piece on top. A king may move and capture diagonally both forward and backward, one square at a time, which makes it far more flexible than a plain man. Note that if a man reaches the back row by a jump, its turn ends there, even if more jumps look possible; it cannot keep jumping as a brand-new king on the same move.' },
+        { h: 'How to win' },
+        { p: 'You win by leaving your opponent with nothing to do. That happens in one of two ways: you capture every one of their pieces, or you block them so completely that they have no legal move on their turn. If neither side can force a win and the position repeats, the game is agreed a draw. Keep your pieces working together, watch for forced jumps in both directions, and race for that first king.' }
+      ]
+    },
+    {
+      id: 'ck-international-draughts-10x10',
+      cat: 'Checkers',
+      icon: '⛃',
+      title: 'International Draughts (10×10): Rules and Flying Kings',
+      blurb: 'The bigger, deeper game where men capture backward and kings glide the whole board.',
+      mins: 7,
+      body: [
+        { h: 'A bigger board and more pieces' },
+        { p: 'International draughts is played on a 10×10 board rather than the familiar 8×8, and again only the dark squares are used. Each player begins with twenty men, arranged on the dark squares of the four rows nearest them. That leaves two empty rows in the middle. The extra size is not just cosmetic: more pieces and more room create far longer games with deeper plans, which is why many consider it the more demanding version.' },
+        { h: 'Men move forward but capture in every direction' },
+        { p: 'As in the smaller game, an ordinary man moves one square diagonally forward on a quiet turn. The first big difference appears when capturing. In international draughts a man may jump an enemy piece forward or backward. So a piece behind your lines is not automatically safe, and threats can appear from any diagonal. This single rule changes how careful you must be with every move.' },
+        { h: 'The majority-capture rule' },
+        { p: 'Capturing is compulsory, and international draughts adds a strict extra rule: you must play the capture that removes the greatest number of enemy pieces. If one jumping sequence wins three pieces and another wins two, you are forced to choose the one that wins three. You count the entire chain of a sequence, not just its first leap, before deciding which line is required. When two different sequences capture the same maximum number, you may pick either.' },
+        { h: 'The flying king' },
+        { p: 'When a man reaches the far back row it is crowned, and here the king is a flying king, the star of the whole game. A flying king slides any distance along a clear diagonal in a single move, like a bishop in chess. When it captures, it can spot an enemy piece far down an open diagonal, jump it, and land on any empty square beyond, then, if another target lies on a new diagonal from that landing square, turn and continue capturing. One flying king can sweep the board from a safe distance.' },
+        { h: 'Why it runs deeper than 8×8' },
+        { p: 'Put these differences together, backward captures for men, the must-take-the-most rule, and long-range flying kings, and the 10×10 game rewards calculation far more than the small board. Combinations can sacrifice several men to force the opponent through a forced sequence that ends in a devastating recapture. That richness is exactly why international draughts has such a strong competitive following, and why fewer beginner sites teach it well.' }
+      ]
+    },
+    {
+      id: 'ck-checkers-strategy-win',
+      cat: 'Checkers',
+      icon: '\u{1F451}',
+      title: 'Checkers Strategy: How to Actually Win',
+      blurb: 'Center control, a solid back row, smart trades, and the quiet power of the move.',
+      mins: 6,
+      body: [
+        { h: 'Own the center' },
+        { p: 'Just as in chess, the middle of the board is where your pieces have the most freedom. A man near the center can influence squares on both wings and has more ways to advance, while a man clinging to the edge has fewer moves and is easier to trap. In the opening, steer your pieces toward the central columns rather than shuffling them along the side, where they do little work.' },
+        { h: 'Guard your back row' },
+        { p: 'The row of pieces nearest you does a quiet but vital job: it blocks the squares your opponent must reach to be crowned. Every man you leave on your back row early is a lock on the door to promotion. Give those pieces up too soon and you invite an enemy king. Hold the back row in the opening, and only release those defenders when you get something concrete in return.' },
+        { h: 'Trade when you are ahead' },
+        { p: 'Material matters, and even exchanges are not neutral. If you are up a piece, every one-for-one trade helps you, because the fewer pieces remain, the more your extra man dominates what is left. So when ahead, hunt for even swaps and simplify toward the win. When you are behind, do the opposite: keep pieces on the board, avoid trades, and play for complications and a swindle.' },
+        { h: 'The opposition and the power of tempo' },
+        { p: 'Because a player must move on their turn, being forced to move can be a disadvantage, an idea checkers shares with the king-and-pawn endgame in chess, where it is called the opposition. If you can arrange the pieces so that any move your opponent makes worsens their position, you have effectively handed them a problem with no good answer. Counting moves, whose turn it will be when a key square must be crossed, is a real skill in tight endings.' },
+        { h: 'Force exchanges, don’t over-extend' },
+        { p: 'Because captures are mandatory, you can sometimes offer a man in a way that forces a jump, then recapture and come out ahead, a two-for-one shot. Setting these small combinations is the bread and butter of winning checkers. The flip side is discipline: do not push a lone man deep into enemy territory where it can be surrounded, and never leave a piece where a single forced jump chain sweeps up several of yours. Advance as a connected group, keep your men supporting one another, and let your opponent be the one who over-reaches.' }
+      ]
+    },
+    {
+      id: 'rules-en-passant',
+      cat: 'Rules',
+      icon: '♟',
+      title: 'En Passant: The Pawn Capture Beginners Miss',
+      blurb: 'The strange-looking capture that is completely legal, and exactly when you are allowed to use it.',
+      mins: 5,
+      body: [
+        { h: 'The rule that looks like a mistake' },
+        { p: 'En passant, French for "in passing," is a special pawn capture that surprises almost every beginner the first time they see it. It looks illegal, because your pawn captures an enemy pawn that is sitting beside it and lands on an empty square where nothing was ever standing. But it is a genuine, official rule of chess, and knowing it can win or save games.' },
+        { h: 'The exact conditions' },
+        { p: 'Every one of these must be true. First, the enemy pawn advances two squares in a single move from its own starting row. Second, that two-square jump lands it directly alongside one of your pawns, on the same row and an adjacent column. When both are true, your pawn may capture it as if it had only moved one square forward: your pawn moves diagonally into the square the enemy pawn skipped over, and the enemy pawn is removed from the board.' },
+        { h: 'You must do it immediately' },
+        { p: 'This is the detail people forget. The right to capture en passant lasts for exactly one move, your very next turn, right after the two-square advance. If you play anything else instead, the chance is gone for good and cannot be claimed later. So the moment an opponent pushes a pawn two squares past your waiting pawn, decide then and there whether to take.' },
+        { h: 'Why the rule exists' },
+        { p: 'En passant was introduced when pawns were first allowed to move two squares on their opening move. Without it, a pawn could use that two-square dash to slip safely past an enemy pawn that would otherwise have been able to challenge it. En passant restores the balance: it lets the defending pawn capture as though the runaway had modestly advanced only one square. Once you see that logic, the rule stops feeling arbitrary and starts feeling fair.' },
+        { h: 'A picture to remember' },
+        { p: 'Imagine your pawn has advanced deep and sits on the fifth row from your side. An enemy pawn on a neighbouring column leaps two squares and pulls up right next to it, hoping to sneak by untouched. On your next move, and only then, you slide your pawn diagonally forward into the empty square just behind that enemy pawn and lift the enemy pawn off the board. That is en passant.' }
+      ]
+    },
+    {
+      id: 'rules-castling',
+      cat: 'Rules',
+      icon: '♜',
+      title: 'Castling: The Rules and When to Do It',
+      blurb: 'Two pieces move at once to tuck your king safe. Here are the exact conditions and when to castle.',
+      mins: 5,
+      body: [
+        { h: 'The only two-piece move' },
+        { p: 'Castling is the one move in chess where you move two of your own pieces at the same time: your king and one of your rooks. The king slides two squares toward the rook, and that rook hops over the king to the square immediately on the king’s other side. It is the fastest way to get your king to safety and bring a lazy rook toward the center in a single turn.' },
+        { h: 'The conditions, exactly' },
+        { p: 'Castling is legal only when all of these hold. Neither the king nor the chosen rook has moved earlier in the game, not even out and back. Every square between the king and that rook is empty. The king is not currently in check. And, crucially, the king does not pass through any square that an enemy piece attacks, and does not finish on an attacked square. Note a subtlety: it is only the king’s squares that must be safe. The rook is allowed to pass through, or even start on, a square that is attacked; queenside castling can be legal even when the square the rook crosses is under fire.' },
+        { h: 'Kingside versus queenside' },
+        { p: 'Kingside castling, written O-O and sometimes called castling short, uses the rook nearer the king; the king ends up snug in the corner behind a tidy wall of pawns. Queenside castling, written O-O-O and called castling long, uses the far rook; the king travels a little further and the rook lands actively near the center, though the king often needs a follow-up move to reach full safety. Both are the same move in spirit, just to opposite sides.' },
+        { h: 'When and why to castle' },
+        { p: 'As a rule of thumb, castle early, usually within your first several moves, once your knight and bishop on that side are developed and the path is clear. A king stranded in the center while the position opens up is the single most common reason beginners lose winning games. Kingside castling is the safer default. Choose queenside when you want your rook aggressively placed, and delay castling only when you have a concrete reason, never out of forgetfulness.' }
+      ]
+    },
+    {
+      id: 'rules-how-pieces-move',
+      cat: 'Rules',
+      icon: '♞',
+      title: 'How Every Chess Piece Moves',
+      blurb: 'A clear, beginner-friendly tour of all six pieces and the way each one travels.',
+      mins: 6,
+      body: [
+        { h: 'The pawn: small but tricky' },
+        { p: 'A pawn moves straight forward one square, and never backward. On its very first move only, it has the option of advancing two squares instead of one. But a pawn captures differently from how it moves: it takes an enemy piece by stepping one square diagonally forward, never straight ahead. This split personality, moving one way and capturing another, is what makes pawns feel awkward to new players. Pawns also have two special powers covered elsewhere: en passant, and promotion when they reach the far end.' },
+        { h: 'The knight: the L-shaped jumper' },
+        { p: 'The knight moves in an L: two squares in one straight direction and then one square at a right angle, or two across and one up, whichever way you picture it. Its unique gift is that it jumps: the knight leaps directly to its destination and does not care whether pieces stand in between. It is the only piece that can hop over others, which makes it deadly in crowded positions and a frequent source of forks.' },
+        { h: 'The sliders: bishop, rook, and queen' },
+        { p: 'The bishop moves any number of empty squares along a diagonal, so each bishop is stuck forever on one colour of square. The rook moves any number of empty squares in a straight line, along a row or a column. The queen combines both: she glides any distance along rows, columns, and diagonals, making her the most powerful piece on the board. All three are blocked by pieces in their path; they cannot jump, and they stop when they hit something, capturing an enemy or halting before a friend.' },
+        { h: 'The king: one careful step' },
+        { p: 'The king moves one square in any direction, straight or diagonal. It is the most limited mover, and for good reason: the king can never move onto a square attacked by an enemy piece, and can never be captured. Protecting it is the whole point of the game. The king also takes part in castling, the special move it shares with a rook.' },
+        { h: 'Promotion: the pawn’s reward' },
+        { p: 'When a pawn reaches the far side of the board, it does not stop there; it is promoted, immediately becoming a queen, rook, bishop, or knight of its own colour, your choice. Almost everyone chooses a queen, since she is strongest, and yes, you can have two queens or more. That single rule means even a humble pawn is a future powerhouse, which is why every pawn deserves respect.' }
+      ]
+    },
+    {
+      id: 'rules-stalemate-vs-checkmate',
+      cat: 'Rules',
+      icon: '♚',
+      title: 'Stalemate vs Checkmate: What’s the Difference?',
+      blurb: 'One wins the game, the other throws the win away. Here is exactly how they differ.',
+      mins: 5,
+      body: [
+        { h: 'Two situations that look alike' },
+        { p: 'Checkmate and stalemate can look almost identical at a glance: in both, the player to move has no legal move to make. Yet one ends the game in victory and the other ends it in a draw. Confusing them, or stumbling into a stalemate while you are winning, is one of the most heartbreaking beginner mistakes. The single question that separates them is simple: is the king in check?' },
+        { h: 'Checkmate: the game is won' },
+        { p: 'Checkmate happens when the player to move is in check, their king is under attack, and there is no legal way to escape it. They cannot move the king to safety, cannot block the attack, and cannot capture the attacking piece. The king is trapped under fire, the game ends instantly, and the player delivering the mate wins. This is the goal of the entire game.' },
+        { h: 'Stalemate: the game is drawn' },
+        { p: 'Stalemate happens when the player to move has no legal move at all, but their king is NOT in check. Nothing is attacking the king; the player simply has no square any piece can legally move to. Because the rules say you cannot be forced to move into check, and there is no other move, the game ends immediately in a draw, no matter how much material one side has. A player a whole queen ahead can throw the full point away this way.' },
+        { h: 'How to avoid stalemating when winning' },
+        { p: 'When you are far ahead and closing in for the kill, slow down and check for stalemate before every move. The danger sign is a lonely enemy king with almost no squares left. Before you play a move, ask: after this, does my opponent still have at least one legal move? Leave the losing king a breathing square until you are ready to deliver check and mate on the same move. Use your king and pieces to shepherd the enemy king toward the edge, but always keep one escape square open until the mating blow itself.' }
+      ]
+    },
+    {
+      id: 'rules-check-and-checkmate',
+      cat: 'Rules',
+      icon: '♔',
+      title: 'Check, Checkmate, and Getting Out of Check',
+      blurb: 'What it means to be in check, and the only three legal ways to answer it.',
+      mins: 4,
+      body: [
+        { h: 'What check means' },
+        { p: 'Your king is in check when an enemy piece is attacking it, that is, when a piece is positioned so that it could capture the king on the next move. Check is not the end of the game; it is a warning that must be answered right now. You are not allowed to ignore it and do something else on the board. Until your king is safe, nothing else is legal.' },
+        { h: 'The three ways out' },
+        { p: 'There are exactly three ways to answer a check. First, move the king to a square where it is no longer attacked. Second, block the check by placing one of your own pieces between the attacker and your king, this works only against sliding pieces like a rook, bishop, or queen, since you cannot block a knight or a pawn. Third, capture the piece that is giving check, removing the threat at its source. If at least one of these is possible, you must do one of them.' },
+        { h: 'When there is no escape' },
+        { p: 'If your king is in check and none of the three answers is available, no safe square, no way to block, no way to capture the attacker, then it is checkmate, and you lose. So checkmate is nothing more than a check you cannot escape. Everything you learn about attacking the king is really about slowly stripping away all three of these escapes at once.' },
+        { h: 'A special case: double check' },
+        { p: 'Sometimes a single move gives check with two pieces at once, usually through a discovered attack. This is called double check, and it has a strict consequence: you cannot block it and you cannot capture your way out, because removing one attacker still leaves the other. The only legal response to a double check is to move the king. Knowing this can help you both deliver crushing attacks and defend calmly when one lands on you.' }
+      ]
+    },
+    {
+      id: 'rules-draws-explained',
+      cat: 'Rules',
+      icon: '½',
+      title: 'Draws Explained: Stalemate, Repetition, 50-Move, Insufficient Material',
+      blurb: 'Every way a chess game can end in a tie, from stalemate to the fifty-move rule.',
+      mins: 6,
+      body: [
+        { h: 'Not every game has a winner' },
+        { p: 'Plenty of chess games end without either side winning. A draw splits the point, and there are several distinct ways to reach one. Some are agreed between players, and some are forced by the rules whether anyone likes it or not. Knowing them all is practical: a losing player can often save half a point, and a winning player can avoid throwing it away.' },
+        { h: 'Stalemate' },
+        { p: 'Stalemate is a draw that happens when the player to move has no legal move available, yet their king is not in check. Because you cannot be forced to move into check and there is no other move, the game simply ends as a draw. This is the draw that most often ambushes a player who is winning but gets careless in the endgame.' },
+        { h: 'Threefold repetition' },
+        { p: 'If the exact same position occurs three times during a game, with the same player to move and the same possibilities, such as the same castling and en passant rights, either player may claim a draw. The three occurrences do not need to happen on consecutive moves. This rule most often appears when one side keeps checking the enemy king and the position bounces back and forth with neither side able to make progress. In official play a fivefold repetition draws automatically without a claim.' },
+        { h: 'The fifty-move rule' },
+        { p: 'If fifty consecutive moves by each player pass with no pawn moved and no piece captured, either player may claim a draw. Both conditions reset the counter: any capture or any pawn advance starts the fifty-move count over. The rule exists to stop a player from shuffling pieces forever in a position they cannot actually win. In official play, once seventy-five such moves pass, the draw is declared automatically.' },
+        { h: 'Insufficient material and agreement' },
+        { p: 'If neither side has enough material to possibly deliver checkmate, the game is an immediate draw, since a win has become impossible. King versus lone king is the clearest case, as are king and a single bishop, or king and a single knight, against a bare king, none of which can force mate. On top of all these, players may simply agree to a draw at any point by mutual consent, often when the position is balanced and lifeless and both sides see no way forward.' }
+      ]
+    },
+    {
+      id: 'rules-chess-notation',
+      cat: 'Rules',
+      icon: '♘',
+      title: 'How to Read Chess Notation (Algebraic)',
+      blurb: 'Crack the code of Nf3, exd5, and O-O so you can read any game or lesson.',
+      mins: 5,
+      body: [
+        { h: 'The grid of squares' },
+        { p: 'Algebraic notation gives every square a name made of a letter and a number. The eight columns, called files, are labelled a through h from left to right as White sees the board. The eight rows, called ranks, are numbered 1 through 8 starting from White’s side. So the square in White’s near-left corner is a1, and the far-right corner from White is h8. Every square has exactly one name, and both players use the same names.' },
+        { h: 'Naming the pieces' },
+        { p: 'Each piece has a capital letter: K for king, Q for queen, R for rook, B for bishop, and N for knight, since K is already taken. Pawns get no letter at all. A move is usually written as the piece letter followed by the destination square. So Nf3 means a knight moves to the square f3, and e4 means a pawn moves to e4, no letter needed. When two identical pieces could reach the same square, you add the starting file or rank to make it clear, such as Rad1.' },
+        { h: 'Captures, checks, and mates' },
+        { p: 'An "x" marks a capture: Bxe5 means a bishop captures whatever sits on e5. For pawn captures you write the pawn’s starting file, then the x, then the square, like exd5. A plus sign shows check, as in Qh5+, and a hash mark shows checkmate, as in Qf7#. These little symbols let you read a whole game and know at every step when a king was under attack.' },
+        { h: 'Castling and promotion' },
+        { p: 'Castling has its own shorthand: O-O means kingside, or short, castling, and O-O-O means queenside, or long, castling, matching the number of squares the rook travels. Promotion is written by naming the square the pawn reaches and the new piece after an equals sign, so e8=Q means a pawn advances to e8 and becomes a queen. Put it all together and a line like 1. e4 e5 2. Nf3 Nc6 stops being a mystery and becomes a game you can replay in your head.' }
+      ]
+    },
+    {
+      id: 'rules-pawn-promotion',
+      cat: 'Rules',
+      icon: '♕',
+      title: 'Pawn Promotion: Turning a Pawn into a Queen',
+      blurb: 'How a humble pawn becomes a queen, and the rare times you would choose something else.',
+      mins: 4,
+      body: [
+        { h: 'Reaching the end of the road' },
+        { p: 'A pawn spends the whole game marching one square at a time toward the far side of the board. The reward for arriving is enormous: the instant a pawn reaches the last rank, the row furthest from where it started, it must be promoted. You remove the pawn and replace it, on the same square, with a stronger piece of your own colour. This is why an extra pawn in the endgame can be worth a full game; it is a queen in waiting.' },
+        { h: 'Choose your new piece' },
+        { p: 'When you promote, you may pick a queen, rook, bishop, or knight, but never a king and never another pawn. The choice is entirely free; you are not limited to pieces you have already lost. That means you can have two queens, or even more, on the board at once. In the overwhelming majority of cases you choose a queen, because she is the most powerful piece and the strongest choice is almost always right.' },
+        { h: 'When to underpromote' },
+        { p: 'Occasionally you deliberately promote to something other than a queen, which is called underpromotion. The most common reason is to promote to a knight, because a knight reaches squares a queen never can. A freshly promoted knight can deliver an immediate check or a fork that a queen on the same square could not, sometimes winning on the spot. The other classic reason involves stalemate: if promoting to a queen would leave your opponent with no legal move and hand them a draw, choosing a rook instead can keep the game alive and let you win cleanly.' },
+        { h: 'A rule worth remembering' },
+        { p: 'Because every pawn carries this promise, both attacking and defending passed pawns, pawns with no enemy pawns able to stop them, becomes a central theme of endgames. Push your passed pawns toward promotion and blockade your opponent’s. The threat of a new queen is often more valuable than the queen itself, forcing your opponent to tie down pieces just to keep the pawn from breaking through.' }
+      ]
+    },
+    {
+      id: 'rules-touch-move-and-etiquette',
+      cat: 'Rules',
+      icon: '\u{1F91D}',
+      title: 'The Touch-Move Rule and Chess Etiquette',
+      blurb: 'Touch-move, saying j’adoube, resigning with grace, and good manners online and over the board.',
+      mins: 5,
+      body: [
+        { h: 'The touch-move rule' },
+        { p: 'In serious over-the-board chess, if you deliberately touch one of your own pieces, you must move it, provided it has a legal move. If you touch an enemy piece, you must capture it if any legal capture of it exists. And once you let go of a piece on a new square, the move is final; you cannot take it back. Touch-move keeps games honest and forces players to decide before they reach out, rather than hovering and second-guessing with a hand on the board.' },
+        { h: 'Saying j’adoube' },
+        { p: 'Sometimes a piece sits crookedly and you just want to straighten it without committing to a move. The rule allows this if you announce your intention first. Say "j’adoube," French for "I adjust," or simply "I adjust," before you touch the piece. Then you may center it on its square with no obligation to move it. The key is that you must speak before touching, not after, and only on your own turn.' },
+        { h: 'Resigning gracefully' },
+        { p: 'When a position is hopeless, it is perfectly honourable, and quite common among stronger players, to resign rather than play on to inevitable checkmate. You resign by gently tipping over your king, offering a handshake, or clearly saying you resign. Do it without drama or bitterness. Resigning a truly lost game is a sign of respect for your opponent’s time, not an admission of weakness.' },
+        { h: 'Offering and accepting draws' },
+        { p: 'The polite way to offer a draw is to make your move first, then offer the draw, and only then press your clock, so your opponent considers the offer with your move already on the board. Your opponent may accept by saying so, or decline simply by making a move. It is considered rude to offer draws repeatedly to pester an opponent, so make an offer once and respect the answer.' },
+        { h: 'Manners online and in person' },
+        { p: 'Good etiquette carries into online play. Do not deliberately stall or let your clock run when a game is decided, do not abuse takeback requests, and resist the urge to gloat or to type at your opponent. A quick "good game" at the end costs nothing and is always appreciated. Whether across a physical board or a screen, treating your opponent as a partner in the game, not just an obstacle, is the heart of chess courtesy.' }
+      ]
     }
   ];
 
