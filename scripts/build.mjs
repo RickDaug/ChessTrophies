@@ -514,35 +514,55 @@ function learnPageHtml(a, slug) {
 ${JSON.stringify(ld, null, 2)}
 </script>
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark;
+    --ink:#0b1220; --panel:#17223b; --border:#243556; --text:#e8eefc;
+    --muted:#8a98b8; --body:#d7def0; --gold:#f5c451; --gold-deep:#e1a92a;
+    --walnut-l:#e8d2a8; --walnut-d:#9c6b43;
+    --serif:'Iowan Old Style','Palatino Linotype','Palatino','Georgia',serif;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,system-ui,'Segoe UI',sans-serif; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: #0b1220; color: #e8eefc;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-    line-height: 1.65; }
-  a { color: #f5c451; }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 28px 20px 64px; }
-  .crumbs { font-size: 14px; color: #8a98b8; margin-bottom: 18px; }
-  .crumbs a { color: #8a98b8; }
-  h1 { font-size: 30px; line-height: 1.25; margin: 6px 0 8px; }
-  h2 { font-size: 21px; margin: 30px 0 6px; color: #f5c451; }
-  p { margin: 12px 0; color: #d7def0; }
-  .meta { color: #8a98b8; font-size: 14px; margin-bottom: 6px; }
-  .cta { margin-top: 40px; padding: 22px; border: 1px solid #243556;
-    border-radius: 14px; background: #17223b; text-align: center; }
-  .cta h2 { margin-top: 0; color: #f5c451; }
-  .btn { display: inline-block; margin-top: 10px; padding: 12px 22px;
-    background: #f5c451; color: #0b1220; font-weight: 700; border-radius: 10px;
-    text-decoration: none; }
-  footer { margin-top: 40px; font-size: 13px; color: #8a98b8;
-    border-top: 1px solid #243556; padding-top: 18px; }
+  body { margin:0; background:var(--ink); color:var(--text);
+    font-family:var(--sans); line-height:1.7; }
+  a { color:var(--gold); }
+  .wrap { max-width:760px; margin:0 auto; padding:36px 22px 72px; }
+  .crumbs { font-size:13px; color:var(--muted); margin-bottom:22px; }
+  .crumbs a { color:var(--muted); text-decoration:none; }
+  .crumbs a:hover { color:var(--text); }
+  .eyebrow { font-family:var(--serif); text-transform:uppercase; letter-spacing:.14em;
+    font-size:12px; font-weight:700; color:var(--gold); margin:0 0 8px; }
+  h1 { font-family:var(--serif); font-weight:700; font-size:34px; line-height:1.15;
+    letter-spacing:-.01em; margin:0; }
+  .rule { height:12px; border-radius:3px; margin:16px 0 26px;
+    background-image:repeating-linear-gradient(90deg,var(--walnut-d) 0 24px,var(--walnut-l) 24px 48px);
+    opacity:.92; }
+  article h2 { font-family:var(--serif); font-size:23px; color:var(--gold);
+    font-weight:700; margin:34px 0 8px; }
+  article p { margin:14px 0; color:var(--body); font-size:17px; }
+  .cta { margin-top:46px; padding:28px 24px; border-radius:16px; text-align:center;
+    background:linear-gradient(135deg,var(--gold),var(--gold-deep)); }
+  .cta h2 { font-family:var(--serif); margin:0 0 6px; color:#241a02; font-size:22px; }
+  .cta p { margin:0 0 16px; color:#3b2c06; font-size:15px; }
+  .btn { display:inline-block; padding:13px 26px; border-radius:10px; font-weight:700;
+    text-decoration:none; background:#161007; color:var(--gold);
+    transition:transform .15s ease, box-shadow .15s ease; }
+  .btn:hover { transform:translateY(-1px); box-shadow:0 8px 22px rgba(0,0,0,.4); }
+  a:focus-visible, .btn:focus-visible { outline:3px solid var(--gold); outline-offset:3px; border-radius:6px; }
+  footer { margin-top:48px; font-size:13px; color:var(--muted);
+    border-top:1px solid var(--border); padding-top:20px; }
+  footer a { color:var(--muted); text-decoration:none; }
+  footer a:hover { color:var(--gold); }
+  @media (max-width:520px){ .wrap{padding:26px 18px 56px;} h1{font-size:28px;} article p{font-size:16px;} }
+  @media (prefers-reduced-motion: reduce){ .btn{transition:none;} .btn:hover{transform:none;} }
 </style>
 </head>
 <body>
   <main class="wrap">
-    <nav class="crumbs"><a href="/">ChessTrophies</a> &rsaquo; <a href="/learn/">Learn</a>${meta ? ' &rsaquo; ' + meta : ''}</nav>
+    <nav class="crumbs"><a href="/">ChessTrophies</a> &rsaquo; <a href="/learn/">Learn</a>${a.cat ? ' &rsaquo; ' + escHtml(a.cat) : ''}</nav>
     <article>
+      <p class="eyebrow">${meta || 'Chess Lesson'}</p>
       <h1>${escHtml(a.title)}</h1>
-${meta ? '      <p class="meta">' + meta + '</p>\n' : ''}${articleBodyHtml(a.body)}
+      <div class="rule" aria-hidden="true"></div>
+${articleBodyHtml(a.body)}
     </article>
     <section class="cta">
       <h2>Ready to put this into practice?</h2>
@@ -550,7 +570,9 @@ ${meta ? '      <p class="meta">' + meta + '</p>\n' : ''}${articleBodyHtml(a.bod
       <a class="btn" href="${SITE}/">Play ChessTrophies free</a>
     </section>
     <footer>
-      <a href="/learn/">&larr; All chess lessons</a> &nbsp;·&nbsp;
+      <a href="/learn/">&larr; All lessons</a> &nbsp;·&nbsp;
+      <a href="/openings/">Openings</a> &nbsp;·&nbsp;
+      <a href="/tools/">Tools</a> &nbsp;·&nbsp;
       <a href="/">Home</a>
     </footer>
   </main>
@@ -573,12 +595,12 @@ function learnIndexHtml(entries) {
   };
   let sections = '';
   for (const cat of cats) {
-    sections += `      <h2>${escHtml(cat)}</h2>\n      <ul>\n`;
+    sections += `      <section class="cat-group">\n        <h2 class="cat-head">${escHtml(cat)}</h2>\n        <ul>\n`;
     for (const e of entries.filter((x) => x.cat === cat)) {
-      sections += `        <li><a href="/learn/${escHtml(e.slug)}.html">${escHtml(e.title)}</a>` +
-        (e.blurb ? ` <span class="blurb">— ${escHtml(e.blurb)}</span>` : '') + `</li>\n`;
+      sections += `          <li><a href="/learn/${escHtml(e.slug)}.html">${escHtml(e.title)}</a>` +
+        (e.blurb ? `<span class="blurb">${escHtml(e.blurb)}</span>` : '') + `</li>\n`;
     }
-    sections += '      </ul>\n';
+    sections += '        </ul>\n      </section>\n';
   }
   return `<!DOCTYPE html>
 <html lang="en">
@@ -602,34 +624,64 @@ function learnIndexHtml(entries) {
 ${JSON.stringify(ld, null, 2)}
 </script>
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark;
+    --ink:#0b1220; --panel:#17223b; --border:#243556; --text:#e8eefc;
+    --muted:#8a98b8; --body:#d7def0; --gold:#f5c451; --gold-deep:#e1a92a;
+    --walnut-l:#e8d2a8; --walnut-d:#9c6b43;
+    --serif:'Iowan Old Style','Palatino Linotype','Palatino','Georgia',serif;
+    --sans:'Inter',-apple-system,BlinkMacSystemFont,system-ui,'Segoe UI',sans-serif; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: #0b1220; color: #e8eefc;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-    line-height: 1.6; }
-  a { color: #f5c451; }
-  .wrap { max-width: 760px; margin: 0 auto; padding: 28px 20px 64px; }
-  .crumbs { font-size: 14px; color: #8a98b8; margin-bottom: 14px; }
-  .crumbs a { color: #8a98b8; }
-  h1 { font-size: 32px; margin: 6px 0 6px; }
-  .lede { color: #b9c3dc; margin: 0 0 8px; }
-  h2 { font-size: 20px; margin: 30px 0 8px; color: #f5c451; }
-  ul { list-style: none; padding: 0; margin: 0; }
-  li { padding: 10px 0; border-bottom: 1px solid #1c2845; }
-  li a { font-weight: 600; }
-  .blurb { color: #8a98b8; font-weight: 400; font-size: 14px; }
-  .cta { margin-top: 36px; padding: 20px; border: 1px solid #243556;
-    border-radius: 14px; background: #17223b; text-align: center; }
-  .btn { display: inline-block; margin-top: 10px; padding: 12px 22px;
-    background: #f5c451; color: #0b1220; font-weight: 700; border-radius: 10px;
-    text-decoration: none; }
+  body { margin:0; background:var(--ink); color:var(--text);
+    font-family:var(--sans); line-height:1.6; }
+  a { color:var(--gold); }
+  .wrap { max-width:800px; margin:0 auto; padding:36px 22px 72px; }
+  .crumbs { font-size:13px; color:var(--muted); margin-bottom:8px; }
+  .crumbs a { color:var(--muted); text-decoration:none; }
+  .crumbs a:hover { color:var(--text); }
+  .eyebrow { font-family:var(--serif); text-transform:uppercase; letter-spacing:.14em;
+    font-size:12px; font-weight:700; color:var(--gold); margin:14px 0 8px; }
+  h1 { font-family:var(--serif); font-weight:700; font-size:36px; line-height:1.12;
+    letter-spacing:-.01em; margin:0; }
+  .rule { height:12px; border-radius:3px; margin:16px 0 22px;
+    background-image:repeating-linear-gradient(90deg,var(--walnut-d) 0 24px,var(--walnut-l) 24px 48px);
+    opacity:.92; }
+  .lede { color:var(--body); font-size:18px; margin:0 0 6px; max-width:62ch; }
+  .more { margin-top:26px; display:flex; gap:10px; flex-wrap:wrap; }
+  .more a { display:inline-block; padding:9px 16px; border:1px solid var(--border);
+    border-radius:999px; background:var(--panel); color:var(--gold); font-weight:600;
+    font-size:14px; text-decoration:none; }
+  .more a:hover { border-color:var(--gold); }
+  .cat-group { margin-top:36px; }
+  .cat-head { font-family:var(--serif); font-size:21px; color:var(--gold);
+    font-weight:700; margin:0 0 6px; }
+  ul { list-style:none; padding:0; margin:0; }
+  li { padding:14px 0; border-bottom:1px solid var(--border); }
+  li a { font-weight:600; color:var(--text); text-decoration:none; font-size:16px; }
+  li a:hover { color:var(--gold); }
+  .blurb { display:block; color:var(--muted); font-weight:400; font-size:14px; margin-top:3px; }
+  .cta { margin-top:44px; padding:28px 24px; border-radius:16px; text-align:center;
+    background:linear-gradient(135deg,var(--gold),var(--gold-deep)); }
+  .cta p { margin:0 0 16px; color:#3b2c06; font-size:15px; font-weight:600; }
+  .btn { display:inline-block; padding:13px 26px; border-radius:10px; font-weight:700;
+    text-decoration:none; background:#161007; color:var(--gold);
+    transition:transform .15s ease, box-shadow .15s ease; }
+  .btn:hover { transform:translateY(-1px); box-shadow:0 8px 22px rgba(0,0,0,.4); }
+  a:focus-visible, .btn:focus-visible { outline:3px solid var(--gold); outline-offset:3px; border-radius:6px; }
+  @media (max-width:520px){ .wrap{padding:26px 18px 56px;} h1{font-size:29px;} }
+  @media (prefers-reduced-motion: reduce){ .btn{transition:none;} .btn:hover{transform:none;} }
 </style>
 </head>
 <body>
   <main class="wrap">
     <nav class="crumbs"><a href="/">ChessTrophies</a> &rsaquo; Learn</nav>
+    <p class="eyebrow">The Board Room · Learn</p>
     <h1>Chess Lessons &amp; Strategy Guides</h1>
+    <div class="rule" aria-hidden="true"></div>
     <p class="lede">Short, plain-English lessons on how strong players actually think — openings, tactics, strategy, endgames and checkers. Free to read.</p>
+    <div class="more">
+      <a href="/openings/">Chess openings explained &rarr;</a>
+      <a href="/tools/">Free chess tools &rarr;</a>
+    </div>
 ${sections}    <section class="cta">
       <p>Practice everything you learn against real opponents and the computer.</p>
       <a class="btn" href="${SITE}/">Play ChessTrophies free</a>
