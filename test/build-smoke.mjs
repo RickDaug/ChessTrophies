@@ -67,12 +67,16 @@ async function main() {
     assert(fs.existsSync(path.join(DIST, 'endgames', 'endgame-stepper.js')), 'dist/endgames/endgame-stepper.js missing');
     const endgamePages = fs.readdirSync(path.join(DIST, 'endgames')).filter((f) => f.endsWith('.html') && f !== 'index.html');
     assert(endgamePages.length >= 6, `expected >=6 endgame pages, got ${endgamePages.length}`);
+    // Blog posts + hub.
+    assert(fs.existsSync(path.join(DIST, 'blog', 'index.html')), 'dist/blog/index.html (hub) missing');
+    const blogPages = fs.readdirSync(path.join(DIST, 'blog')).filter((f) => f.endsWith('.html') && f !== 'index.html');
+    assert(blogPages.length >= 6, `expected >=6 blog posts, got ${blogPages.length}`);
     // Sitemap folds in every surface.
     const sitemap = fs.readFileSync(path.join(DIST, 'sitemap.xml'), 'utf8');
-    for (const frag of ['/openings/', '/tools/', 'elo-rating-calculator.html', 'fen-board-viewer.html', '/endgames/']) {
+    for (const frag of ['/openings/', '/tools/', 'elo-rating-calculator.html', 'fen-board-viewer.html', '/endgames/', '/blog/']) {
       assert(sitemap.includes(frag), `sitemap.xml missing "${frag}"`);
     }
-    log(`SEO surfaces ok — ${learnPages.length} learn + ${openingPages.length} openings + ${endgamePages.length} endgames + tools, all in sitemap`);
+    log(`SEO surfaces ok — ${learnPages.length} learn + ${openingPages.length} openings + ${endgamePages.length} endgames + ${blogPages.length} blog + tools, all in sitemap`);
   }
 
   // First-load weight: assert the heavy/admin-only assets are EXCLUDED from the
