@@ -17,6 +17,12 @@ import 'dotenv/config';
 // Surfaced on /health so a deploy can confirm backups infra is actually present.
 const HAS_LITESTREAM = (() => { try { return existsSync('/usr/local/bin/litestream'); } catch (e) { return false; } })();
 
+// Deploy identity surfaced on /health so a redeploy is actually observable.
+// Railway injects RAILWAY_GIT_COMMIT_SHA at build time (changes each deploy);
+// fall back to the deployment id, then 'dev' for local runs. Computed once.
+const BUILD_ID = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.SOURCE_COMMIT || '').slice(0, 7)
+  || process.env.RAILWAY_DEPLOYMENT_ID || 'dev';
+
 // Error tracking (Sentry) — env-gated like billing/push: lazy-imported so the
 // server boots fine WITHOUT the dep, and inert unless SENTRY_DSN is set.
 let Sentry = null;
@@ -189,7 +195,10 @@ app.use((req, res, next) => {
 // `durable` is the honest single-bit answer to "can this DB survive a redeploy?":
 // true iff Postgres is the backend OR a Litestream replica is configured AND the
 // binary is present. SQLite-on-ephemeral-storage with no replica = false.
-app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: 'distribution-2026-06-09', litestream: HAS_LITESTREAM, backupsConfigured: !!process.env.LITESTREAM_REPLICA_URL, durable: store.usingPostgres || (HAS_LITESTREAM && !!process.env.LITESTREAM_REPLICA_URL), dbBackend: store.usingPostgres ? 'postgres' : 'sqlite', sentry: !!Sentry, pushConfigured: !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT), botReady: botEngineReady(), multiInstance: !!process.env.REDIS_URL, ...(req.query.diag ? { botDiag: botEngineDiag() } : {}) }));
+// NOTE: `backupsConfigured`/`durable` reflect CONFIGURATION PRESENCE only
+// (LITESTREAM_REPLICA_URL set + binary present, or Postgres) — NOT a verified
+// live-replication check. Don't over-trust them as proof backups are flowing.
+app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: BUILD_ID, litestream: HAS_LITESTREAM, backupsConfigured: !!process.env.LITESTREAM_REPLICA_URL, durable: store.usingPostgres || (HAS_LITESTREAM && !!process.env.LITESTREAM_REPLICA_URL), dbBackend: store.usingPostgres ? 'postgres' : 'sqlite', sentry: !!Sentry, pushConfigured: !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT), botReady: botEngineReady(), multiInstance: !!process.env.REDIS_URL, ...(req.query.diag ? { botDiag: botEngineDiag() } : {}) }));
 
 // Public runtime config (NO auth). The client reads this to decide whether to
 // show ranked matchmaking UI. Server enforcement is separate (socket handlers),

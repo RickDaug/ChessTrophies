@@ -1,0 +1,48 @@
+name: Docker image build
+
+# Builds the SERVER Docker image (server/Dockerfile, build context = repo root)
+# on every PR + push to main. CLOSES A 3-WEEK BLIND SPOT: the other CI jobs only
+# exercise the client/test suite, so a broken *server* build was invisible until
+# it silently failed EVERY Railway deploy. Concretely, server/Dockerfile's static
+# COPY list references root client assets (index.html, *.js, manifest.json, etc.)
+# and `docker build` fails if ANY listed source is missing — that is exactly what
+# happened when ct-onerror.js/ct-boot.js were merged into ct-head.js but left in
+# the COPY list (10+ consecutive failed deploys). This job makes any such failure
+# (missing COPY source, bad server/package-lock.json, etc.) a red CI check on the
+# PR instead of a silent production-deploy break.
+#
+# NO `paths:` FILTER — deliberately runs on ALL PRs. The COPY list spans the
+# Dockerfile, everything under server/, AND the root client assets, so almost any
+# change could break the build; a missing COPY source is not something we can
+# afford to skip. The GHA layer cache keeps the common (unchanged) case fast.
+#
+# Build-only: push:false / load:false. The image is never published or run here —
+# we only care that it BUILDS. The LITESTREAM_VERSION ARG downloads a binary from
+# GitHub during the build, but that step is best-effort in the Dockerfile (it
+# warns, never fails), so transient network issues won't red-light this job.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  docker-build:
+    name: Docker image build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build server image (build-only, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./server/Dockerfile
+          push: false
+          load: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
