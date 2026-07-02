@@ -653,6 +653,19 @@ ${JSON.stringify(ld, null, 2)}
     border-radius:999px; background:var(--panel); color:var(--gold); font-weight:600;
     font-size:14px; text-decoration:none; }
   .more a:hover { border-color:var(--gold); }
+  .blogcard { display:flex; align-items:center; gap:16px; margin:24px 0 0; padding:18px 20px;
+    border:1px solid var(--gold); border-radius:14px; text-decoration:none; color:inherit;
+    background:linear-gradient(135deg, rgba(245,196,81,.10), var(--panel));
+    transition:box-shadow .15s ease, transform .15s ease; }
+  .blogcard:hover { transform:translateY(-1px); box-shadow:0 8px 22px rgba(0,0,0,.35); }
+  .blogcard:focus-visible { outline:3px solid var(--gold); outline-offset:3px; }
+  .blogcard .ic { font-size:30px; line-height:1; }
+  .blogcard .btext { min-width:0; }
+  .blogcard .bt { display:block; font-family:var(--serif); font-size:19px; color:var(--text); font-weight:700; }
+  .blogcard .bs { display:block; color:var(--muted); font-size:14px; margin-top:3px; }
+  .blogcard .go { margin-left:auto; color:var(--gold); font-weight:700; white-space:nowrap; }
+  @media (max-width:520px){ .blogcard .go { display:none; } }
+  @media (prefers-reduced-motion: reduce){ .blogcard{transition:none;} .blogcard:hover{transform:none;} }
   .cat-group { margin-top:36px; }
   .cat-head { font-family:var(--serif); font-size:21px; color:var(--gold);
     font-weight:700; margin:0 0 6px; }
@@ -682,8 +695,17 @@ ${JSON.stringify(ld, null, 2)}
     <p class="lede">Short, plain-English lessons on how strong players actually think — openings, tactics, strategy, endgames and checkers. Free to read.</p>
     <div class="more">
       <a href="/openings/">Chess openings explained &rarr;</a>
+      <a href="/endgames/">Endgame trainer &rarr;</a>
       <a href="/tools/">Free chess tools &rarr;</a>
     </div>
+    <a class="blogcard" href="/blog/">
+      <span class="ic" aria-hidden="true">📖</span>
+      <span class="btext">
+        <span class="bt">From the ChessTrophies blog</span>
+        <span class="bs">Profiles of the greatest grandmasters — Carlsen, Kasparov, Fischer, Tal and more.</span>
+      </span>
+      <span class="go">Read &rarr;</span>
+    </a>
 ${sections}    <section class="cta">
       <p>Practice everything you learn against real opponents and the computer.</p>
       <a class="btn" href="${SITE}/">Play ChessTrophies free</a>
