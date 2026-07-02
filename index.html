@@ -1021,6 +1021,20 @@
       </div>
     </div>
 
+    <!-- Blog discovery card — always visible; a plain <a> navigation to the static
+         /blog/ surface (grandmaster profiles). No handler needed, so CSP stays
+         clean. Not toggled by any renderLobbyCard JS (its id isn't targeted). -->
+    <a href="/blog/" id="lobby-blog-card" class="card lobby-secondary" style="display:block;text-decoration:none;color:inherit;cursor:pointer;border:1px solid var(--accent);background:linear-gradient(135deg, rgba(245,196,81,.10), var(--panel))">
+      <div class="pc-row" style="display:flex;align-items:center;gap:12px">
+        <div class="pc-icon" style="font-size:26px">📖</div>
+        <div style="flex:1;min-width:0">
+          <div class="pc-title" style="font-weight:800;font-size:16px">ChessTrophies Blog</div>
+          <div class="muted small" style="margin-top:4px">Stories of the greatest grandmasters — Carlsen, Kasparov, Fischer &amp; more.</div>
+        </div>
+        <div class="pill gold">Read</div>
+      </div>
+    </a>
+
     <!-- ===================== SECONDARY "MORE WAYS TO PLAY" =====================
          These feature entry-points used to stack above the Play action, each with
          the same loud gold accent, burying the primary CTA below the fold. They're
