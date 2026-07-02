@@ -47,14 +47,26 @@ RUN npm ci --omit=dev
 # Server source
 COPY server/ ./
 
-# Static client assets (served by express.static from /app/public).
-# NOTE: keep this list in sync with the <script>/asset references in index.html.
-# Docker COPY fails if ANY source is missing, so do not list deleted files
-# (e.g. the removed puzzles.js/puzzles-data.js) or the build breaks.
+# Static client assets (served by express.static from /app/public; server.js also
+# sends public/index.html at "/"). This list MUST stay in sync with the
+# <script>/asset references in index.html — Docker COPY fails if ANY listed source
+# is missing, so never list a deleted file.
+#   HISTORY: ct-onerror.js + ct-boot.js were merged into ct-head.js and removed
+#   from the repo, but this COPY still listed them — which failed EVERY build
+#   (10 consecutive deploys) since that merge. Fixed here: dropped the two dead
+#   files, added ct-head.js, and re-synced the full list with index.html
+#   (analytics/arena/gauntlet/leagues/push/coach/i18n/openings/piece-sets/shop/
+#   puzzles were referenced but never copied → 404 on the server-served client).
 RUN mkdir -p ./public
-COPY index.html admin.html config.js app.js academy.js learn-library.js review.js trophy-extras.js chess960.js chess.min.js sounds.js stockfish-ai.js sw.js manifest.json icon.svg icon-192.png icon-512.png icon-1024.png og-image.png privacy.html terms.html \
-     ct-onerror.js ct-boot.js ct-chess-check.js ct-socket-fallback.js ct-auth.js ct-net.js ct-ai.js ct-ai-worker.js trophy-data.js ct-duo.js ct-ads.js ct-sw-register.js \
-     checkers.js checkers-ai.js checkers-ai-worker.js ct-checkers.js \
+COPY index.html admin.html privacy.html terms.html manifest.json sw.js \
+     icon.svg icon-192.png icon-512.png icon-1024.png og-image.png \
+     config.js app.js academy.js review.js learn-library.js openings.js puzzles.js \
+     coach.js shop.js piece-sets.js i18n.js sounds.js stockfish-ai.js \
+     chess.min.js chess960.js checkers.js checkers-ai.js checkers-ai-worker.js \
+     trophy-data.js trophy-extras.js \
+     ct-head.js ct-chess-check.js ct-socket-fallback.js ct-auth.js ct-net.js \
+     ct-ai.js ct-ai-worker.js ct-checkers.js ct-duo.js ct-ads.js ct-sw-register.js \
+     ct-analytics.js ct-arena.js ct-gauntlet.js ct-leagues.js ct-push.js \
      ./public/
 COPY vendor/ ./public/vendor/
 
