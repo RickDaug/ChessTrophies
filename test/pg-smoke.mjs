@@ -29,6 +29,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { grantStats } from './lib/grant-stats.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(__dirname, '..', 'server');
@@ -77,6 +78,11 @@ async function main() {
     const me0 = await (await get('/api/me', auth)).json();
     assert(me0.id && me0.isPremium === false, `fresh /api/me wrong: ${JSON.stringify(me0)}`);
     const userId = me0.id;
+    // Trophies are entitlement-checked server-side (audit 2026-07): a fresh
+    // account has 0 games and is entitled to NO trophies. This test covers the
+    // sync PLUMBING, so give the account the counters a real player would have.
+    if (!PG) grantStats(dbPath, userId);  // sqlite leg only
+
     log('signup -> /api/me (users table read/write) ✓');
 
     // login with the same credentials -> a fresh token.

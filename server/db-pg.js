@@ -998,6 +998,9 @@ export function getProgress(user) {
 }
 
 // A plain JSON object (not null, not an array) — mirrors db.js.
+// True only for a plain object that actually carries data (see setProgress).
+function hasEntries(v) { return isPlainObject(v) && Object.keys(v).length > 0; }
+
 function isPlainObject(v) {
   return !!v && typeof v === 'object' && !Array.isArray(v);
 }
@@ -1021,8 +1024,14 @@ export async function setProgress(userId, progress) {
     language: typeof progress.language === 'string' ? progress.language.slice(0, 8) : existing.language,
     // Openings + gauntlet: preserve the stored blob when a sync omits the field
     // (same pattern as themeBoard/themePieces). Mirrors db.js.
-    openings: isPlainObject(progress.openings) ? progress.openings : existing.openings,
-    gauntlet: isPlainObject(progress.gauntlet) ? progress.gauntlet : existing.gauntlet,
+    // NOTE: an EMPTY object counts as "omitted", not as "clear it". The client
+    // sends `flags.openings || {}` unconditionally, so a device that syncs before
+    // its initial GET lands would otherwise PERMANENTLY erase the account's
+    // opening mastery and gauntlet ladder — the exact data-loss class this sync
+    // was added to fix. There is no user-facing "reset my progress" action, so
+    // preserve-on-empty is always the safe reading.
+    openings: hasEntries(progress.openings) ? progress.openings : existing.openings,
+    gauntlet: hasEntries(progress.gauntlet) ? progress.gauntlet : existing.gauntlet,
   };
   // Trophy leaderboard fields (optional, client-authoritative) — mirrors db.js.
   const ach = Array.isArray(progress.achievements) ? progress.achievements.slice(0, 2000) : null;

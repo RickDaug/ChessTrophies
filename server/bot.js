@@ -176,9 +176,28 @@ if (_wantWorkers) {
 // up (not yet ready) or known-good (ready & engineOk).
 function poolUsable() { return _wantWorkers && pool.some(s => !s.ready || s.engineOk); }
 
+// Recover a pool that drained to EMPTY.
+//
+// scheduleRespawn() is only ever reached from failSlot(), i.e. from a LIVE
+// worker dying. So once the respawn ceiling drains the pool to zero there is no
+// worker left to die, nothing calls scheduleRespawn again, the rolling window
+// never resets, and the pool stays empty for the life of the process — silently
+// moving every bot search back onto the main event loop (the exact ~1.5s/move
+// stall the worker pool exists to prevent). This is the missing recovery path:
+// once the failure window has elapsed, allow ONE rebuild attempt.
+function maybeRecoverPool() {
+  if (!_wantWorkers || pool.length > 0) return;
+  const now = Date.now();
+  if (now - _respawnWindowStart <= RESPAWN_WINDOW_MS) return;
+  _respawnWindowStart = now; _respawnFails = 0; _respawnCapped = false;
+  console.error('[bot] worker pool was empty and the failure window elapsed — attempting to rebuild');
+  try { spawnWorker(); } catch (e) { console.error('[bot] pool rebuild failed:', e && e.message); }
+}
+
 // Compute the bot's move. Prefers the worker pool (keeps the event loop free);
 // falls back to in-process compute only when no worker is available. Never throws.
 export async function botMove(fen, targetElo) {
+  maybeRecoverPool();  // a drained pool can otherwise never come back
   if (poolUsable()) {
     // Extreme overload: rather than drop the move (which would stall a game),
     // compute in-process this once.

@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { grantStats } from './lib/grant-stats.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(__dirname, '..', 'server');
@@ -55,6 +56,11 @@ async function main() {
     const auth = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
     const me = await (await fetch(`${BASE}/api/me`, { headers: auth })).json();
     const id = me.id;
+    // Trophies are entitlement-checked server-side (audit 2026-07): a fresh
+    // account has 0 games and is entitled to NO trophies. This test covers the
+    // sync PLUMBING, so give the account the counters a real player would have.
+    grantStats(dbPath, id);
+
     assert(id, '/api/me returned no id');
 
     // Sync trophies + a 3-trophy showcase via the authed progress endpoint.

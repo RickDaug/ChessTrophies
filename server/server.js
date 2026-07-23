@@ -47,7 +47,7 @@ import { db, getProgress } from './db.js';
 import * as store from './store.js';
 // Server-side trophy scoring. The trophy leaderboard is no longer client-
 // authoritative: unknown ids are dropped and the point total is computed here.
-import { scoreAchievements } from './trophy-catalog.js';
+import { scoreAchievements, statsFromUser } from './trophy-catalog.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
 import { mountBilling, mountBillingWebhook, logBillingStatus, stripeRevenueStats } from './billing.js';
 import { mountStore, logStoreStatus } from './entitlements.js';
@@ -1027,7 +1027,12 @@ app.post('/api/progress', requireAuth, async (req, res, next) => {
       const incomingAchievements = body.achievements !== undefined
         ? body.achievements
         : storedAchievements(req.user);
-      const scored = scoreAchievements(incomingAchievements, body.streakTrophies);
+      // Entitlement: re-verification showed that filtering ids alone still let a
+      // ZERO-GAME account claim all 105 real catalog ids for the maximum 3380
+      // points and rank #1. Pass the server's own counters (wins/elo/games/
+      // streak/arena/invites off the users row) so a claim the account cannot
+      // possibly have earned is dropped.
+      const scored = scoreAchievements(incomingAchievements, body.streakTrophies, statsFromUser(req.user));
       // Only overwrite a column the sync actually carried (COALESCE in the store
       // leaves the others untouched) — but ALWAYS write the recomputed points,
       // since they are derived from the achievements we just accepted.

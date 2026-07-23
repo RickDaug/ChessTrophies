@@ -96,14 +96,22 @@ const RUNTIME_JS = ['ct-ai-worker.js', 'checkers-ai-worker.js'];
 
 // Non-JS assets / pages referenced by index.html (and the PWA) to copy verbatim.
 const COPY_ASSETS = [
-  'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-1024.png',
+  // icon-1024.png is deliberately NOT here: manifest.json references only
+  // icon.svg / icon-192 / icon-512, so shipping the 1024 was ~155 KB of dead
+  // weight on the CDN with no consumer (audit 2026-07). Re-add it only together
+  // with a manifest entry that actually uses it.
+  'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'og-image.png', 'terms.html', 'privacy.html',
   // SEO: crawler directives served at the site root. sitemap.xml is NOT here —
   // it is generated in step 7 from the learn pages so it stays in sync.
   'robots.txt',
   // Admin analytics dashboard. The HTML shell is harmless to expose — all data
   // is gated server-side by ADMIN_KEY (the API returns 403 without it).
-  'admin.html',
+  // admin.js carries the dashboard's logic: it was split out of admin.html so the
+  // page could carry an enforceable `script-src 'self'` CSP. It MUST ship with
+  // admin.html — without it the dashboard is a blank shell and the CSP guarantees
+  // there is no inline fallback. A build-smoke assertion pins both.
+  'admin.html', 'admin.js',
 ];
 
 // Canonical production origin used for SEO canonical/OG URLs + the sitemap.
@@ -138,7 +146,9 @@ const CONTENT_DATES = {
 // NOTE: there is a build-smoke assertion that these stay OUT of the precache list.
 const PRECACHE_EXCLUDE = new Set([
   'admin.html',
-  'icon-1024.png',
+  // admin.js (~30 KB): the dashboard's logic, owner-only — same rationale as
+  // admin.html. Still emitted + runtime-cached on demand, just not precached.
+  'admin.js',
   'og-image.png',
   'robots.txt',
   // Inter latin-ext (~85 KB): only fetched when an extended/accented glyph is on

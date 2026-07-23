@@ -79,7 +79,8 @@
     "test:victim": "node test/victim.mjs",
     "test:chess960-ai-castle": "node test/chess960-ai-castle.mjs",
     "test:chess960-castle": "node test/chess960-castle.mjs",
-    "test:trophy-authority": "node test/trophy-authority.mjs"
+    "test:trophy-authority": "node test/trophy-authority.mjs",
+    "test:deploy-assets": "node test/deploy-assets.mjs"
   },
   "repository": {
     "type": "git",

@@ -29,7 +29,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TROPHY_POINTS, scoreAchievements } from '../server/trophy-catalog.js';
+import { createRequire } from 'node:module';
+import { TROPHY_POINTS, scoreAchievements, statsFromUser } from '../server/trophy-catalog.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -134,18 +135,53 @@ async function main() {
     assert(!onBoard, 'a spoofing account must not appear on the public trophy leaderboard');
     log('spoofer absent from the public trophy leaderboard ✓');
 
-    // 3) Legitimate catalog ids DO score, with the client's tier weighting.
+    // 2b) THE ENTITLEMENT ATTACK (found by post-remediation re-verification):
+    //     filtering ids alone was not enough — a ZERO-GAME account could POST all
+    //     105 REAL catalog ids and take the maximum 3380 points / rank #1.
+    const maxer = await mk('max');
+    const everyId = Object.keys(TROPHY_POINTS).map(id => ({ id, count: 1 }));
+    const maxPost = await post('/api/progress', { achievements: everyId, trophyPoints: 3380 }, maxer.token);
+    assert(maxPost.ok, `progress POST should succeed: ${maxPost.status}`);
+    const maxProfile = await (await get(`/api/users/${maxer.id}/profile`)).json();
+    assert(maxProfile.trophyPoints === 0,
+      `a 0-game account claiming all ${everyId.length} REAL catalog ids must earn NOTHING (got ${maxProfile.trophyPoints} pts / ${maxProfile.trophyCount} trophies)`);
+    const board1b = await (await get('/api/rankings?metric=trophies&limit=100')).json();
+    assert(!(board1b.players || []).some(p => p.id === maxer.id),
+      'a 0-game account claiming every trophy must not appear on the public ladder');
+    log(`0-game account claiming all ${everyId.length} real catalog ids scored 0 (entitlement enforced) ✓`);
+
+    // 3) A player who ACTUALLY EARNED them does score. Give the account real
+    //    server-side counters (the same columns the server checks entitlement
+    //    against) by writing them directly, then sync the matching trophies.
     const honest = await mk('hon');
-    const realAch = [{ id: 'wins_t6', count: 1 }, { id: 'gauntlet_t4', count: 1 }, { id: 'mate_t1', count: 2 }];
-    const expected = scoreAchievements(realAch, []).trophyPoints;
-    assert(expected > 0, 'sanity: the fixture ids should be worth something');
+    const stats = { wins: 150, losses: 10, draws: 5, elo: 1750, best_streak: 10, arena_wins: 6, invites_accepted: 5 };
+    {
+      const require = createRequire(path.join(SERVER_DIR, 'package.json'));
+      const Database = require('better-sqlite3');
+      const raw = new Database(dbPath);
+      raw.prepare('UPDATE users SET wins=?, losses=?, draws=?, elo=?, best_streak=?, arena_wins=?, invites_accepted=? WHERE id=?')
+        .run(stats.wins, stats.losses, stats.draws, stats.elo, stats.best_streak, stats.arena_wins, stats.invites_accepted, honest.id);
+      raw.close();
+    }
+    // Entitled by those counters: wins_t6 (100 wins), elo_t5 (1700), arena_t2 (5),
+    // streak_t4 (10). NOT entitled: wins_t8 (500 wins) and elo_t8 (2200) — both
+    // are posted here and must be dropped.
+    const realAch = [
+      { id: 'wins_t6', count: 1 }, { id: 'elo_t5', count: 1 }, { id: 'arena_t2', count: 1 }, { id: 'streak_t4', count: 1 },
+      { id: 'wins_t8', count: 1 }, { id: 'elo_t8', count: 1 },
+    ];
+    const expected = scoreAchievements(realAch, [], statsFromUser({
+      wins: stats.wins, losses: stats.losses, draws: stats.draws, elo: stats.elo,
+      best_streak: stats.best_streak, arena_wins: stats.arena_wins, invites_accepted: stats.invites_accepted,
+    })).trophyPoints;
+    assert(expected > 0, 'sanity: the earned fixture ids should be worth something');
     const ok = await post('/api/progress', { achievements: realAch, trophyPoints: 1, streakTrophies: [{ id: 't_zz01' }] }, honest.token);
     assert(ok.ok, `honest progress POST failed: ${ok.status}`);
     const honProfile = await (await get(`/api/users/${honest.id}/profile`)).json();
     assert(honProfile.trophyPoints === expected,
       `real trophies must score server-side (expected ${expected}, got ${honProfile.trophyPoints}) — and must ignore the client's 1`);
-    assert(honProfile.trophyCount === realAch.length + 1,
-      `earned achievements + a well-formed streak trophy should count, got ${honProfile.trophyCount}`);
+    assert(honProfile.trophyCount === 4 + 1,
+      `only the 4 ENTITLED achievements (+1 streak trophy) should count — wins_t8/elo_t8 were claimed but not earned, got ${honProfile.trophyCount}`);
     log(`legitimate trophies scored server-side (${honProfile.trophyPoints} pts from the catalog) ✓`);
 
     // 4) The honest player DOES rank; the attacker still does not outrank them.

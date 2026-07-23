@@ -3398,10 +3398,17 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       // BOT GAUNTLET ladder position (ct-gauntlet.js writes state.user.flags.gauntlet).
       // Both were localStorage-only, so signing in on a second device silently reset
       // them. The server persists these inside the existing flags.progress blob.
-      openings: (state.user && state.user.flags && state.user.flags.openings) || {},
-      gauntlet: (state.user && state.user.flags && state.user.flags.gauntlet) || {},
+      // Sent ONLY when non-empty: an empty blob from a device whose initial
+      // server GET has not landed yet must never look like "I have no openings",
+      // or it would wipe the account's mastery/ladder. The server also treats an
+      // empty object as "omitted" (belt and braces).
+      ...(nonEmpty(state.user && state.user.flags && state.user.flags.openings) ? { openings: state.user.flags.openings } : {}),
+      ...(nonEmpty(state.user && state.user.flags && state.user.flags.gauntlet) ? { gauntlet: state.user.flags.gauntlet } : {}),
     };
   }
+
+  // A plain object carrying at least one key (see gatherLocalProgress).
+  function nonEmpty(v) { return !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0; }
 
   // Merge the server's stored progress into local state (union lessons, merge puzzles).
   function applyServerProgress(p) {

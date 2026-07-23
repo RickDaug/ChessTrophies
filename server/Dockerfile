@@ -58,8 +58,8 @@ COPY server/ ./
 #   (analytics/arena/gauntlet/leagues/push/coach/i18n/openings/piece-sets/shop/
 #   puzzles were referenced but never copied → 404 on the server-served client).
 RUN mkdir -p ./public
-COPY index.html admin.html privacy.html terms.html manifest.json sw.js \
-     icon.svg icon-192.png icon-512.png icon-1024.png og-image.png \
+COPY index.html admin.html admin.js privacy.html terms.html manifest.json sw.js \
+     icon.svg icon-192.png icon-512.png og-image.png \
      config.js app.js academy.js review.js learn-library.js openings.js puzzles.js \
      coach.js shop.js piece-sets.js i18n.js sounds.js stockfish-ai.js \
      chess.min.js chess960.js checkers.js checkers-ai.js checkers-ai-worker.js \
