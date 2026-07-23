@@ -439,6 +439,17 @@ CREATE TABLE IF NOT EXISTS league_members (
 );
 CREATE INDEX IF NOT EXISTS idx_league_members_user ON league_members(user_id);
 `);
+  // Case-insensitive username uniqueness (mirrors db.js). The column's own
+  // UNIQUE constraint is a byte comparison while every lookup is
+  // `LOWER(username) = LOWER($1)`, so 'Bob'/'bob' could both be created. This
+  // expression index makes the DB enforce what the queries assume. Run as its own
+  // statement inside try/catch: an existing database that already holds such a
+  // duplicate pair would reject the index, and that must not break boot.
+  try {
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users(lower(username))');
+  } catch (e) {
+    console.error('[db-pg] could not create idx_users_username_lower (duplicate usernames?):', e && e.message);
+  }
 }
 
 // --- Seasons (async mirror of db.js) ---------------------------------------
@@ -559,6 +570,10 @@ export async function deleteAccountData(userId) {
     await client.query('DELETE FROM password_resets WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM email_verifications WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM league_members WHERE user_id = $1', [userId]);
+    // Unlink the (aggregate, non-PII) analytics rows from the deleted account so
+    // nothing still points at it. The events themselves are kept for funnel
+    // counts — they are anonymous once user_id is NULL.
+    await client.query('UPDATE analytics_events SET user_id = NULL WHERE user_id = $1', [userId]);
     await client.query(
       `UPDATE users SET email = $1, username = $2, pw_hash = '', region = '',
          avatar_stock = '', avatar_data_url = '', is_premium = 0, subscription_status = '',
@@ -975,7 +990,16 @@ export function getProgress(user) {
     themeBoard: typeof p.themeBoard === 'string' ? p.themeBoard : 'walnut',
     themePieces: typeof p.themePieces === 'string' ? p.themePieces : 'classic',
     language: typeof p.language === 'string' ? p.language : 'en',
+    // Opening-trainer + gauntlet progress: plain JSON objects, kept inside the
+    // same flags.progress blob (no new column). Mirrors db.js.
+    openings: isPlainObject(p.openings) ? p.openings : {},
+    gauntlet: isPlainObject(p.gauntlet) ? p.gauntlet : {},
   };
+}
+
+// A plain JSON object (not null, not an array) — mirrors db.js.
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
 }
 
 function sanitizeShowcase(arr, fallback) {
@@ -995,6 +1019,10 @@ export async function setProgress(userId, progress) {
     themeBoard: typeof progress.themeBoard === 'string' ? progress.themeBoard.slice(0, 32) : existing.themeBoard,
     themePieces: typeof progress.themePieces === 'string' ? progress.themePieces.slice(0, 32) : existing.themePieces,
     language: typeof progress.language === 'string' ? progress.language.slice(0, 8) : existing.language,
+    // Openings + gauntlet: preserve the stored blob when a sync omits the field
+    // (same pattern as themeBoard/themePieces). Mirrors db.js.
+    openings: isPlainObject(progress.openings) ? progress.openings : existing.openings,
+    gauntlet: isPlainObject(progress.gauntlet) ? progress.gauntlet : existing.gauntlet,
   };
   // Trophy leaderboard fields (optional, client-authoritative) — mirrors db.js.
   const ach = Array.isArray(progress.achievements) ? progress.achievements.slice(0, 2000) : null;
@@ -1044,7 +1072,13 @@ export async function topByMetric(metric, limit = 100) {
   // name is mapped through a fixed table, NEVER interpolated from user input, so
   // there is no SQL-injection surface despite the dynamic ORDER BY.
   // json_array_length -> jsonb_array_length(col::jsonb) for Postgres.
-  const trophiesExpr = '(jsonb_array_length(achievements::jsonb) + jsonb_array_length(streak_trophies::jsonb))';
+  // jsonb_array_length RAISES on a non-array value (e.g. a row whose achievements
+  // JSON is a scalar or object), which would 500 the whole leaderboard; SQLite's
+  // json_array_length just returns NULL there. Guard on jsonb_typeof so both
+  // backends coalesce a non-array to 0 instead of erroring.
+  const jsonLen = (col) =>
+    `(CASE WHEN jsonb_typeof(${col}::jsonb) = 'array' THEN jsonb_array_length(${col}::jsonb) ELSE 0 END)`;
+  const trophiesExpr = `(${jsonLen('achievements')} + ${jsonLen('streak_trophies')})`;
   const allowed = {
     elo: 'elo', wins: 'wins',
     streak: 'best_streak', best_streak: 'best_streak',

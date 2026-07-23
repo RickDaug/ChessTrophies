@@ -15,12 +15,18 @@
  *     loader:'js' preserves their semantics exactly — only smaller. This keeps
  *     load order, file count and the importScripts() contract identical.
  *   - Additionally concatenate the order-safe trailing tail
- *       app.js -> academy.js -> review.js
- *       -> trophy-extras.js -> learn-library.js
+ *       app.js -> academy.js -> review.js -> trophy-extras.js
  *     (verified contiguous in index.html, all order-safe window globals, none
  *     importScripts'd by the worker) into ONE minified dist/app.bundle.js, and
- *     collapse those 5 tags in dist/index.html to a single <script>. This cuts
- *     requests without changing semantics. ct-ai.js, chess960.js, chess.min.js
+ *     collapse those 4 tags in dist/index.html to a single <script>. This cuts
+ *     requests without changing semantics.
+ *   - ROUTE SPLIT: learn-library.js (~131 KB raw) used to be the 5th tail member,
+ *     so every visitor downloaded the whole Read & Learn article corpus just to
+ *     land on the lobby. It is now emitted as its OWN minified dist file, its
+ *     <script> tag is dropped from dist/index.html, and a tiny generated loader
+ *     (dist/ct-lazy-learn.js) injects it on demand the first time the reader
+ *     opens the in-app Learn screen / "Read & Learn" tab. Crawlers are unaffected
+ *     (they read the static /learn/*.html pages generated in step 7). ct-ai.js, chess960.js, chess.min.js
  *     and everything else stay individual files (the worker importScripts the
  *     dist copies of ct-ai.js / chess960.js by exact name).
  *   - Copy through unchanged: vendor/ (socket.io fallback), all non-JS assets
@@ -64,7 +70,23 @@ const STAMP = 'b' + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
 // referenced by index.html, so parseScripts() auto-discovers them and they get
 // minified INDIVIDUALLY into dist/ under the same name (same as ct-ai.js). Do
 // not fold them into the tail bundle.
-const TAIL = ['app.js', 'academy.js', 'review.js', 'trophy-extras.js', 'learn-library.js'];
+const TAIL = ['app.js', 'academy.js', 'review.js', 'trophy-extras.js'];
+
+// Route-split scripts: referenced by index.html but NOT needed on the landing /
+// play path. Each is still minified into dist/ under its own name; its <script>
+// tag is removed from dist/index.html and LAZY_LOADER (below) pulls it in on
+// demand. Keep this list tiny and justified — a file only belongs here if a
+// guarded, observable user action gates it.
+//   - learn-library.js (~131 KB raw): the Read & Learn article corpus. Only
+//     window.CT_renderLibrary consumes it, and academy.js calls that behind an
+//     `if (window.CT_renderLibrary)` guard, so a not-yet-loaded library degrades
+//     to an empty panel rather than a throw — the loader fills it in on load.
+const LAZY = ['learn-library.js'];
+
+// Filename of the generated on-demand loader (emitted into dist/, deferred from
+// dist/index.html). It is generated rather than checked in because its only
+// content is the ?v= stamped URL of the lazy file plus the trigger wiring.
+const LAZY_LOADER = 'ct-lazy-learn.js';
 
 // Extra same-origin runtime JS not in index.html's <script> list but loaded at
 // runtime — must exist in dist by exact name. The worker importScripts these.
@@ -86,6 +108,19 @@ const COPY_ASSETS = [
 
 // Canonical production origin used for SEO canonical/OG URLs + the sitemap.
 const SITE = 'https://www.playchesstrophies.com';
+
+// Content revision dates (YYYY-MM-DD) for sitemap <lastmod> + Article JSON-LD.
+// DECLARED constants, deliberately NOT `new Date()`: stamping the build date on
+// every <url> told crawlers that all ~87 pages changed on every deploy, which is
+// false and trains search engines to ignore our lastmod entirely. Each SEO
+// generator owns its own date the same way (and blog-pages.mjs uses each post's
+// front-matter date per URL); build.mjs supplies these two surfaces + a fallback.
+// Bump the relevant line when that surface's CONTENT actually changes.
+const CONTENT_DATES = {
+  home: '2026-07-22',           // index.html landing copy
+  learnPublished: '2026-05-31', // the Read & Learn corpus first shipped
+  learnRevised: '2026-07-01',   // last substantive edit to learn-library.js
+};
 
 // First-load weight: assets that must NOT be in the SW precache ASSETS list.
 // These are emitted into dist/ and served fine, but precaching them bloats the
@@ -109,6 +144,10 @@ const PRECACHE_EXCLUDE = new Set([
   // Inter latin-ext (~85 KB): only fetched when an extended/accented glyph is on
   // screen (unicode-range gated). The latin file (first-paint path) IS precached.
   'fonts/inter-latin-ext.woff2',
+  // learn-library.js (~131 KB raw): route-split (see LAZY). Precaching it would
+  // put the bytes straight back into the first-visit install cost we just removed.
+  // sw.js still runtime-caches it once the reader opens Read & Learn.
+  'learn-library.js',
 ]);
 
 const log = (...a) => console.log('[build]', ...a);
@@ -190,7 +229,17 @@ async function main() {
     }
     const res = await esbuild.transform(parts.join('\n'), { minify: true, loader: 'js', legalComments: 'none', charset: 'utf8' });
     await fsp.writeFile(path.join(DIST, 'app.bundle.js'), res.code, 'utf8');
-    bundleReport = { name: 'app.bundle.js', in: rawTotal, out: Buffer.byteLength(res.code), kind: 'BUNDLE (tail x5)' };
+    bundleReport = { name: 'app.bundle.js', in: rawTotal, out: Buffer.byteLength(res.code), kind: `BUNDLE (tail x${TAIL.length})` };
+  }
+
+  // 2b) The on-demand loader for the route-split scripts (LAZY). Generated (not
+  //     a repo-root source file) because it only needs the ?v= stamped URL and
+  //     the trigger wiring. CSP-clean: external file, addEventListener only.
+  {
+    const src = lazyLoaderSource(STAMP);
+    const res = await esbuild.transform(src, { minify: true, loader: 'js', legalComments: 'none', charset: 'utf8' });
+    await fsp.writeFile(path.join(DIST, LAZY_LOADER), res.code, 'utf8');
+    report.push({ name: LAZY_LOADER, in: Buffer.byteLength(src), out: Buffer.byteLength(res.code), kind: 'generated (lazy loader)' });
   }
 
   // 3) Runtime JS not in index.html (ct-ai-worker.js, …) — minify by name.
@@ -277,10 +326,29 @@ async function main() {
       }
     });
   }
+  // Route split: drop each LAZY script tag from dist/index.html and replace the
+  // FIRST one with the deferred loader tag (same position in the load order, so
+  // the loader is installed exactly where the heavy file used to sit). The lazy
+  // file itself is still emitted into dist/ by step 1 and fetched on demand.
+  const lazySet = new Set(LAZY.filter((f) => localFiles.includes(f)));
+  {
+    const lazyTags = scripts.filter((s) => lazySet.has(s.file));
+    lazyTags.forEach((s, i) => {
+      if (i === 0) {
+        outHtml = outHtml.replace(s.tag, `<script defer src="${LAZY_LOADER}?v=${STAMP}"></script>`);
+      } else {
+        outHtml = outHtml.replace(new RegExp('[ \t]*' + escapeRe(s.tag) + '\r?\n?'), '');
+      }
+    });
+    if (lazyTags.length !== LAZY.length) {
+      log(`WARN: expected ${LAZY.length} lazy script tag(s) in index.html, found ${lazyTags.length}`);
+    }
+  }
   // Bump cache-busters on the remaining individual local script tags so the new
   // minified files aren't served stale from an old SW/cache.
   for (const s of scripts) {
     if (tailSet.has(s.file)) continue; // those are gone / replaced
+    if (lazySet.has(s.file)) continue; // tag replaced by the lazy loader above
     const newRaw = s.file + '?v=' + STAMP;
     outHtml = outHtml.replace(s.tag, s.tag.replace(s.raw, newRaw));
   }
@@ -326,6 +394,74 @@ async function main() {
   log('');
   log(`TOTAL JS  raw ${fmt(rawBytes)}  ->  dist ${fmt(distBytes)}  =  ${totalPct}% smaller`);
   log(`dist/ written in ${Date.now() - t0}ms`);
+}
+
+// --- Route split: the generated on-demand loader ----------------------------
+//
+// Emitted as dist/ct-lazy-learn.js and referenced with a deferred <script> from
+// dist/index.html (CSP-clean: external file, no inline JS, no on* handlers).
+//
+// WHY a delegated document listener rather than a call site edit: the only
+// consumer of learn-library.js is academy.js's Read & Learn tab, which calls
+// `if (window.CT_renderLibrary) window.CT_renderLibrary(libEl)`. That guard
+// means a not-yet-loaded library renders an EMPTY panel instead of throwing, so
+// the loader only has to (a) fetch the file on the same click and (b) render
+// once it arrives. No app source file has to change.
+//
+// Triggers (capture phase on document, so it runs before academy.js's own
+// handler on the button):
+//   [data-ltab="library"]  -> load + render into #library-content when ready
+//   [data-go="academy"] / #btn-academy-complete-learn -> warm the fetch early
+//
+// Re-render safety: the callback only renders when #library-content is still
+// EMPTY. On every later click academy.js's own (now-defined) call renders it,
+// so the panel is never painted twice for one click.
+function lazyLoaderSource(stamp) {
+  return `/* ct-lazy-learn.js — GENERATED by scripts/build.mjs. Do not edit in dist/.
+   On-demand loader for the route-split learn-library.js (~131 KB): keeps the
+   Read & Learn article corpus off the landing/play path and fetches it the
+   first time the reader actually opens the in-app Learn screen. */
+(function () {
+  'use strict';
+  var SRC = 'learn-library.js?v=${stamp}';
+  var state = 0;      // 0 = idle, 1 = loading, 2 = loaded
+  var queue = [];
+
+  function flush() {
+    var q = queue; queue = [];
+    for (var i = 0; i < q.length; i++) { try { q[i](); } catch (e) {} }
+  }
+
+  function ensure(cb) {
+    if (state === 2) { if (cb) { try { cb(); } catch (e) {} } return; }
+    if (cb) queue.push(cb);
+    if (state === 1) return;
+    state = 1;
+    var el = document.createElement('script');
+    el.src = SRC;
+    el.onload = function () { state = 2; flush(); };
+    // On failure reset to idle so the next click retries (the guarded call site
+    // in academy.js already degrades to an empty panel, never a throw).
+    el.onerror = function () { state = 0; queue = []; };
+    (document.head || document.documentElement).appendChild(el);
+  }
+
+  function renderIfEmpty() {
+    var host = document.getElementById('library-content');
+    if (host && !host.firstChild && typeof window.CT_renderLibrary === 'function') {
+      try { window.CT_renderLibrary(host); } catch (e) {}
+    }
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || typeof t.closest !== 'function') return;
+    if (t.closest('[data-ltab="library"]')) { ensure(renderIfEmpty); return; }
+    // Warm the fetch as soon as the reader heads for the Learn screen.
+    if (t.closest('[data-go="academy"]') || t.closest('#btn-academy-complete-learn')) ensure(null);
+  }, true);
+})();
+`;
 }
 
 // Build dist/sw.js: rewrite the precache ASSETS list to the files actually
@@ -482,6 +618,8 @@ function learnPageHtml(a, slug) {
     headline: a.title,
     description: desc,
     articleSection: a.cat || 'Chess',
+    datePublished: CONTENT_DATES.learnPublished,
+    dateModified: CONTENT_DATES.learnRevised,
     url,
     mainEntityOfPage: url,
     image: `${SITE}/og-image.png`,
@@ -748,19 +886,22 @@ async function generateSeoPages() {
   }
 
   // sitemap.xml — homepage + /learn/ hub + every article page + the extra surfaces.
-  const lastmod = new Date().toISOString().slice(0, 10);
+  // Each <url> carries its OWN content-derived lastmod (see CONTENT_DATES and the
+  // per-generator constants); anything that somehow arrives without one falls back
+  // to the site date rather than to "today".
   const urls = [
-    { loc: `${SITE}/`, priority: '1.0' },
-    { loc: `${SITE}/learn/`, priority: '0.8' },
-    ...entries.map((e) => ({ loc: `${SITE}/learn/${e.slug}.html`, priority: '0.6' })),
+    { loc: `${SITE}/`, priority: '1.0', lastmod: CONTENT_DATES.home },
+    { loc: `${SITE}/learn/`, priority: '0.8', lastmod: CONTENT_DATES.learnRevised },
+    ...entries.map((e) => ({ loc: `${SITE}/learn/${e.slug}.html`, priority: '0.6', lastmod: CONTENT_DATES.learnRevised })),
     ...extraUrls,
   ];
+  const isDate = (d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
   const xml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
     urls.map((u) =>
       '  <url>\n' +
       `    <loc>${escHtml(u.loc)}</loc>\n` +
-      `    <lastmod>${lastmod}</lastmod>\n` +
+      `    <lastmod>${isDate(u.lastmod) ? u.lastmod : CONTENT_DATES.home}</lastmod>\n` +
       `    <priority>${u.priority}</priority>\n` +
       '  </url>'
     ).join('\n') +

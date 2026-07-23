@@ -28,6 +28,10 @@
     "stripe": "^17",
     "web-push": "^3.6.7"
   },
+  "//overrides": "ws is transitive (engine.io / socket.io-adapter pin ~8.20.1). 8.20.1 is affected by GHSA-96hv-2xvq-fx4p (memory-exhaustion DoS), fixed in 8.21.0; ws is our internet-facing websocket transport, so force the patched line. Drop this once socket.io ships a ~8.21 pin.",
+  "overrides": {
+    "ws": "^8.21.0"
+  },
   "engines": {
     "node": ">=18"
   },

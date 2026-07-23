@@ -46,6 +46,8 @@
   // --- shared-helper shims (degrade gracefully if CT isn't ready) -------------
   function showScreen(id) { var c = CT(); if (c && c.showScreen) c.showScreen(id); }
   function toast(m, gold) { var c = CT(); if (c && c.toast) c.toast(m, gold); }
+  // Screen-reader announcement via app.js's polite live region (#a11y-live).
+  function announce(m) { var c = CT(); if (c && c.announce) c.announce(m); }
   function openModal(id) { var c = CT(); if (c && c.openModal) c.openModal(id); }
   function closeModal(id) { var c = CT(); if (c && c.closeModal) c.closeModal(id); }
   function celebrate(x) { var c = CT(); if (c && c.ctCelebrate) c.ctCelebrate(x); }
@@ -70,6 +72,7 @@
     orientation: 'w',  // bottom-of-board color
     opponent: null,    // { username, elo, isAI, aiElo, userId }
     selected: null,    // selected origin square number
+    kbFocus: null,     // keyboard cursor { r, c } (roving tabindex); see setCkFocus
     legalForSel: [],   // [{ to, move }] legal destinations for the selected piece
     lastMove: null,    // last move object (for highlight)
     aiThinking: false,
@@ -126,12 +129,126 @@
   }
 
   // ---------------------------------------------------------------------------
+  //  KEYBOARD / SCREEN-READER SUPPORT
+  // ---------------------------------------------------------------------------
+  // The board used to be 64 (or 100) plain <div>s with nothing but a click
+  // listener: no role, no accessible name, no tab stop, no key handling — i.e.
+  // checkers was unplayable without a mouse or eyes. This is a direct port of the
+  // chess board's pattern in app.js:
+  //   • container  role="grid" + aria-label
+  //   • each cell  role="gridcell" + a descriptive aria-label
+  //   • ONE roving tabIndex=0 cell (the keyboard cursor), everything else -1
+  //   • arrows move the cursor (orientation-aware), Enter/Space activates the
+  //     SAME onCellClick() path as a mouse, Escape clears the selection.
+  // Light squares are part of the grid (so arrow geometry matches what you see)
+  // but are announced as "not playable" and do nothing on Enter.
+  function ckPieceWords(piece) {
+    if (!piece) return 'empty';
+    return (piece.color === 'w' ? 'white' : 'black') + ' ' + (piece.king ? 'king' : 'piece');
+  }
+  function ckSquareAriaLabel(num, piece, playable, isDest, isForced) {
+    if (!playable) return 'Light square, not playable';
+    var label = 'Square ' + num + ', ' + ckPieceWords(piece);
+    if (s.selected === num) label += ', selected';
+    else if (isDest) label += ', move target';
+    else if (isForced) label += ', capture available';
+    return label;
+  }
+  // Move the keyboard cursor (roving tabindex) to a board cell and optionally
+  // focus it. Cells are addressed by their ENGINE row/col so light squares — which
+  // have no square number — are reachable too.
+  function setCkFocus(r, c, doFocus) {
+    var boardEl = $('#checkers-board');
+    if (!boardEl) return;
+    s.kbFocus = { r: r, c: c };
+    var key = r + ',' + c;
+    $$('.ck-sq[data-ckrc]', boardEl).forEach(function (cell) {
+      cell.tabIndex = (cell.getAttribute('data-ckrc') === key) ? 0 : -1;
+    });
+    if (doFocus) {
+      var el = boardEl.querySelector('[data-ckrc="' + key + '"]');
+      if (el) el.focus();
+    }
+  }
+  // Seed / re-apply the roving tab stop after a re-render. Keeps the previous
+  // cursor when it still exists, else parks it on the selected square, else on
+  // the first playable square.
+  function applyCkFocus(boardEl) {
+    var f = s.kbFocus;
+    var key = f ? (f.r + ',' + f.c) : null;
+    if (!key || !boardEl.querySelector('[data-ckrc="' + key + '"]')) {
+      var seed = null;
+      if (s.selected != null) seed = boardEl.querySelector('[data-ck="' + s.selected + '"]');
+      if (!seed) seed = boardEl.querySelector('.ck-sq[data-ck]');
+      if (!seed) { s.kbFocus = null; return; }
+      var parts = (seed.getAttribute('data-ckrc') || '').split(',');
+      s.kbFocus = { r: Number(parts[0]), c: Number(parts[1]) };
+      key = s.kbFocus.r + ',' + s.kbFocus.c;
+    }
+    $$('.ck-sq[data-ckrc]', boardEl).forEach(function (cell) {
+      cell.tabIndex = (cell.getAttribute('data-ckrc') === key) ? 0 : -1;
+    });
+  }
+  function onCkBoardKey(ev) {
+    var cur = ev.target && ev.target.closest ? ev.target.closest('.ck-sq[data-ckrc]') : null;
+    if (!cur) return;
+    var parts = (cur.getAttribute('data-ckrc') || '').split(',');
+    var r = Number(parts[0]), c = Number(parts[1]);
+    if (isNaN(r) || isNaN(c)) return;
+    var k = ev.key;
+    if (k === 'Enter' || k === ' ' || k === 'Spacebar') {
+      ev.preventDefault();
+      var numAttr = cur.getAttribute('data-ck');
+      if (numAttr == null) return; // light square — nothing to activate
+      s.kbFocus = { r: r, c: c };
+      onCellClick(Number(numAttr));
+      // onCellClick re-renders (new nodes), so restore DOM focus after paint.
+      requestAnimationFrame(function () { setCkFocus(r, c, true); });
+      return;
+    }
+    if (k === 'Escape') {
+      if (s.selected != null) {
+        ev.preventDefault();
+        clearSel(); render();
+        requestAnimationFrame(function () { setCkFocus(r, c, true); });
+      }
+      return;
+    }
+    var deltas = {
+      ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1],
+      Up: [-1, 0], Down: [1, 0], Left: [0, -1], Right: [0, 1],
+    };
+    var d = deltas[k];
+    if (!d) return;
+    ev.preventDefault();
+    // render() draws rows bottom-up when white is at the bottom, and mirrors the
+    // columns when black is. Invert the deltas to match so the arrows always move
+    // the cursor the way the board LOOKS.
+    var dr = d[0], dc = d[1];
+    if (s.orientation === 'w') dr = -dr; else dc = -dc;
+    var n = s.size - 1;
+    var nr = Math.max(0, Math.min(n, r + dr));
+    var nc = Math.max(0, Math.min(n, c + dc));
+    setCkFocus(nr, nc, true);
+  }
+
+  // ---------------------------------------------------------------------------
   //  BOARD RENDER  (#checkers-board)
   // ---------------------------------------------------------------------------
   function render() {
     var boardEl = $('#checkers-board');
     if (!boardEl || !s.game) return;
     var size = s.size;
+    if (!boardEl.dataset.ckKbBound) {
+      boardEl.setAttribute('role', 'grid');
+      boardEl.setAttribute('aria-label', 'Checkers board — arrow keys to move the cursor, Enter to select or move');
+      boardEl.addEventListener('keydown', onCkBoardKey);
+      boardEl.dataset.ckKbBound = '1';
+    }
+    // innerHTML='' below destroys the focused cell, which would dump focus back on
+    // <body> and strand a keyboard player mid-game. Remember whether the board held
+    // focus so we can put it back on the cursor cell after the rebuild.
+    var hadFocus = !!(document.activeElement && boardEl.contains(document.activeElement));
     boardEl.style.gridTemplateColumns = 'repeat(' + size + ', minmax(0, 1fr))';
     boardEl.style.gridTemplateRows = 'repeat(' + size + ', minmax(0, 1fr))';
     boardEl.innerHTML = '';
@@ -157,7 +274,14 @@
         var cell = document.createElement('div');
         cell.className = 'ck-sq ' + (playable ? 'ck-dark' : 'ck-light');
         if (playable) cell.setAttribute('data-ck', String(num));
+        // Engine row/col on EVERY cell (light squares have no square number) so
+        // the keyboard cursor can address the whole grid.
+        cell.setAttribute('data-ckrc', r + ',' + c);
+        cell.setAttribute('role', 'gridcell');
+        cell.tabIndex = -1; // roving tabindex; applyCkFocus() promotes exactly one
         var piece = board[r][c];
+        cell.setAttribute('aria-label',
+          ckSquareAriaLabel(num, piece, playable, !!destSet[num], !s.selected && !!forcedOrigins[num]));
         if (piece) {
           var span = document.createElement('span');
           span.className = 'ck-piece';
@@ -180,6 +304,12 @@
         }
         boardEl.appendChild(cell);
       }
+    }
+    // Roving tabindex: exactly one cell is a tab stop (the keyboard cursor).
+    applyCkFocus(boardEl);
+    if (hadFocus && s.kbFocus) {
+      var refocus = boardEl.querySelector('[data-ckrc="' + s.kbFocus.r + ',' + s.kbFocus.c + '"]');
+      if (refocus) { try { refocus.focus(); } catch (e) {} }
     }
     updateStatus();
     renderCaptured();
@@ -336,6 +466,9 @@
       if (mine && hasCap && s.game.cfg && s.game.cfg.mandatory) txt += ' · capture required';
     }
     el.textContent = txt;
+    // Announce the turn / result in the app's polite live region — the status
+    // text + the highlighted player row are purely visual cues otherwise.
+    announce(txt);
     var top = $('#ck-player-top'), bot = $('#ck-player-bot');
     if (top && bot && s.game) {
       var t2 = s.game.turn();
@@ -504,6 +637,7 @@
     s.mode = mode;
     s.ended = false;
     s.selected = null;
+    s.kbFocus = null; // reseed the keyboard cursor for the new board
     s.legalForSel = [];
     s.lastMove = null;
     s.aiThinking = false;
@@ -778,6 +912,7 @@
     var tEl = $('#result-title'), bEl = $('#result-body'), rEl = $('#result-rewards');
     if (tEl) tEl.textContent = title;
     if (bEl) bEl.textContent = body;
+    announce('Game over. ' + title + '. ' + body);
     if (rEl) rEl.innerHTML = rewards.join('');
     // Hide chess-only result controls (rematch/review/block) for checkers.
     hide('#rematch-ui'); hide('#btn-result-review'); hide('#btn-result-block');
@@ -939,6 +1074,9 @@
       '.ck-sq{position:relative;display:flex;align-items:center;justify-content:center;aspect-ratio:1/1;min-width:0;min-height:0;cursor:default;}' +
       '.ck-light{background:var(--light-sq,#e9e2cf);}' +
       '.ck-dark{background:var(--dark-sq,#6b7a52);cursor:pointer;}' +
+      /* Keyboard cursor: a visible focus ring on the roving tab stop. */
+      '.ck-sq:focus{outline:none;}' +
+      '.ck-sq:focus-visible{outline:3px solid var(--accent,#f5c451);outline-offset:-3px;z-index:4;}' +
       '.ck-piece{width:84%;height:84%;display:flex;align-items:center;justify-content:center;pointer-events:none;}' +
       '.ck-piece .ck-disc{width:100%;height:100%;filter:drop-shadow(0 2px 2px rgba(0,0,0,.35));}' +
       '.ck-selected{box-shadow:inset 0 0 0 4px var(--accent,#f5c451);}' +

@@ -280,24 +280,24 @@ function clockSnapshotForMove(clock) {
 
 // Finish a clocked 1v1 game on a flag by `flagColor` ('w'|'b'). Normally a loss
 // for the flagger; downgraded to a draw if the winner can't mate.
+// Returns finishGame's promise so callers that want to (the timeout sweep) can
+// catch an async rejection; existing callers ignore it exactly as before.
 function timeoutFinishGame(io, game, flagColor) {
   const winnerColor = flagColor === 'w' ? 'b' : 'w';
   if (!winnerCanMateOnTimeout(game.chess, winnerColor)) {
-    finishGame(io, game, { reason: 'timeout', winnerId: null });
-    return;
+    return finishGame(io, game, { reason: 'timeout', winnerId: null });
   }
   const winnerId = winnerColor === 'w' ? game.white : game.black;
-  finishGame(io, game, { reason: 'timeout', winnerId });
+  return finishGame(io, game, { reason: 'timeout', winnerId });
 }
 
 // Finish a clocked 2v2 game on a flag by team `flagColor`.
 function timeoutFinishTeamGame(io, tg, flagColor) {
   const winnerColor = flagColor === 'w' ? 'b' : 'w';
   if (!winnerCanMateOnTimeout(tg.chess, winnerColor)) {
-    finishTeamGame(io, tg, { reason: 'timeout', winnerColor: null });
-    return;
+    return finishTeamGame(io, tg, { reason: 'timeout', winnerColor: null });
   }
-  finishTeamGame(io, tg, { reason: 'timeout', winnerColor });
+  return finishTeamGame(io, tg, { reason: 'timeout', winnerColor });
 }
 
 function newGameId() { return 'g_' + crypto.randomBytes(6).toString('hex'); }
@@ -362,27 +362,45 @@ function eloDelta(a, b, score) {
 let timeoutSweepTimer = null;
 function startTimeoutSweep(io) {
   if (timeoutSweepTimer) return;
+  // Fully failure-isolated (like the arena / reengage schedulers): a synchronous
+  // throw in here would become an uncaughtException and take the whole process
+  // down, dropping every live socket. One bad game must not end the server, so
+  // each finish is guarded individually and the pass as a whole is guarded too.
   timeoutSweepTimer = setInterval(() => {
-    const now = Date.now();
-    // 1v1
-    for (const game of activeGames.values()) {
-      if (!game.clock || game._ended) continue;
-      const clock = game.clock;
-      const remaining = clock[clock.running] - (now - clock.turnStartedAt);
-      if (remaining <= 0) {
-        clock[clock.running] = 0;
-        timeoutFinishGame(io, game, clock.running);
+    try {
+      const now = Date.now();
+      // 1v1
+      for (const game of activeGames.values()) {
+        try {
+          if (!game.clock || game._ended) continue;
+          const clock = game.clock;
+          const remaining = clock[clock.running] - (now - clock.turnStartedAt);
+          if (remaining <= 0) {
+            clock[clock.running] = 0;
+            Promise.resolve(timeoutFinishGame(io, game, clock.running))
+              .catch((e) => console.error('[timeout-sweep] 1v1 finish rejected', e && e.message));
+          }
+        } catch (e) {
+          console.error('[timeout-sweep] 1v1 finish failed', e && e.message);
+        }
       }
-    }
-    // 2v2
-    for (const tg of activeTeamGames.values()) {
-      if (!tg.clock || tg._ended) continue;
-      const clock = tg.clock;
-      const remaining = clock[clock.running] - (now - clock.turnStartedAt);
-      if (remaining <= 0) {
-        clock[clock.running] = 0;
-        timeoutFinishTeamGame(io, tg, clock.running);
+      // 2v2
+      for (const tg of activeTeamGames.values()) {
+        try {
+          if (!tg.clock || tg._ended) continue;
+          const clock = tg.clock;
+          const remaining = clock[clock.running] - (now - clock.turnStartedAt);
+          if (remaining <= 0) {
+            clock[clock.running] = 0;
+            Promise.resolve(timeoutFinishTeamGame(io, tg, clock.running))
+              .catch((e) => console.error('[timeout-sweep] 2v2 finish rejected', e && e.message));
+          }
+        } catch (e) {
+          console.error('[timeout-sweep] 2v2 finish failed', e && e.message);
+        }
       }
+    } catch (e) {
+      console.error('[timeout-sweep] pass failed', e && e.message);
     }
   }, 1000);
   if (typeof timeoutSweepTimer.unref === 'function') timeoutSweepTimer.unref();

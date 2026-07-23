@@ -63,6 +63,8 @@ async function main() {
       body: JSON.stringify({
         lessonsCompleted: [], puzzles: {},
         achievements: [{ id: 'wins_t1', count: 1 }, { id: 'wins_t2', count: 1 }, { id: 'gauntlet_t4', count: 1 }],
+        // Inflated on purpose — trophies are server-authoritative, so the server
+        // must re-score from its catalog: wins_t1(10)+wins_t2(20)+gauntlet_t4(70)=100.
         streakTrophies: [], trophyPoints: 180,
         showcase: ['wins_t2', 'gauntlet_t4'],
       }),
@@ -78,7 +80,7 @@ async function main() {
     assert(p.username === `Showcaser_${RUN}`, 'returns the username');
     assert(p.email === undefined, 'MUST NOT leak email');
     assert(p.pw_hash === undefined && p.flags === undefined, 'MUST NOT leak pw_hash/flags');
-    assert(p.trophyPoints === 180, `returns trophyPoints (got ${p.trophyPoints})`);
+    assert(p.trophyPoints === 100, `returns SERVER-computed trophyPoints, not the client's 180 (got ${p.trophyPoints})`);
     assert(p.trophyCount === 3, `returns trophyCount = 3 (got ${p.trophyCount})`);
     assert(Array.isArray(p.achievements) && p.achievements.length === 3, 'returns earned achievement ids');
     assert(Array.isArray(p.showcase) && p.showcase.length === 2 && p.showcase[0] === 'wins_t2', 'returns the pinned showcase in order');

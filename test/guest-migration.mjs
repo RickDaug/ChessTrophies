@@ -80,9 +80,10 @@ async function main() {
       showcase: ['wins_t4', 'mate_t2'],
       themeBoard: 'marble',
       themePieces: 'neo',
-      achievements: [{ id: 'wins_t4', count: 1 }, { id: 'mate_t2', count: 2 }, { id: 'puzzle_t1', count: 1 }],
-      streakTrophies: [{ id: 's1', streakNumber: 1 }, { id: 's2', streakNumber: 2 }],
-      trophyPoints: 320,
+      // Real catalog ids (trophies are server-authoritative — unknown ids are dropped).
+      achievements: [{ id: 'wins_t4', count: 1 }, { id: 'mate_t2', count: 2 }, { id: 'puz_t1', count: 1 }],
+      streakTrophies: [{ id: 't_bb01', streakNumber: 1 }, { id: 't_bb02', streakNumber: 2 }],
+      trophyPoints: 320, // inflated on purpose; server re-scores from the catalog
     };
 
     // 3) The conversion: sign up. Use the guest's display name as the username so
@@ -116,7 +117,7 @@ async function main() {
     assert(sameSet(prog.showcase, guestProgress.showcase), 'showcase should carry');
     assert(prog.themeBoard === 'marble' && prog.themePieces === 'neo', 'theme should carry');
     const profile = await (await get(`/api/users/${uid}/profile`, token)).json();
-    assert(profile.trophyPoints === 320, `trophyPoints should carry onto the account, got ${profile.trophyPoints}`);
+    assert(profile.trophyPoints === 70, `server-computed trophyPoints should carry onto the account (not the client's 320), got ${profile.trophyPoints}`);
     assert(profile.trophyCount === guestProgress.achievements.length + guestProgress.streakTrophies.length,
       `trophyCount should reflect carried trophies, got ${profile.trophyCount}`);
     log(`progress carried server-side: ${prog.lessonsCompleted.length} lessons, ${prog.puzzles.solved} puzzles solved, 5-day streak, ${profile.trophyCount} trophies (${profile.trophyPoints} pts) ✓`);
@@ -134,7 +135,7 @@ async function main() {
     assert(sameSet(prog2.lessonsCompleted, guestProgress.lessonsCompleted), 'lessons must survive re-login (persisted on the account)');
     assert(prog2.puzzles.solved === 9 && prog2.puzzles.playStreak.count === 5, 'puzzles + streak must survive re-login');
     const profile2 = await (await get(`/api/users/${uid}/profile`, token2)).json();
-    assert(profile2.trophyPoints === 320 && profile2.trophyCount === profile.trophyCount, 'trophies must survive re-login');
+    assert(profile2.trophyPoints === 70 && profile2.trophyCount === profile.trophyCount, 'trophies must survive re-login');
     log('re-login authenticates the same account + still sees all carried progress (persisted on the account row) ✓');
 
     log('PASS — guest progress migrates SERVER-SIDE onto the converted account and survives re-login');

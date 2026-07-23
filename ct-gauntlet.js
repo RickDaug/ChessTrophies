@@ -94,6 +94,11 @@
         }
       }
     } catch (e) { /* in-memory mutation above still stands */ }
+    // Push the ladder position to the server too (flags.gauntlet rides the
+    // /api/progress sync as `gauntlet`). Without this the gauntlet was purely
+    // local: signing in on a second device silently restarted the ladder.
+    // Same trailing call openings.js makes after persisting mastery.
+    try { if (typeof window.CT_syncProgress === 'function') window.CT_syncProgress(); } catch (e) {}
   }
 
   // ---- rendering -------------------------------------------------------------

@@ -26,7 +26,11 @@ function allow(key, perWindow = 20, windowMs = 10000) {
   if (buckets.size > 5000) { for (const [k, v] of buckets) if (now - v.start > windowMs) buckets.delete(k); }
   return b.n <= perWindow;
 }
-function ipOf(req) { return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || 'anon'; }
+// Rate-limit key = the client IP as Express resolves it under `trust proxy` (1
+// hop, set in server.js). Do NOT parse the raw X-Forwarded-For header: it is
+// caller-controlled, so rotating it would mint a fresh bucket on every request
+// and let anyone inflate the public "N tried / M beat it" social proof.
+function ipOf(req) { return (req && req.ip) || (req && req.socket && req.socket.remoteAddress) || 'anon'; }
 function rid() { return Math.random().toString(36).slice(2, 7) + Math.random().toString(36).slice(2, 7); }
 function clampElo(v) { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(ELO_MIN, Math.min(ELO_MAX, n)) : 1200; }
 
@@ -144,6 +148,12 @@ export function mountChallenges(app) {
     // ships its own <meta> CSP and a conflicting header could break the live app.
     res.set('Content-Security-Policy',
       "default-src 'none'; img-src 'self' " + SITE + " data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+    // SEO: every card bounces into `/?c=<id>`, i.e. a parameterized homepage.
+    // Left alone, crawlers would index one near-duplicate homepage per challenge.
+    // `noindex` keeps them out of the index while STILL letting social crawlers
+    // read the OG/Twitter meta below (link previews don't need indexing), and the
+    // <link rel="canonical"> in the card points any that ignore it at the home page.
+    res.set('X-Robots-Tag', 'noindex, follow');
     try {
       const id = String(req.params.id).slice(0, 32);
       const row = await store.get('SELECT * FROM challenges WHERE id = ?', [id]);
@@ -203,6 +213,11 @@ function page({ title, desc, url, image, redirect }) {
     `<meta name="viewport" content="width=device-width, initial-scale=1">` +
     `<meta http-equiv="refresh" content="0; url=${r}">` +
     `<title>${t}</title>` +
+    // Canonical = the bare home page (NOT `/?c=<id>`), so the per-challenge
+    // variants can't accumulate as near-duplicate homepages. Paired with the
+    // X-Robots-Tag: noindex header set on this route.
+    `<link rel="canonical" href="${esc(SITE + '/')}">` +
+    `<meta name="robots" content="noindex, follow">` +
     `<meta name="description" content="${d}">` +
     `<meta property="og:title" content="${t}">` +
     `<meta property="og:description" content="${d}">` +

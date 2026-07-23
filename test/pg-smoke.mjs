@@ -88,8 +88,10 @@ async function main() {
     // progress sync round-trip: flags JSON + achievements/trophy_points columns.
     const sync = await post('/api/progress', {
       lessonsCompleted: ['lesson_a', 'lesson_b'],
-      achievements: [{ id: 'first_win' }, { id: 'streak_3' }, { id: 'puzzle_10' }],
-      trophyPoints: 45,
+      // Real catalog ids — trophies are server-authoritative, so unknown ids are
+      // dropped and trophy_points is recomputed server-side (audit 2026-07).
+      achievements: [{ id: 'wins_t1' }, { id: 'wins_t2' }, { id: 'mate_t1' }],
+      trophyPoints: 45, // inflated on purpose; server re-scores to 10+20+10 = 40
     }, auth);
     assert(sync.ok, `progress POST failed: ${sync.status} ${await sync.text().catch(() => '')}`);
     const prog = await (await get('/api/progress', auth)).json();
@@ -100,7 +102,7 @@ async function main() {
     // columns read back + JSON parse of the achievements column).
     const prof = await (await get(`/api/users/${userId}/profile`)).json();
     assert(prof.trophyCount === 3, `profile trophyCount should be 3 after sync, got ${prof.trophyCount}`);
-    assert(prof.trophyPoints === 45, `profile trophyPoints should be 45 after sync, got ${prof.trophyPoints}`);
+    assert(prof.trophyPoints === 40, `profile trophyPoints should be the SERVER-computed 40 (not the client's 45), got ${prof.trophyPoints}`);
     log('/api/users/:id/profile reflects synced achievements + trophy_points ✓');
 
     // The dialect-sensitive leaderboard query (json_array_length vs jsonb_array_length).
