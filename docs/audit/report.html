@@ -1,0 +1,310 @@
+<title>ChessTrophies — Security & Quality Audit</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#f4efe4; --surface:#fbf8f1; --surface-2:#f0e9da;
+    --ink:#2a2620; --muted:#6f6455; --faint:#9a8d78;
+    --border:#e2d7c4; --border-strong:#d3c4aa;
+    --gold:#a9791f; --gold-bright:#c79426; --walnut:#9c6b43;
+    --s0:#c23a4b; --s1:#c9701f; --s2:#2f6f96; --s3:#5f7f64; --ok:#4f8a54;
+    --ring-track:#e2d7c4;
+    --shadow:0 1px 2px rgba(60,45,20,.06), 0 8px 24px rgba(60,45,20,.05);
+    --serif:'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif;
+    --sans:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --mono:'SF Mono','JetBrains Mono','Fira Mono',ui-monospace,'Cascadia Code',Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0b1220; --surface:#131d2e; --surface-2:#0f1826;
+      --ink:#ece4d3; --muted:#9aa5b6; --faint:#6a7789;
+      --border:#223049; --border-strong:#2c3d59;
+      --gold:#f5c451; --gold-bright:#ffd873; --walnut:#c9915f;
+      --s0:#e35d6c; --s1:#e8913f; --s2:#5aa6d0; --s3:#8bb391; --ok:#7bc084;
+      --ring-track:#223049;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.28);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f4efe4; --surface:#fbf8f1; --surface-2:#f0e9da; --ink:#2a2620; --muted:#6f6455; --faint:#9a8d78;
+    --border:#e2d7c4; --border-strong:#d3c4aa; --gold:#a9791f; --gold-bright:#c79426; --walnut:#9c6b43;
+    --s0:#c23a4b; --s1:#c9701f; --s2:#2f6f96; --s3:#5f7f64; --ok:#4f8a54; --ring-track:#e2d7c4;
+    --shadow:0 1px 2px rgba(60,45,20,.06), 0 8px 24px rgba(60,45,20,.05);
+  }
+  :root[data-theme="dark"]{
+    --bg:#0b1220; --surface:#131d2e; --surface-2:#0f1826; --ink:#ece4d3; --muted:#9aa5b6; --faint:#6a7789;
+    --border:#223049; --border-strong:#2c3d59; --gold:#f5c451; --gold-bright:#ffd873; --walnut:#c9915f;
+    --s0:#e35d6c; --s1:#e8913f; --s2:#5aa6d0; --s3:#8bb391; --ok:#7bc084; --ring-track:#223049;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.28);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;
+    -webkit-font-smoothing:antialiased;font-size:16px}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px}
+  a{color:var(--gold);text-decoration-color:color-mix(in srgb,var(--gold) 40%,transparent);text-underline-offset:2px}
+
+  /* ---- masthead ---- */
+  header.masthead{border-bottom:1px solid var(--border-strong);
+    background:linear-gradient(180deg,color-mix(in srgb,var(--gold) 6%,var(--surface)),var(--bg));}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--walnut);font-weight:600;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .eyebrow::before{content:"";width:26px;height:2px;background:var(--gold)}
+  h1{font-family:var(--serif);font-weight:600;font-size:clamp(30px,5.4vw,50px);line-height:1.06;
+    margin:.35em 0 .1em;text-wrap:balance;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:16.5px;max-width:60ch;margin:.4em 0 0}
+  .meta-row{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:22px;font-size:13.5px;color:var(--faint);
+    font-family:var(--mono)}
+  .meta-row b{color:var(--muted);font-weight:600}
+
+  /* ---- hero scorecard ---- */
+  .hero{display:grid;grid-template-columns:auto 1fr;gap:30px;align-items:center;
+    padding:30px;margin:34px 0;background:var(--surface);border:1px solid var(--border);
+    border-radius:16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .hero::before{content:"";position:absolute;inset:0 0 auto 0;height:4px;
+    background:linear-gradient(90deg,var(--s0),var(--s1),var(--s2),var(--s3))}
+  .ring{--v:77;width:150px;height:150px;border-radius:50%;flex:none;display:grid;place-items:center;
+    background:conic-gradient(var(--gold) calc(var(--v)*1%),var(--ring-track) 0);
+    mask:radial-gradient(farthest-side,transparent 61%,#000 62%);-webkit-mask:radial-gradient(farthest-side,transparent 61%,#000 62%)}
+  .ring-wrap{position:relative;width:150px;height:150px;flex:none}
+  .ring-num{position:absolute;inset:0;display:grid;place-items:center;flex-direction:column;text-align:center}
+  .ring-num .n{font-family:var(--serif);font-size:44px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+  .ring-num .d{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.1em;margin-top:3px}
+  .verdict-tag{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-weight:600;
+    font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;padding:5px 12px;border-radius:999px;
+    background:color-mix(in srgb,var(--s1) 16%,transparent);color:var(--s1);
+    border:1px solid color-mix(in srgb,var(--s1) 40%,transparent)}
+  .verdict-tag::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+  .verdict-line{font-family:var(--serif);font-size:20px;line-height:1.35;margin:14px 0 16px;color:var(--ink);text-wrap:pretty}
+  .sevbar{display:flex;flex-wrap:wrap;gap:10px}
+  .sev{display:flex;align-items:baseline;gap:8px;padding:7px 13px;border-radius:10px;background:var(--surface-2);
+    border:1px solid var(--border)}
+  .sev .c{font-family:var(--serif);font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+  .sev .l{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .sev.s0 .c{color:var(--s0)} .sev.s1 .c{color:var(--s1)} .sev.s2 .c{color:var(--s2)} .sev.s3 .c{color:var(--s3)}
+
+  /* ---- sections ---- */
+  section{margin:48px 0}
+  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:20px}
+  .sec-head h2{font-family:var(--serif);font-size:26px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .sec-head .rule{flex:1;height:1px;background:var(--border-strong)}
+  .sec-head .kick{font-family:var(--mono);font-size:12px;color:var(--faint);letter-spacing:.12em;text-transform:uppercase}
+
+  /* ---- domain bars ---- */
+  .bars{display:flex;flex-direction:column;gap:14px;background:var(--surface);border:1px solid var(--border);
+    border-radius:14px;padding:22px 24px;box-shadow:var(--shadow)}
+  .bar{display:grid;grid-template-columns:200px 1fr 42px;gap:16px;align-items:center}
+  .bar .name{font-size:14.5px;font-weight:500}
+  .bar .name small{display:block;color:var(--faint);font-family:var(--mono);font-size:11px;font-weight:400;letter-spacing:.04em}
+  .track{height:9px;border-radius:6px;background:var(--surface-2);overflow:hidden;border:1px solid var(--border)}
+  .fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--walnut),var(--gold-bright));
+    width:var(--w);transition:width 1.1s cubic-bezier(.2,.7,.2,1)}
+  .bar .v{font-family:var(--serif);font-size:19px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+  @media (prefers-reduced-motion:reduce){.fill{transition:none}}
+
+  /* ---- finding cards ---- */
+  .cards{display:flex;flex-direction:column;gap:18px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 26px;
+    box-shadow:var(--shadow);border-left:4px solid var(--s1)}
+  .card .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .rank{font-family:var(--serif);font-size:28px;font-weight:600;color:var(--faint);line-height:1;font-variant-numeric:tabular-nums}
+  .chip{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;padding:3px 9px;border-radius:6px;
+    text-transform:uppercase}
+  .chip.s1{background:color-mix(in srgb,var(--s1) 16%,transparent);color:var(--s1)}
+  .chip.s2{background:color-mix(in srgb,var(--s2) 16%,transparent);color:var(--s2)}
+  .chip.dom{background:var(--surface-2);color:var(--muted);border:1px solid var(--border)}
+  .chip.live{background:color-mix(in srgb,var(--s0) 15%,transparent);color:var(--s0);border:1px solid color-mix(in srgb,var(--s0) 35%,transparent)}
+  .card h3{font-family:var(--serif);font-size:20.5px;font-weight:600;margin:6px 0 14px;line-height:1.25;text-wrap:pretty}
+  .field{margin:11px 0}
+  .field .k{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--walnut);
+    font-weight:600;display:block;margin-bottom:3px}
+  .field .val{font-size:14.5px;color:var(--muted)}
+  .field code,code.inline{font-family:var(--mono);font-size:12.5px;background:var(--surface-2);padding:1px 6px;
+    border-radius:5px;border:1px solid var(--border);color:var(--ink);word-break:break-word}
+
+  /* ---- probe table ---- */
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);background:var(--surface)}
+  table{border-collapse:collapse;width:100%;min-width:560px}
+  th,td{text-align:left;padding:13px 18px;border-bottom:1px solid var(--border);font-size:14.5px;vertical-align:top}
+  thead th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
+    background:var(--surface-2);font-weight:600}
+  tbody tr:last-child td{border-bottom:none}
+  td .st{font-family:var(--mono);font-weight:700;font-size:12.5px;white-space:nowrap}
+  td .st.ok{color:var(--ok)} td .st.bad{color:var(--s0)} td .st.warn{color:var(--s1)}
+  .probe-note{margin-top:16px;padding:16px 20px;border-radius:12px;font-size:14.5px;
+    background:color-mix(in srgb,var(--s0) 8%,var(--surface));border:1px solid color-mix(in srgb,var(--s0) 28%,transparent)}
+  .probe-note b{color:var(--s0)}
+
+  /* ---- action plan ---- */
+  .plan{display:flex;flex-direction:column;gap:2px}
+  .tier{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--walnut);
+    font-weight:600;margin:22px 0 10px;display:flex;align-items:center;gap:10px}
+  .tier::after{content:"";flex:1;height:1px;background:var(--border)}
+  .step{display:grid;grid-template-columns:auto 1fr;gap:16px;padding:13px 16px;border-radius:10px;align-items:start}
+  .step:hover{background:var(--surface)}
+  .step .no{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--faint);padding-top:2px;font-variant-numeric:tabular-nums}
+  .step .txt{font-size:14.5px}
+  .step .txt code{font-family:var(--mono);font-size:12.5px;background:var(--surface-2);padding:1px 5px;border-radius:5px;border:1px solid var(--border)}
+  .step.s1{border-left:3px solid var(--s1)} .step.s2{border-left:3px solid var(--s2)} .step.s3{border-left:3px solid var(--s3)}
+
+  footer{border-top:1px solid var(--border-strong);margin-top:56px;padding:26px 0 46px;color:var(--faint);
+    font-size:13px;font-family:var(--mono)}
+  footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
+
+  @media (max-width:640px){
+    .hero{grid-template-columns:1fr;text-align:center;justify-items:center}
+    .bar{grid-template-columns:1fr;gap:6px}
+    .bar .v{text-align:left}
+    .track{order:3}
+    .sevbar{justify-content:center}
+  }
+</style>
+
+<header class="masthead">
+  <div class="wrap" style="padding-top:38px;padding-bottom:34px">
+    <div class="eyebrow">White-Paper Audit · 3-Tier Adversarial</div>
+    <h1>ChessTrophies — Security &amp; Quality Audit</h1>
+    <p class="sub">A source-review + live-probe assessment of the web-only chess &amp; checkers platform, run with the same methodology as the VallaPOS audit.</p>
+    <div class="meta-row">
+      <span><b>Date</b> 2026-07-22</span>
+      <span><b>Agents</b> 22 (15 personas + recon → 5 managers → chief)</span>
+      <span><b>Tokens</b> ~2.08M</span>
+      <span><b>Scope</b> white-box source + live API probe</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero">
+    <div class="ring-wrap">
+      <div class="ring" style="--v:77"></div>
+      <div class="ring-num"><span class="n">77</span><span class="d">/ 100</span></div>
+    </div>
+    <div>
+      <span class="verdict-tag">Conditional Ship</span>
+      <p class="verdict-line">Sound auth core and live surface — but hold <em>broad</em> launch until the Stripe-cancel billing bug, the privacy-policy subprocessor disclosures, and the admin-key-in-URL leak are fixed.</p>
+      <div class="sevbar">
+        <div class="sev s0"><span class="c">0</span><span class="l">S0 · critical</span></div>
+        <div class="sev s1"><span class="c">3</span><span class="l">S1 · pre-launch</span></div>
+        <div class="sev s2"><span class="c">17</span><span class="l">S2 · should-fix</span></div>
+        <div class="sev s3"><span class="c">28</span><span class="l">S3 · polish</span></div>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <div class="sec-head"><h2>Domain scorecard</h2><span class="rule"></span><span class="kick">5 squads + recon</span></div>
+    <div class="bars">
+      <div class="bar"><div class="name">Live surface <small>recon + probe</small></div><div class="track"><div class="fill" style="--w:85%"></div></div><div class="v">85</div></div>
+      <div class="bar"><div class="name">Back-end &amp; Data <small>db parity · reliability · api</small></div><div class="track"><div class="fill" style="--w:80%"></div></div><div class="v">80</div></div>
+      <div class="bar"><div class="name">Performance &amp; SEO <small>first-load · indexing</small></div><div class="track"><div class="fill" style="--w:80%"></div></div><div class="v">80</div></div>
+      <div class="bar"><div class="name">Functionality <small>game logic · features · tests</small></div><div class="track"><div class="fill" style="--w:76%"></div></div><div class="v">76</div></div>
+      <div class="bar"><div class="name">Front-end &amp; UX <small>a11y · flows · csp</small></div><div class="track"><div class="fill" style="--w:74%"></div></div><div class="v">74</div></div>
+      <div class="bar"><div class="name">Security &amp; Auth <small>authz · privacy · secrets</small></div><div class="track"><div class="fill" style="--w:70%"></div></div><div class="v">70</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>The three S1s</h2><span class="rule"></span><span class="kick">fix before broad launch</span></div>
+    <div class="cards">
+
+      <div class="card">
+        <div class="top"><span class="rank">1</span><span class="chip s1">S1</span><span class="chip dom">Security · Billing</span></div>
+        <h3>Account deletion clears the Stripe mapping but never cancels the subscription</h3>
+        <div class="field"><span class="k">Evidence</span><span class="val"><code>auth.js:256-262</code> <code>deleteAccount()</code> calls only <code>store.deleteAccountData()</code>; <code>db.js:489-495</code> blanks <code>stripe_customer_id</code> with no Stripe API call. Cancellation exists only via the user-driven Billing Portal, never on delete. Email is tombstoned, so the reconcile email-fallback can't match either. <em>Confirmed.</em></span></div>
+        <div class="field"><span class="k">Impact</span><span class="val">A premium user who deletes their account keeps being charged with no in-app record to cancel against, and Stripe retains their customer object — direct financial harm and a contradiction of the "delete within 30 days" promise in <code>privacy.html:192</code>.</span></div>
+        <div class="field"><span class="k">Fix</span><span class="val">Before blanking <code>stripe_customer_id</code>, best-effort list active subscriptions and <code>stripe.subscriptions.cancel</code>. Guard so a Stripe outage never blocks local deletion; log failures for retry.</span></div>
+      </div>
+
+      <div class="card">
+        <div class="top"><span class="rank">2</span><span class="chip s1">S1</span><span class="chip dom">Security</span><span class="chip live">Live-verified</span></div>
+        <h3>Admin dashboard transmits <code class="inline">ADMIN_KEY</code> as a URL query parameter</h3>
+        <div class="field"><span class="k">Evidence</span><span class="val">The live <code>/admin.html</code> serves JS building <code>fetch('/api/admin/...?key='+getKey())</code>. Gating works (unauth <code>/api/admin/stats</code> → 403, verified) but the key travels in the URL. <code>admin.html</code> already builds a <code>headers()</code> object it could route the key through.</span></div>
+        <div class="field"><span class="k">Impact</span><span class="val">The high-value key lands in Railway/edge access logs, proxy/CDN logs, and browser history. One leaked log line grants full admin-dashboard read access — user enumeration, emails, geo. Credentials-in-URL is an OWASP-flagged anti-pattern.</span></div>
+        <div class="field"><span class="k">Fix</span><span class="val">Send the key in an <code>Authorization</code>/<code>X-Admin-Key</code> header and drop all <code>?key=</code> usage; confirm access logs don't retain query strings in the interim.</span></div>
+      </div>
+
+      <div class="card">
+        <div class="top"><span class="rank">3</span><span class="chip s1">S1</span><span class="chip dom">Legal · Compliance</span></div>
+        <h3>Privacy policy names the wrong subprocessors and omits the real ones</h3>
+        <div class="field"><span class="k">Evidence</span><span class="val"><code>privacy.html</code> lists "Vercel" (DB), "cPanel" (email) and "Vercel Web Analytics" — but the API + SQLite run on <b>Railway</b>, email sends via <b>Resend</b>, analytics is first-party, and <code>litestream.yml</code> replicates the full DB (emails, pw_hash, geo) to <b>Cloudflare R2</b>, an undisclosed backup subprocessor. <em>Confirmed.</em></span></div>
+        <div class="field"><span class="k">Impact</span><span class="val">GDPR Art.13/28 and CCPA/CPRA require accurate recipient disclosure. The list is both over- and under-inclusive, breaking any DPA/SCC chain on first audit or complaint.</span></div>
+        <div class="field"><span class="k">Fix</span><span class="val">Rewrite privacy §5.1 to Railway, Resend, Cloudflare R2, Stripe (+ LibreTranslate if enabled); remove the false claims; confirm signed DPAs.</span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Authenticated live probe</h2><span class="rule"></span><span class="kick">production API · owner-authorized</span></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Probe</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>IDOR — A reads B's <code class="inline">/api/users/:id/profile</code></td><td><span class="st ok">✓ SAFE</span> — no email / pw_hash / stripe-id / token; only public leaderboard-equivalent fields</td></tr>
+          <tr><td>Admin gating — <code class="inline">/api/admin/stats</code> no-key / wrong-key</td><td><span class="st ok">✓ 403 / 403</span> — correctly gated</td></tr>
+          <tr><td>Trophy leaderboard — fresh account POSTs <code class="inline">trophyPoints:99999999</code></td><td><span class="st bad">✗ CONFIRMED</span> — instantly topped the <em>public</em> global trophy ladder; profile showed fabricated points</td></tr>
+          <tr><td>Cross-account write — A POSTs <code class="inline">/api/progress</code> with <code class="inline">userId=B.id</code></td><td><span class="st ok">✓ SAFE</span> — B unchanged; server scopes writes to <code class="inline">req.userId</code></td></tr>
+          <tr><td>Enumeration oracle — re-signup existing email</td><td><span class="st warn">▲ CONFIRMED</span> — distinct "already exists" message</td></tr>
+          <tr><td>Account deletion</td><td><span class="st ok">✓ WORKS</span> — password-gated; soft-anonymize tombstones the row + revokes JWTs</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="probe-note">The live probe <b>elevates</b> the client-authoritative trophy leaderboard (S2 #4 below): it is not theoretical — a brand-new account rigged the public ladder in a single request. Fix it alongside the S1s if the leaderboard is launch-visible. <em>Both throwaway accounts were reset and deleted; nothing lingered on the live board.</em></p>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Action plan</h2><span class="rule"></span><span class="kick">ordered</span></div>
+    <div class="plan">
+      <div class="tier">S1 — before broad launch</div>
+      <div class="step s1"><span class="no">01</span><span class="txt">Cancel the active Stripe subscription (and optionally delete the customer) in <code>deleteAccount()</code> before blanking <code>stripe_customer_id</code>; best-effort so a Stripe outage never blocks deletion.</span></div>
+      <div class="step s1"><span class="no">02</span><span class="txt">Move <code>ADMIN_KEY</code> out of the URL into an <code>Authorization</code>/<code>X-Admin-Key</code> header; remove every <code>?key=</code> call site.</span></div>
+      <div class="step s1"><span class="no">03</span><span class="txt">Rewrite <code>privacy.html</code> §5.1 to the real subprocessors (Railway, Resend, Cloudflare R2, Stripe); confirm signed DPAs.</span></div>
+
+      <div class="tier">S2 — ships-well cluster</div>
+      <div class="step s2"><span class="no">04</span><span class="txt">Make trophies <b>server-authoritative</b> — derive points/achievements in the game-finish/puzzle paths; stop trusting <code>POST /api/progress</code>. <em>(Live-confirmed exploitable.)</em></span></div>
+      <div class="step s2"><span class="no">05</span><span class="txt">Add <code>flags.openings</code> + <code>flags.gauntlet</code> to the sync round-trip (all three places, both DB backends) so learning progress stops silently resetting cross-device; add a guard.</span></div>
+      <div class="step s2"><span class="no">06</span><span class="txt">Serve socket.io from the vendored copy as primary (or pin SRI), drop cdnjs from CSP, and emit the full CSP as an HTTP header via <code>vercel.json</code>.</span></div>
+      <div class="step s2"><span class="no">07</span><span class="txt">Add <code>AbortSignal.timeout(8000)</code> to the Resend fetch so a hung endpoint can't stall signup/reset/reengage.</span></div>
+      <div class="step s2"><span class="no">08</span><span class="txt">Fix the bot-worker double-respawn (guard <code>failSlot</code> re-entry + respawn backoff/ceiling).</span></div>
+      <div class="step s2"><span class="no">09</span><span class="txt">Add a timeout-bounded DB ping to <code>/health</code>; gate the commit SHA / infra flags behind the admin key.</span></div>
+      <div class="step s2"><span class="no">10</span><span class="txt">Accessibility: keyboard/SR support for checkers, real focusable tab controls (unblocks keyboard signup), <code>aria-live</code> regions, <code>direction:ltr</code> on boards under RTL; extend <code>a11y.mjs</code>.</span></div>
+      <div class="step s2"><span class="no">11</span><span class="txt">Perf/SEO: immutable <code>Cache-Control</code> for versioned assets; split <code>learn-library.js</code> out of the bundle + lazy-load off-path modules; render or remove the FAQPage schema.</span></div>
+      <div class="step s2"><span class="no">12</span><span class="txt">Fail CORS <b>closed</b> when <code>CORS_ORIGIN</code> is unset in prod; remove stale localhost/capacitor allowlist entries.</span></div>
+
+      <div class="tier">S3 — hygiene &amp; polish</div>
+      <div class="step s3"><span class="no">13</span><span class="txt">try/catch the timeout-sweep interval; unique index on <code>LOWER(username)</code> in both backends; re-key XFF abuse buckets on <code>req.ip</code>.</span></div>
+      <div class="step s3"><span class="no">14</span><span class="txt">Bump <code>ws</code> ≥ 8.21.0 and <b>commit</b> <code>server/package-lock.json</code>; generalize the signup response to close the enumeration oracle.</span></div>
+      <div class="step s3"><span class="no">15</span><span class="txt">Compliance polish: tokenized unsubscribe + postal address on comeback emails; null <code>analytics_events.user_id</code> on delete; CSP on <code>admin.html</code>.</span></div>
+      <div class="step s3"><span class="no">16</span><span class="txt">SEO polish: re-encode <code>og-image.png</code> &lt; 200KB; drop dead <code>icon-1024.png</code>; real per-URL sitemap <code>lastmod</code>; Article dates on learn/openings/endgames; canonical on the <code>/c/:id</code> card.</span></div>
+      <div class="step s3"><span class="no">17</span><span class="txt">Return elo-strength legality + edge-FEN asserts to blocking CI (quarantine only the flaky gradient); cover the clock-timeout sweep, rematch handshake, and friends/block lifecycle.</span></div>
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>ChessTrophies audit · 2026-07-22 · 0 S0 / 3 S1 / 17 S2 / 28 S3</span>
+    <span>3-tier adversarial · 22 agents · report in docs/audit/</span>
+  </div>
+</footer>
+
+<script>
+  // Fill the score ring from 0 for a considered reveal (respects reduced-motion).
+  (function(){
+    var ring=document.querySelector('.ring');
+    if(!ring) return;
+    if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches){return;}
+    var target=77,cur=0;
+    ring.style.setProperty('--v',0);
+    var numEl=document.querySelector('.ring-num .n');
+    requestAnimationFrame(function(){
+      ring.style.transition='background 1.2s cubic-bezier(.2,.7,.2,1)';
+      ring.style.setProperty('--v',target);
+    });
+    var t0=null;
+    function step(ts){if(!t0)t0=ts;var p=Math.min((ts-t0)/1200,1);var e=1-Math.pow(1-p,3);
+      numEl.textContent=Math.round(e*target);if(p<1)requestAnimationFrame(step);else numEl.textContent=target;}
+    requestAnimationFrame(step);
+  })();
+</script>
