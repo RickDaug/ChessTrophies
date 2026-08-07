@@ -49,7 +49,7 @@ import * as store from './store.js';
 // authoritative: unknown ids are dropped and the point total is computed here.
 import { scoreAchievements, statsFromUser } from './trophy-catalog.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
-import { mountBilling, mountBillingWebhook, logBillingStatus, stripeRevenueStats } from './billing.js';
+import { mountBilling, mountBillingWebhook, logBillingStatus, stripeRevenueStats, cancelSubscriptionsForUser } from './billing.js';
 import { mountStore, logStoreStatus } from './entitlements.js';
 import { mountPush, logPushStatus, sendPushToUser } from './push.js';
 import { mountPuzzles } from './puzzles.js';
@@ -1490,9 +1490,28 @@ app.delete('/api/admin/user/:id', async (req, res, next) => {
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ error: 'User id required.' });
     const dryRun = /^(1|true|yes)$/i.test(String(req.query.dryRun || ''));
+
+    // AUDIT 2026-07 (S1), second path: the GDPR soft-delete (/api/me/delete)
+    // cancels Stripe via auth.deleteAccount, but this hard delete removes the
+    // users row OUTRIGHT — including stripe_customer_id and the email — so a
+    // subscription left live here could never be traced back to an account at
+    // all. Cancel FIRST, while the row still exists. Same best-effort contract:
+    // cancelSubscriptionsForUser never throws, and a Stripe failure must not
+    // block the scrub (it's logged loudly with the ids for a manual cancel).
+    const victim = await store.getUserById(id);
+    let stripeResult = { skipped: 'dry_run', cancelled: 0, failed: 0 };
+    if (!dryRun && victim) {
+      stripeResult = await cancelSubscriptionsForUser(victim);
+      if (stripeResult && stripeResult.failed) {
+        console.error(`[admin-delete] MANUAL ACTION REQUIRED: could not cancel every Stripe subscription for user ${id} (customer ${victim.stripe_customer_id || 'n/a'}, email ${victim.email || 'n/a'}). Cancelled ${stripeResult.cancelled}, failed ${stripeResult.failed}. Cancel the remainder in the Stripe Dashboard.`);
+      }
+    }
+
     const result = await store.adminDeleteUserHard(id, { dryRun });
     if (!result.found && !dryRun) return res.status(404).json({ error: 'User not found.' });
-    res.json(result);
+    // Surface the Stripe outcome so the operator sees a failed cancel in the
+    // response, not just the server log.
+    res.json({ ...result, stripe: stripeResult });
   } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 

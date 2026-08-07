@@ -154,11 +154,20 @@ async function reconcilePremiumForUser(stripe, user) {
 export async function cancelSubscriptionsForUser(user) {
   if (!user) return { skipped: 'no_user', cancelled: 0, failed: 0 };
   if (!stripeConfigured()) return { skipped: 'not_configured', cancelled: 0, failed: 0 };
+  const stripe = await getStripe();
+  if (!stripe) return { skipped: 'not_configured', cancelled: 0, failed: 0 };
+  return cancelSubscriptionsWithClient(stripe, user);
+}
+
+// The cancellation itself, against an explicit Stripe client. Split out from
+// cancelSubscriptionsForUser so tests can drive the real lookup/filter/cancel
+// logic with a stub client instead of env vars and live network calls. Inherits
+// the same contract: NEVER throws.
+export async function cancelSubscriptionsWithClient(stripe, user) {
+  if (!stripe) return { skipped: 'not_configured', cancelled: 0, failed: 0 };
+  if (!user) return { skipped: 'no_user', cancelled: 0, failed: 0 };
   let cancelled = 0, failed = 0;
   try {
-    const stripe = await getStripe();
-    if (!stripe) return { skipped: 'not_configured', cancelled: 0, failed: 0 };
-
     const candidateIds = new Set();
     if (user.stripe_customer_id) candidateIds.add(user.stripe_customer_id);
     if (user.email) {
