@@ -25,6 +25,28 @@ export const DEFAULT_STATS = {
   elo_checkers_8: 1600, elo_checkers_10: 1600,
 };
 
+// Postgres counterpart of grantStats, for the tests that run BOTH backends
+// (pg-smoke). Same columns, same defaults — only the driver and placeholder
+// dialect differ. Async because node-postgres is.
+export async function grantStatsPg(connectionString, userId, stats = {}) {
+  const s = { ...DEFAULT_STATS, ...stats };
+  const require = createRequire(path.join(SERVER_DIR, 'package.json'));
+  const { Client } = require('pg');
+  const client = new Client({ connectionString });
+  await client.connect();
+  try {
+    await client.query(
+      `UPDATE users SET wins=$1, losses=$2, draws=$3, elo=$4, best_streak=$5, arena_wins=$6,
+       invites_accepted=$7, elo_checkers_8=$8, elo_checkers_10=$9 WHERE id=$10`,
+      [s.wins, s.losses, s.draws, s.elo, s.best_streak, s.arena_wins,
+       s.invites_accepted, s.elo_checkers_8, s.elo_checkers_10, userId]
+    );
+  } finally {
+    await client.end();
+  }
+  return s;
+}
+
 export function grantStats(dbPath, userId, stats = {}) {
   const s = { ...DEFAULT_STATS, ...stats };
   const require = createRequire(path.join(SERVER_DIR, 'package.json'));
