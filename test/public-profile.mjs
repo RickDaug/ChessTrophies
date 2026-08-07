@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { grantStatsAuto } from './lib/grant-stats.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(__dirname, '..', 'server');
@@ -55,6 +56,13 @@ async function main() {
     const auth = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
     const me = await (await fetch(`${BASE}/api/me`, { headers: auth })).json();
     const id = me.id;
+    // Trophies are entitlement-checked server-side (audit 2026-07): a fresh
+    // account has 0 games and is entitled to NO trophies. This test covers the
+    // sync PLUMBING, so give the account the counters a real player would have.
+    // grantStatsAuto, not grantStats: pg-run.mjs re-runs this test on Postgres,
+    // where a SQLite write would silently miss.
+    await grantStatsAuto(dbPath, id);
+
     assert(id, '/api/me returned no id');
 
     // Sync trophies + a 3-trophy showcase via the authed progress endpoint.
@@ -63,6 +71,8 @@ async function main() {
       body: JSON.stringify({
         lessonsCompleted: [], puzzles: {},
         achievements: [{ id: 'wins_t1', count: 1 }, { id: 'wins_t2', count: 1 }, { id: 'gauntlet_t4', count: 1 }],
+        // Inflated on purpose — trophies are server-authoritative, so the server
+        // must re-score from its catalog: wins_t1(10)+wins_t2(20)+gauntlet_t4(70)=100.
         streakTrophies: [], trophyPoints: 180,
         showcase: ['wins_t2', 'gauntlet_t4'],
       }),
@@ -78,7 +88,7 @@ async function main() {
     assert(p.username === `Showcaser_${RUN}`, 'returns the username');
     assert(p.email === undefined, 'MUST NOT leak email');
     assert(p.pw_hash === undefined && p.flags === undefined, 'MUST NOT leak pw_hash/flags');
-    assert(p.trophyPoints === 180, `returns trophyPoints (got ${p.trophyPoints})`);
+    assert(p.trophyPoints === 100, `returns SERVER-computed trophyPoints, not the client's 180 (got ${p.trophyPoints})`);
     assert(p.trophyCount === 3, `returns trophyCount = 3 (got ${p.trophyCount})`);
     assert(Array.isArray(p.achievements) && p.achievements.length === 3, 'returns earned achievement ids');
     assert(Array.isArray(p.showcase) && p.showcase.length === 2 && p.showcase[0] === 'wins_t2', 'returns the pinned showcase in order');

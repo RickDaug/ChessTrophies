@@ -35,6 +35,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_SITE = 'https://www.playchesstrophies.com';
 
+// Content revision date for this surface (YYYY-MM-DD). Drives the Article
+// JSON-LD datePublished/dateModified AND the sitemap <lastmod> build.mjs stamps
+// on these URLs. DECLARED, not `new Date()`: stamping the build date made every
+// deploy claim all ~87 pages changed, which is false. Bump when the endgame
+// content actually changes.
+const CONTENT_PUBLISHED = '2026-06-21';
+const CONTENT_REVISED = '2026-07-01';
+
 // ---------------------------------------------------------------------------
 // chess.min.js is a UMD file; on this type:module repo Node mis-loads UMD via
 // require(). Load it with a CommonJS shim: read the text and run it as CJS so
@@ -380,6 +388,8 @@ function endgamePageHtml(eg, fens, SITE) {
     description: desc,
     articleSection: 'Chess Endgames',
     about: eg.name,
+    datePublished: CONTENT_PUBLISHED,
+    dateModified: CONTENT_REVISED,
     url,
     mainEntityOfPage: url,
     image: `${SITE}/og-image.png`,
@@ -784,13 +794,13 @@ export async function generate({ DIST, SITE = DEFAULT_SITE } = {}) {
 
     await fsp.writeFile(path.join(outDir, eg.slug + '.html'), endgamePageHtml(eg, fens, SITE), 'utf8');
     entries.push(eg);
-    urls.push({ loc: `${SITE}/endgames/${eg.slug}.html`, priority: '0.7' });
+    urls.push({ loc: `${SITE}/endgames/${eg.slug}.html`, priority: '0.7', lastmod: CONTENT_REVISED });
   }
 
   await fsp.writeFile(path.join(outDir, 'endgame-stepper.js'), stepperJs(), 'utf8');
   await fsp.writeFile(path.join(outDir, 'index.html'), endgamesIndexHtml(entries, SITE), 'utf8');
 
-  const allUrls = [{ loc: `${SITE}/endgames/`, priority: '0.8' }, ...urls];
+  const allUrls = [{ loc: `${SITE}/endgames/`, priority: '0.8', lastmod: CONTENT_REVISED }, ...urls];
   return { urls: allUrls, count: entries.length };
 }
 

@@ -32,6 +32,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { grantStatsAuto } from './lib/grant-stats.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(__dirname, '..', 'server');
@@ -87,6 +88,14 @@ async function main() {
     const uid = me.id;
     log(`signed up ${me.username} (id ${uid})`);
 
+    // Trophies are entitlement-checked server-side (audit 2026-07): a fresh
+    // account has 0 games and is entitled to NO trophies. This test covers the
+    // sync PLUMBING, so give the account the counters a real player would have.
+    // grantStatsAuto, not grantStats: pg-run.mjs re-runs this test on Postgres,
+    // where a SQLite write would silently miss.
+    await grantStatsAuto(dbPath, uid);
+
+
     // The full payload that app.js gatherLocalProgress() sends.
     const payload = {
       lessonsCompleted: ['lesson-1', 'lesson-2', 'lesson-3'],
@@ -94,10 +103,21 @@ async function main() {
       showcase: ['wins_t6', 'gauntlet_t4', 'arena_t2'],
       themeBoard: 'marble',
       themePieces: 'neo',
+      // language + openings + gauntlet were all UNGUARDED before the 2026-07
+      // audit: openings/gauntlet were never sent at all (headline learning
+      // progress silently reset cross-device) and language had no HTTP guard.
+      language: 'es',
+      openings: { italian: { mastery: 100, attempts: 12, lastReviewed: 1700000000000 }, london: { mastery: 40, attempts: 3 } },
+      gauntlet: { beaten: 4, best: 'grandmaster-x' },
       achievements: [{ id: 'wins_t6', count: 1 }, { id: 'gauntlet_t4', count: 1 }, { id: 'mate_t1', count: 2 }],
-      streakTrophies: [{ id: 's1', streakNumber: 1 }, { id: 's2', streakNumber: 2 }],
+      streakTrophies: [{ id: 't_aa01', streakNumber: 1 }, { id: 't_aa02', streakNumber: 2 }],
+      // Deliberately INFLATED. Trophies are server-authoritative since the
+      // 2026-07 audit (a fresh account POSTed 99999999 and topped the public
+      // ladder), so the server must IGNORE this and score the catalog itself.
       trophyPoints: 540,
     };
+    // wins_t6(60) + gauntlet_t4(70) + mate_t1(10) = 140. Streak trophies score 0.
+    const EXPECTED_POINTS = 140;
 
     // === POST the full payload over REAL HTTP. ================================
     const pr = await post('/api/progress', payload, token);
@@ -124,13 +144,23 @@ async function main() {
     assert(prog.themePieces === 'neo', `themePieces should round-trip, got ${prog.themePieces}`);
     log('GET /api/progress showcase + themeBoard + themePieces round-trip ✓');
 
+    // language / openings / gauntlet — the fields the audit found unguarded.
+    assert(prog.language === 'es', `language should round-trip, got ${prog.language}`);
+    assert(prog.openings && prog.openings.italian && prog.openings.italian.mastery === 100,
+      `openings mastery should round-trip (was NEVER synced before the audit), got ${JSON.stringify(prog.openings)}`);
+    assert(prog.openings.london && prog.openings.london.attempts === 3,
+      'every opening entry should survive, not just the first');
+    assert(prog.gauntlet && prog.gauntlet.beaten === 4,
+      `gauntlet ladder progress should round-trip (was NEVER synced before the audit), got ${JSON.stringify(prog.gauntlet)}`);
+    log('GET /api/progress language + openings + gauntlet round-trip ✓');
+
     // === GET /api/users/:id/profile — trophy-leaderboard fields. =============
     // These were the historically-DROPPED fields (PR #24). The POST handler must
     // forward them to the achievements/streak_trophies/trophy_points columns,
     // surfaced on the public profile.
     const profile = await (await get(`/api/users/${uid}/profile`, token)).json();
-    assert(profile.trophyPoints === 540,
-      `trophyPoints must round-trip via the real handler (PR #24 bug), got ${profile.trophyPoints}`);
+    assert(profile.trophyPoints === EXPECTED_POINTS,
+      `trophyPoints must be SERVER-computed from the catalog, not the client's inflated ${payload.trophyPoints} (got ${profile.trophyPoints})`);
     assert(profile.trophyCount === payload.achievements.length + payload.streakTrophies.length,
       `trophyCount = achievements(${payload.achievements.length}) + streakTrophies(${payload.streakTrophies.length}), got ${profile.trophyCount}`);
     assert(profile.streakTrophyCount === payload.streakTrophies.length,
@@ -151,8 +181,12 @@ async function main() {
     assert(prog2.lessonsCompleted.includes('lesson-1'), 'old lessons should be preserved (union merge)');
     assert(sameSet(prog2.showcase, payload.showcase), 'showcase must survive a partial sync');
     assert(prog2.themeBoard === 'marble' && prog2.themePieces === 'neo', 'theme must survive a partial sync');
+    assert(prog2.openings && prog2.openings.italian && prog2.openings.italian.mastery === 100,
+      'openings must survive a partial sync (preserve-on-omit)');
+    assert(prog2.gauntlet && prog2.gauntlet.beaten === 4, 'gauntlet must survive a partial sync (preserve-on-omit)');
+    assert(prog2.language === 'es', 'language must survive a partial sync');
     const profile2 = await (await get(`/api/users/${uid}/profile`, token)).json();
-    assert(profile2.trophyPoints === 540, 'trophyPoints must survive a partial sync (COALESCE)');
+    assert(profile2.trophyPoints === EXPECTED_POINTS, 'trophyPoints must survive a partial sync (COALESCE)');
     assert(profile2.trophyCount === profile.trophyCount, 'trophies must survive a partial sync');
     log('partial sync preserved trophies + theme + showcase (no silent wipe) ✓');
 

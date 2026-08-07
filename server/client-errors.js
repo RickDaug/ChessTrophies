@@ -42,10 +42,11 @@ function clip(s, n) {
 }
 
 // Best-effort client IP — only used to scope the rate-limit bucket, never stored.
+// Uses Express's `trust proxy`-resolved req.ip (server.js sets it) instead of the
+// raw, caller-controlled X-Forwarded-For header, which could otherwise be rotated
+// to mint a fresh bucket per request and defeat the limiter entirely.
 function clientIp(req) {
-  const xff = req.headers && req.headers['x-forwarded-for'];
-  if (typeof xff === 'string' && xff) return xff.split(',')[0].trim();
-  return (req.ip || (req.socket && req.socket.remoteAddress) || '').toString();
+  return ((req && req.ip) || (req && req.socket && req.socket.remoteAddress) || '').toString();
 }
 
 // Mount POST /api/client-error. Run AFTER express.json() (req.body parsed).

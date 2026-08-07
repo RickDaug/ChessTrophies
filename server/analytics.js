@@ -72,12 +72,13 @@ function dayKeyOf(ts) { return new Date(ts).toISOString().slice(0, 10); }
 // The day_key N days before today (UTC), used as a `day_key >= ?` cutoff.
 function cutoffDayKey(days) { return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10); }
 
-// Best-effort client IP (behind a proxy we see x-forwarded-for). Only used to
-// scope the rate-limit bucket — it is NOT persisted.
+// Best-effort client IP. Uses Express's `trust proxy`-resolved req.ip (server.js
+// sets 'trust proxy' = 1 for Railway's single hop) rather than parsing the raw
+// X-Forwarded-For header — that header is caller-controlled, so rotating it
+// would mint a fresh rate-limit bucket per request (and skew the derived geo).
+// Only used to scope the rate-limit bucket + derive coarse geo — NOT persisted.
 function clientIp(req) {
-  const xff = req.headers && req.headers['x-forwarded-for'];
-  if (typeof xff === 'string' && xff) return xff.split(',')[0].trim();
-  return (req.ip || (req.socket && req.socket.remoteAddress) || '').toString();
+  return ((req && req.ip) || (req && req.socket && req.socket.remoteAddress) || '').toString();
 }
 
 export function mountAnalytics(app) {

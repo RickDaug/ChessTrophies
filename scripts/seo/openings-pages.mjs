@@ -28,6 +28,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
 const DEFAULT_SITE = 'https://www.playchesstrophies.com';
 
+// Content revision date for this surface (YYYY-MM-DD). Used for the Article
+// JSON-LD datePublished/dateModified AND for the sitemap <lastmod> build.mjs
+// stamps on these URLs. It is a DECLARED constant, not `new Date()`: stamping
+// the build date made every deploy claim all ~87 pages had changed, which is
+// false and devalues the signal. Bump this line when the opening prose/data
+// actually changes.
+const CONTENT_PUBLISHED = '2026-06-14';
+const CONTENT_REVISED = '2026-07-01';
+
 // ---------------------------------------------------------------------------
 // chess.min.js is a UMD file; this repo is type:module in places and Node 22
 // mis-loads UMD via require(). Load it with a CommonJS shim: read the text and
@@ -365,6 +374,8 @@ function openingPageHtml(o, slug, fen, SITE) {
     description: desc,
     articleSection: 'Chess Openings',
     about: `${o.name} (ECO ${o.eco})`,
+    datePublished: CONTENT_PUBLISHED,
+    dateModified: CONTENT_REVISED,
     url,
     mainEntityOfPage: url,
     image: `${SITE}/og-image.png`,
@@ -605,13 +616,13 @@ export async function generate({ DIST, SITE = DEFAULT_SITE } = {}) {
     await fsp.writeFile(path.join(DIST, 'openings', slug + '.html'), openingPageHtml(o, slug, fen, SITE), 'utf8');
 
     entries.push({ id: o.id, name: o.name, eco: o.eco, userColor: o.userColor, line: o.line, slug, fen, hook: CONTENT[o.id].hook });
-    urls.push({ loc: `${SITE}/openings/${slug}.html`, priority: '0.7' });
+    urls.push({ loc: `${SITE}/openings/${slug}.html`, priority: '0.7', lastmod: CONTENT_REVISED });
   }
 
   await fsp.writeFile(path.join(DIST, 'openings', 'index.html'), openingsIndexHtml(entries, SITE), 'utf8');
 
   // Hub first (higher priority), then the individual pages.
-  const allUrls = [{ loc: `${SITE}/openings/`, priority: '0.8' }, ...urls];
+  const allUrls = [{ loc: `${SITE}/openings/`, priority: '0.8', lastmod: CONTENT_REVISED }, ...urls];
   return { urls: allUrls, count: entries.length };
 }
 

@@ -1192,9 +1192,28 @@
     div.className = 'toast' + (gold ? ' gold' : '');
     // Use textContent here because toast messages may contain user-controlled text.
     div.textContent = msg;
-    document.body.appendChild(div);
+    // Append INSIDE the polite live region (#toast-region, role=status) so screen
+    // readers actually announce the toast — appending straight to <body> was
+    // completely silent. The toast is position:fixed, so nothing moves visually.
+    (document.getElementById('toast-region') || document.body).appendChild(div);
     setTimeout(() => div.style.opacity = '0', 2400);
     setTimeout(() => div.remove(), 2800);
+  }
+
+  // Announce a message in the visually-hidden polite live region (#a11y-live).
+  // Used for turn / check / game-result changes, which are otherwise conveyed
+  // only by colour + the small #game-status text. De-duped so repeated identical
+  // announcements don't nag; re-announces after a tick when the text repeats
+  // legitimately (some readers ignore an unchanged textContent write).
+  let _lastAnnounce = '';
+  function announce(msg) {
+    const el = document.getElementById('a11y-live');
+    if (!el || !msg) return;
+    const text = String(msg);
+    if (text === _lastAnnounce) return;
+    _lastAnnounce = text;
+    el.textContent = '';
+    setTimeout(() => { el.textContent = text; }, 50);
   }
 
   // Accessible modal: role=dialog + aria-modal, focus trap (Tab cycles inside),
@@ -1250,10 +1269,19 @@
   // ---------------------------------------------------------------------------
   // Auth UI
   // ---------------------------------------------------------------------------
+  // Keep aria-pressed in step with the .active class on a group of tab buttons.
+  // The tabs are real <button>s now (they used to be click-only <div>s that no
+  // keyboard user could reach), so the selected state has to be exposed to
+  // assistive tech too — the .active class alone means nothing to a screen reader.
+  function syncTabPressed(sel) {
+    $$(sel).forEach(x => x.setAttribute('aria-pressed', x.classList.contains('active') ? 'true' : 'false'));
+  }
+
   $$('#screen-auth .tab').forEach(t => {
     t.addEventListener('click', () => {
       $$('#screen-auth .tab').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
+      syncTabPressed('#screen-auth .tab');
       const which = t.dataset.tab;
       $('#form-login').style.display = which === 'login' ? '' : 'none';
       $('#form-signup').style.display = which === 'signup' ? '' : 'none';
@@ -2277,6 +2305,7 @@ function renderFriendsSummary() {
     ckLobby.gametype = (which === 'checkers') ? 'checkers' : 'chess';
     const isCk = ckLobby.gametype === 'checkers';
     $$('#gametype-tabs .tab').forEach((t) => t.classList.toggle('active', t.dataset.gametype === ckLobby.gametype));
+    syncTabPressed('#gametype-tabs .tab');
     const ckOpts = $('#checkers-options'); if (ckOpts) ckOpts.style.display = isCk ? '' : 'none';
     const chessCards = $('#chess-play-cards'); if (chessCards) chessCards.style.display = isCk ? 'none' : '';
     const ckCards = $('#checkers-play-cards'); if (ckCards) ckCards.style.display = isCk ? '' : 'none';
@@ -3365,8 +3394,21 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       themePieces: (state.user && state.user.themePieces) || 'classic',
       // Preferred UI language — follows the account across devices (like the theme).
       language: (state.user && state.user.language) || (window.CT_i18n && window.CT_i18n.getLang()) || 'en',
+      // OPENING TRAINER mastery (openings.js writes state.user.flags.openings) and
+      // BOT GAUNTLET ladder position (ct-gauntlet.js writes state.user.flags.gauntlet).
+      // Both were localStorage-only, so signing in on a second device silently reset
+      // them. The server persists these inside the existing flags.progress blob.
+      // Sent ONLY when non-empty: an empty blob from a device whose initial
+      // server GET has not landed yet must never look like "I have no openings",
+      // or it would wipe the account's mastery/ladder. The server also treats an
+      // empty object as "omitted" (belt and braces).
+      ...(nonEmpty(state.user && state.user.flags && state.user.flags.openings) ? { openings: state.user.flags.openings } : {}),
+      ...(nonEmpty(state.user && state.user.flags && state.user.flags.gauntlet) ? { gauntlet: state.user.flags.gauntlet } : {}),
     };
   }
+
+  // A plain object carrying at least one key (see gatherLocalProgress).
+  function nonEmpty(v) { return !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0; }
 
   // Merge the server's stored progress into local state (union lessons, merge puzzles).
   function applyServerProgress(p) {
@@ -3443,6 +3485,38 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
       }
       try { window.CT_i18n.setLang(p.language); } catch (e) {}
+    }
+    // OPENING TRAINER + BOT GAUNTLET progress (see gatherLocalProgress). Merge
+    // rather than overwrite, matching the rest of this function: a stale device
+    // must never be able to erase mastery or knock you back down the ladder.
+    if (state.user && p.openings && typeof p.openings === 'object' && !Array.isArray(p.openings)) {
+      state.user.flags = state.user.flags || {};
+      const localOp = state.user.flags.openings || {};
+      const mergedOp = Object.assign({}, localOp);
+      Object.keys(p.openings).forEach((id) => {
+        const remote = p.openings[id];
+        if (!remote || typeof remote !== 'object') return;
+        const local = localOp[id];
+        if (!local) { mergedOp[id] = remote; return; }
+        mergedOp[id] = {
+          mastery: Math.max(local.mastery || 0, remote.mastery || 0),
+          attempts: Math.max(local.attempts || 0, remote.attempts || 0),
+          // Most recent review wins (ISO strings compare lexicographically).
+          lastReviewed: (String(remote.lastReviewed || '') > String(local.lastReviewed || '')) ? remote.lastReviewed : local.lastReviewed,
+        };
+      });
+      state.user.flags.openings = mergedOp;
+      const db = loadDB();
+      if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
+    }
+    if (state.user && p.gauntlet && typeof p.gauntlet === 'object' && !Array.isArray(p.gauntlet)) {
+      state.user.flags = state.user.flags || {};
+      const localG = state.user.flags.gauntlet || {};
+      const remoteBeaten = (typeof p.gauntlet.beaten === 'number') ? p.gauntlet.beaten : -1;
+      const localBeaten = (typeof localG.beaten === 'number') ? localG.beaten : -1;
+      state.user.flags.gauntlet = Object.assign({}, localG, p.gauntlet, { beaten: Math.max(localBeaten, remoteBeaten) });
+      const db = loadDB();
+      if (db.users[state.user.id]) { db.users[state.user.id] = state.user; saveDB(db); }
     }
     // Refresh any visible rank/academy UI now that counts may have grown.
     try { if (window.CT_renderAcademy && document.getElementById('screen-academy').classList.contains('active')) window.CT_renderAcademy(); } catch (e) {}
@@ -4435,6 +4509,14 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     else if (state.game.in_check()) text = (turn === 'w' ? 'White' : 'Black') + ' in check';
     else text = (turn === 'w' ? 'White' : 'Black') + ' to move';
     $('#game-status').textContent = text;
+    // Announce turn / check / mate in the polite live region — a sighted player
+    // reads #game-status and the highlighted player row, a screen-reader user got
+    // nothing at all. Say whose move it is in the player's own terms.
+    let spoken = text;
+    if (!state.game.game_over()) {
+      spoken = text + (turn === state.userColor ? ' — your move' : ' — waiting for your opponent');
+    }
+    announce(spoken);
     $('#player-top').classList.toggle('active', (state.orientation === state.userColor ? turn !== state.userColor : turn === state.userColor));
     $('#player-bot').classList.toggle('active', (state.orientation === state.userColor ? turn === state.userColor : turn !== state.userColor));
   }
@@ -4881,6 +4963,9 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       _outcomeEl.style.display = '';
     }
     $('#result-body').textContent = body;
+    // Announce the outcome too — the result modal is opened programmatically, so
+    // without this a screen-reader user just hears the dialog title and no verdict.
+    announce('Game over. ' + title + '. ' + body);
     $('#result-rewards').innerHTML = rewards.join('') + renderAdSlot('medium');
     // Rematch UI: only for online 1v1 games (eligible flag set at match start and
     // cleared for offline/2v2). Reset to its default "Rematch" state each time.
@@ -5468,6 +5553,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     t.addEventListener('click', () => {
       $$('#rank-metric-tabs .tab').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
+      syncTabPressed('#rank-metric-tabs .tab');
       currentRankMetric = t.dataset.metric;
       renderRankings();
     });
@@ -5476,6 +5562,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     t.addEventListener('click', () => {
       $$('#rank-size-tabs .rank-size').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
+      syncTabPressed('#rank-size-tabs .rank-size');
       currentRankSize = t.dataset.size;
       renderRankings();
     });
@@ -6536,7 +6623,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     get state(){ return state; },
     get user(){ return state.user; },
     setUser(u){ state.user = u; },
-    $, $$, openModal, closeModal, showScreen, showNav, toast, ctCelebrate,
+    $, $$, openModal, closeModal, showScreen, showNav, toast, announce, ctCelebrate,
     loadDB, saveDB, pieceSVG, escapeHTML, startGauntletGame,
     ACHIEVEMENT_TIERS,
     hasAchievement, achievementCount, unlockAchievement, checkAchievementsFor, tierColor,

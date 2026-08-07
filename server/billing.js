@@ -130,6 +130,89 @@ async function reconcilePremiumForUser(stripe, user) {
   }
 }
 
+// --- Account deletion: cancel the user's subscriptions ----------------------
+//
+// AUDIT 2026-07 (S1): deleteAccount() only called store.deleteAccountData(),
+// which blanks stripe_customer_id — Stripe was never told anything, so a paying
+// user's subscription kept renewing forever with no account left to manage or
+// cancel it from. auth.js now calls this FIRST, before the local delete
+// tombstones the customer id and email.
+//
+// Contract (auth.js depends on it):
+//   - COMPLETE NO-OP when Stripe isn't configured — returns
+//     { skipped:'not_configured', cancelled:0, failed:0 } and never throws.
+//   - NEVER THROWS for any reason. A Stripe outage must not block a GDPR
+//     deletion; the caller logs `failed > 0` for manual retry.
+//   - Cancels IMMEDIATELY (not at period end): the account is going away, so
+//     leaving the sub live until the period ends would keep billing a user who
+//     can no longer see it.
+//
+// Looks the customer up by stripe_customer_id AND by email (mirrors
+// reconcilePremiumForUser) — catches a sub created under a second customer with
+// the same address, or a mapping that was never persisted. MUST be called before
+// the email is tombstoned.
+export async function cancelSubscriptionsForUser(user) {
+  if (!user) return { skipped: 'no_user', cancelled: 0, failed: 0 };
+  if (!stripeConfigured()) return { skipped: 'not_configured', cancelled: 0, failed: 0 };
+  const stripe = await getStripe();
+  if (!stripe) return { skipped: 'not_configured', cancelled: 0, failed: 0 };
+  return cancelSubscriptionsWithClient(stripe, user);
+}
+
+// The cancellation itself, against an explicit Stripe client. Split out from
+// cancelSubscriptionsForUser so tests can drive the real lookup/filter/cancel
+// logic with a stub client instead of env vars and live network calls. Inherits
+// the same contract: NEVER throws.
+export async function cancelSubscriptionsWithClient(stripe, user) {
+  if (!stripe) return { skipped: 'not_configured', cancelled: 0, failed: 0 };
+  if (!user) return { skipped: 'no_user', cancelled: 0, failed: 0 };
+  let cancelled = 0, failed = 0;
+  try {
+    const candidateIds = new Set();
+    if (user.stripe_customer_id) candidateIds.add(user.stripe_customer_id);
+    if (user.email) {
+      try {
+        const found = await stripe.customers.list({ email: user.email, limit: 10 });
+        for (const c of (found && found.data) || []) candidateIds.add(c.id);
+      } catch (e) {
+        // The email fallback is best-effort; a failure here just means we only
+        // clean up the customer we already had mapped.
+        console.warn('[billing] cancelSubscriptionsForUser: customer lookup by email failed:', e && e.message ? e.message : e);
+      }
+    }
+    if (candidateIds.size === 0) return { skipped: 'no_customer', cancelled: 0, failed: 0 };
+
+    // Anything still billable. 'canceled'/'incomplete_expired' are already dead.
+    const LIVE_STATUSES = new Set(['active', 'trialing', 'past_due', 'unpaid', 'incomplete', 'paused']);
+    for (const cid of candidateIds) {
+      let subs;
+      try {
+        subs = await stripe.subscriptions.list({ customer: cid, status: 'all', limit: 100 });
+      } catch (e) {
+        failed++;
+        console.error(`[billing] cancelSubscriptionsForUser: could not list subscriptions for customer ${cid}:`, e && e.message ? e.message : e);
+        continue;
+      }
+      for (const s of ((subs && subs.data) || [])) {
+        if (!LIVE_STATUSES.has(s.status)) continue;
+        try {
+          await stripe.subscriptions.cancel(s.id);
+          cancelled++;
+          console.log(`[billing] cancelled subscription ${s.id} (customer ${cid}) for deleted account ${user.id}.`);
+        } catch (e) {
+          failed++;
+          console.error(`[billing] FAILED to cancel subscription ${s.id} (customer ${cid}) for deleted account ${user.id} — cancel it manually in the Stripe Dashboard:`, e && e.message ? e.message : e);
+        }
+      }
+    }
+  } catch (e) {
+    // Belt and braces: this function's whole contract is "never throws".
+    failed++;
+    console.error('[billing] cancelSubscriptionsForUser failed:', e && e.message ? e.message : e);
+  }
+  return { skipped: null, cancelled, failed };
+}
+
 // Register the JSON billing routes (config / checkout / portal). These run AFTER
 // express.json() in server.js so req.body is parsed normally.
 export function mountBilling(app) {

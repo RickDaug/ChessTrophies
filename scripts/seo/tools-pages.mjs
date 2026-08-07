@@ -648,6 +648,11 @@ ${ctaCard(SITE)}
 // generate() + main guard
 // ---------------------------------------------------------------------------
 
+// Content revision date for this surface (YYYY-MM-DD) -> sitemap <lastmod>.
+// DECLARED, not `new Date()`: stamping the build date made every deploy claim
+// every page had changed. Bump when the tool pages actually change.
+const CONTENT_REVISED = '2026-07-01';
+
 export async function generate({ DIST, SITE }) {
   const toolsDir = path.join(DIST, 'tools');
   await mkdir(toolsDir, { recursive: true });
@@ -659,9 +664,9 @@ export async function generate({ DIST, SITE }) {
   await writeFile(path.join(toolsDir, 'fen-board-viewer.js'), fenJs(), 'utf8');
 
   const urls = [
-    { loc: `${SITE}/tools/`, priority: '0.8' },
-    { loc: `${SITE}/tools/elo-rating-calculator.html`, priority: '0.7' },
-    { loc: `${SITE}/tools/fen-board-viewer.html`, priority: '0.7' },
+    { loc: `${SITE}/tools/`, priority: '0.8', lastmod: CONTENT_REVISED },
+    { loc: `${SITE}/tools/elo-rating-calculator.html`, priority: '0.7', lastmod: CONTENT_REVISED },
+    { loc: `${SITE}/tools/fen-board-viewer.html`, priority: '0.7', lastmod: CONTENT_REVISED },
   ];
   return { urls, count: urls.length };
 }

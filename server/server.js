@@ -38,15 +38,18 @@ async function initSentry() {
 function captureException(err) { try { if (Sentry) Sentry.captureException(err); } catch (e) {} }
 await initSentry();
 
-import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, deleteAccount, verifyEmailCode, resendEmailVerification } from './auth.js';
+import { signup, login, requireAuth, verifyToken, requestPasswordReset, resetPassword, changePassword, deleteAccount, verifyEmailCode, resendEmailVerification, verifyUnsubscribeToken } from './auth.js';
 import { assignGuestName, releaseGuestName, activeGuestCount } from './guest-names.js';
 // `db` is still imported directly only to close the SQLite handle on shutdown
 // (no-op when running on Postgres); `getProgress` is a pure flags-JSON parser
 // (identical on both backends). All other persistence goes through `store.*`.
 import { db, getProgress } from './db.js';
 import * as store from './store.js';
+// Server-side trophy scoring. The trophy leaderboard is no longer client-
+// authoritative: unknown ids are dropped and the point total is computed here.
+import { scoreAchievements, statsFromUser } from './trophy-catalog.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
-import { mountBilling, mountBillingWebhook, logBillingStatus, stripeRevenueStats } from './billing.js';
+import { mountBilling, mountBillingWebhook, logBillingStatus, stripeRevenueStats, cancelSubscriptionsForUser } from './billing.js';
 import { mountStore, logStoreStatus } from './entitlements.js';
 import { mountPush, logPushStatus, sendPushToUser } from './push.js';
 import { mountPuzzles } from './puzzles.js';
@@ -76,6 +79,35 @@ function adminKeyOk(provided) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+// AUDIT 2026-07 (S1): the admin key must NOT travel in the URL. A query string
+// lands in the browser history, the Referer header of any outbound link, CDN /
+// proxy access logs and Railway's request logs — none of which are a place for a
+// long-lived root credential.
+//
+// Read order (first non-empty wins):
+//   1. `X-Admin-Key: <key>`            — preferred; what admin.html now sends.
+//   2. `Authorization: Bearer <key>`   — alternative for curl/scripts.
+//   3. `?key=<key>`                    — DEPRECATED, kept only so an already-open
+//                                        dashboard tab keeps working through the
+//                                        rollout. Logs a warning; remove once the
+//                                        client-side fix has shipped everywhere.
+// Returns '' when nothing was supplied (adminKeyOk then fails closed).
+function adminKeyFromReq(req) {
+  const header = req.get('x-admin-key');
+  if (header) return header;
+  const auth = req.get('authorization') || '';
+  if (/^Bearer\s+/i.test(auth)) {
+    const bearer = auth.replace(/^Bearer\s+/i, '').trim();
+    if (bearer) return bearer;
+  }
+  const q = req.query && typeof req.query.key === 'string' ? req.query.key : '';
+  if (q) {
+    console.warn(`[admin] DEPRECATED: admin key supplied via ?key= on ${req.method} ${req.path} — send the X-Admin-Key header instead (the query string leaks into logs/history/Referer).`);
+    return q;
+  }
+  return '';
+}
+
 const app = express();
 const httpServer = http.createServer(app);
 
@@ -95,29 +127,49 @@ const httpServer = http.createServer(app);
 //      the backend's own origin.
 // Migrating the backend host means updating ALL THREE. See config.js for the
 // canonical note.
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// AUDIT 2026-07 (S2): the localhost/capacitor entries below are LEGACY. The
+// native Capacitor app was removed in 2026-06 (web-only since), so in production
+// they are dead allowlist entries that let any page served from a localhost
+// origin call the live API. They are kept ONLY for local development
+// (NODE_ENV !== 'production'), where a dev client genuinely runs on localhost.
 const DEFAULT_WEB_ORIGINS = [
   'https://www.playchesstrophies.com',
   'https://playchesstrophies.com',
   'https://chesstrophies-production.up.railway.app',
-  // Native app (Capacitor) WebView origins:
-  'https://localhost',
-  'capacitor://localhost',
-  'http://localhost',
+  // Dev-only (see above): removed entirely in production.
+  ...(IS_PRODUCTION ? [] : ['https://localhost', 'capacitor://localhost', 'http://localhost']),
 ];
 
-function parseCorsOrigins(value) {
-  if (!value || value.trim() === '*') return '*';
-  return value.split(',').map(s => s.trim()).filter(Boolean);
+// Parse CORS_ORIGIN into an allowlist. FAIL CLOSED in production: a blank/unset
+// value used to become '*' (any origin could call the API with credentials);
+// now it falls back to DEFAULT_WEB_ORIGINS. An explicit '*' is still honoured
+// OUTSIDE production so local tooling keeps working, but is refused in
+// production — you must name your origins there.
+function parseCorsOrigins(value, { production = IS_PRODUCTION } = {}) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) {
+    if (production) {
+      console.warn('[cors] CORS_ORIGIN is unset in production — falling back to the built-in web origins (NOT "*"). Set CORS_ORIGIN to your real domain(s).');
+      return DEFAULT_WEB_ORIGINS.slice();
+    }
+    return '*';
+  }
+  if (raw === '*') {
+    if (production) {
+      console.warn('[cors] CORS_ORIGIN="*" is REFUSED in production — falling back to the built-in web origins. Set CORS_ORIGIN to your real domain(s).');
+      return DEFAULT_WEB_ORIGINS.slice();
+    }
+    return '*';
+  }
+  return raw.split(',').map(s => s.trim()).filter(Boolean);
 }
 
 let corsOrigins = parseCorsOrigins(process.env.CORS_ORIGIN);
-// Loud warning if CORS is wide open (or unset, which defaults to '*') while
-// running in production — a wildcard origin lets any site call the API.
-if (corsOrigins === '*' && process.env.NODE_ENV === 'production') {
-  console.warn('[cors] WARNING: CORS_ORIGIN is unset or "*" in production — this allows requests from ANY origin. Set CORS_ORIGIN to your real domain(s).');
-}
-// Unless CORS is wide open ('*'), always union-in the production web origins so
-// the hosted client works regardless of how CORS_ORIGIN is set in the env.
+// Unless CORS is wide open ('*' — only reachable outside production now), always
+// union-in the production web origins so the hosted client works regardless of
+// how CORS_ORIGIN is set in the env.
 if (corsOrigins !== '*') {
   corsOrigins = Array.from(new Set([...corsOrigins, ...DEFAULT_WEB_ORIGINS]));
 }
@@ -198,7 +250,55 @@ app.use((req, res, next) => {
 // NOTE: `backupsConfigured`/`durable` reflect CONFIGURATION PRESENCE only
 // (LITESTREAM_REPLICA_URL set + binary present, or Postgres) — NOT a verified
 // live-replication check. Don't over-trust them as proof backups are flowing.
-app.get('/health', (req, res) => res.json({ ok: true, time: Date.now(), build: BUILD_ID, litestream: HAS_LITESTREAM, backupsConfigured: !!process.env.LITESTREAM_REPLICA_URL, durable: store.usingPostgres || (HAS_LITESTREAM && !!process.env.LITESTREAM_REPLICA_URL), dbBackend: store.usingPostgres ? 'postgres' : 'sqlite', sentry: !!Sentry, pushConfigured: !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT), botReady: botEngineReady(), multiInstance: !!process.env.REDIS_URL, ...(req.query.diag ? { botDiag: botEngineDiag() } : {}) }));
+//
+// AUDIT 2026-07 (S2), two changes:
+//   1. READINESS, not just liveness. The old handler answered ok:true as long as
+//      the event loop was turning, so a dead/wedged database still looked
+//      healthy and Railway never recycled the container. We now do ONE cheap
+//      `SELECT 1`, bounded to DB_PING_TIMEOUT_MS by Promise.race, and answer
+//      503 + ok:false when it fails or times out.
+//   2. LESS FREE RECON. The commit SHA, error-tracking/DB backend and scaling
+//      details are infrastructure fingerprinting; they are now ADMIN-KEY gated
+//      (X-Admin-Key / Authorization: Bearer / the deprecated ?key=). The public
+//      response keeps only what an uptime probe actually needs: ok / durable /
+//      botReady (+ time).
+const DB_PING_TIMEOUT_MS = 1500;
+
+// Resolve true iff a trivial query came back inside the bound. Never throws.
+async function dbPingOk() {
+  try {
+    const ping = store.get('SELECT 1 AS ok').then(() => true, () => false);
+    const timeout = new Promise((resolve) => setTimeout(() => resolve(false), DB_PING_TIMEOUT_MS).unref?.());
+    return await Promise.race([ping, timeout]);
+  } catch (e) {
+    return false;
+  }
+}
+
+app.get('/health', async (req, res) => {
+  const dbOk = await dbPingOk();
+  const body = {
+    ok: dbOk,
+    time: Date.now(),
+    durable: store.usingPostgres || (HAS_LITESTREAM && !!process.env.LITESTREAM_REPLICA_URL),
+    botReady: botEngineReady(),
+  };
+  if (adminKeyOk(adminKeyFromReq(req))) {
+    body.build = BUILD_ID;
+    body.litestream = HAS_LITESTREAM;
+    body.backupsConfigured = !!process.env.LITESTREAM_REPLICA_URL;
+    body.dbBackend = store.usingPostgres ? 'postgres' : 'sqlite';
+    body.sentry = !!Sentry;
+    body.pushConfigured = !!(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT);
+    body.multiInstance = !!process.env.REDIS_URL;
+    if (req.query.diag) body.botDiag = botEngineDiag();
+  }
+  if (!dbOk) {
+    console.error('[health] database ping FAILED or timed out — reporting 503 so the platform can recycle this instance.');
+    return res.status(503).json({ ...body, error: 'database unavailable' });
+  }
+  res.json(body);
+});
 
 // Public runtime config (NO auth). The client reads this to decide whether to
 // show ranked matchmaking UI. Server enforcement is separate (socket handlers),
@@ -354,6 +454,70 @@ app.post('/api/auth/reset', authLimiter, async (req, res, next) => {
     await resetPassword(token, newPassword);
     res.json({ ok: true });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
+});
+
+// --- CAN-SPAM one-click unsubscribe (NO auth) ------------------------------
+// AUDIT 2026-07 (S3): the re-engagement / "comeback" emails carried no opt-out
+// mechanism. This is the verifying endpoint their link points at. Auth is the
+// HMAC token itself (auth.js makeUnsubscribeToken/verifyUnsubscribeToken) —
+// requiring a login here would defeat the point: the recipient must be able to
+// stop the mail in ONE click, from the email client, without an account session.
+//
+// GET renders a tiny confirmation page (what a human clicking the link gets);
+// POST is the RFC 8058 List-Unsubscribe-Post target mail clients hit
+// automatically. Both are idempotent and always answer 200 on a valid token.
+//
+// The opt-out is stored as `emailOptOut: true` inside the existing users.flags
+// JSON (no new column, so db.js/db-pg.js stay at parity) and is enforced in
+// email.js sendComebackEmail, which refuses to send to an opted-out address.
+async function applyEmailUnsubscribe(rawToken) {
+  const userId = verifyUnsubscribeToken(rawToken);
+  if (!userId) return { ok: false };
+  const u = await store.get('SELECT id, flags FROM users WHERE id = ?', [userId]);
+  if (!u) return { ok: false };
+  let flags = {};
+  try { const f = JSON.parse(u.flags || '{}'); if (f && typeof f === 'object' && !Array.isArray(f)) flags = f; } catch (e) {}
+  if (flags.emailOptOut === true) return { ok: true, alreadyOptedOut: true };
+  flags.emailOptOut = true;
+  flags.emailOptOutAt = Date.now();
+  await store.run('UPDATE users SET flags = ? WHERE id = ?', [JSON.stringify(flags), userId]);
+  console.log('[email] unsubscribe honoured for user', userId);
+  return { ok: true, alreadyOptedOut: false };
+}
+
+// Minimal, dependency-free confirmation page. Text/HTML only, no inline JS
+// (the app is CSP-strict) and no user-controlled interpolation.
+function unsubscribePage(ok) {
+  const title = ok ? 'You are unsubscribed' : 'Link not recognised';
+  const body = ok
+    ? 'You will no longer receive ChessTrophies re-engagement emails. Account emails (password resets and email verification) still work.'
+    : 'That unsubscribe link is invalid or has already been superseded. You can also turn these emails off from your profile settings.';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
+    `<meta name="viewport" content="width=device-width,initial-scale=1"><title>ChessTrophies — ${title}</title>` +
+    `<style>body{font:16px/1.6 system-ui,sans-serif;max-width:34rem;margin:12vh auto;padding:0 1.25rem;color:#1a1a1a;background:#faf8f4}h1{font-size:1.4rem;margin:0 0 .6rem}</style>` +
+    `</head><body><h1>${title}</h1><p>${body}</p></body></html>`;
+}
+
+// NOTE: deliberately NOT behind authLimiter (20 req / 15 min / IP). Mail
+// providers hit the one-click endpoint from a small pool of SHARED proxy IPs, so
+// that limit would start 429-ing real opt-outs — and a broken opt-out is exactly
+// the CAN-SPAM violation this fix exists to close. The global apiLimiter
+// (120/min) still applies, and the token is an unforgeable HMAC, so there is
+// nothing here to brute-force.
+app.get('/api/email/unsubscribe', async (req, res, next) => {
+  try {
+    const r = await applyEmailUnsubscribe(req.query.token);
+    res.status(200).type('html').send(unsubscribePage(r.ok));
+  } catch (e) { next(e); }
+});
+
+app.post('/api/email/unsubscribe', express.urlencoded({ extended: false, limit: '4kb' }), async (req, res, next) => {
+  try {
+    // Mail clients POST to the List-Unsubscribe URL (token stays in the query).
+    const token = (req.body && req.body.token) || req.query.token;
+    const r = await applyEmailUnsubscribe(token);
+    res.json({ ok: !!r.ok });
+  } catch (e) { next(e); }
 });
 
 // Change the password of the currently authenticated user.
@@ -765,6 +929,34 @@ app.get('/api/games/recent', requireAuth, async (req, res, next) => {
 const MAX_LESSONS = 1000;
 const MAX_LESSON_ID_LEN = 128;
 const MAX_PUZZLE_KEYS = 5000;
+// Serialized size cap for the opaque openings/gauntlet progress blobs. The
+// global express.json() limit (256kb) already bounds the request; this bounds
+// what any ONE field can grow the stored flags JSON to.
+const MAX_PROGRESS_BLOB_BYTES = 20000;
+
+// The user's currently-stored achievements array (raw `achievements` column,
+// JSON). Returns [] on anything unparseable.
+function storedAchievements(user) {
+  try {
+    const a = JSON.parse((user && user.achievements) || '[]');
+    return Array.isArray(a) ? a : [];
+  } catch (e) { return []; }
+}
+
+// Validate an opaque client-owned progress blob (openings / gauntlet): must be a
+// plain JSON object and must serialize under MAX_PROGRESS_BLOB_BYTES. Throws a
+// 400-able Error otherwise; returns the object unchanged on success.
+function validateProgressBlob(value, field) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${field} must be an object.`);
+  }
+  let serialized;
+  try { serialized = JSON.stringify(value); } catch (e) { throw new Error(`${field} must be JSON-serializable.`); }
+  if (typeof serialized !== 'string' || serialized.length > MAX_PROGRESS_BLOB_BYTES) {
+    throw new Error(`${field} is too large (max ${MAX_PROGRESS_BLOB_BYTES} bytes).`);
+  }
+  return value;
+}
 
 app.get('/api/progress', requireAuth, (req, res, next) => {
   try {
@@ -817,22 +1009,43 @@ app.post('/api/progress', requireAuth, async (req, res, next) => {
       if (!Array.isArray(body.showcase)) throw new Error('showcase must be an array.');
       showcase = body.showcase.filter(x => typeof x === 'string' && x.length <= 40).slice(0, 5);
     }
-    // Trophy leaderboard fields (client-authoritative). Forwarded to the store,
-    // which persists them into the achievements/streak_trophies/trophy_points
-    // columns. Bounded here; the store validates again.
+    // Trophy leaderboard fields — SERVER-AUTHORITATIVE since the 2026-07 audit.
+    //
+    // These used to be taken verbatim off the wire, so a fresh account could POST
+    // `trophyPoints: 99999999` and top the public trophy ladder (live-confirmed).
+    // Now the ids are filtered against the real catalog and the score is COMPUTED
+    // here by trophy-catalog.js; ANY client-supplied `trophyPoints` is ignored.
+    // The store still just persists whatever it is handed.
     let achievements, streakTrophies, trophyPoints;
-    if (body.achievements !== undefined) {
-      if (!Array.isArray(body.achievements)) throw new Error('achievements must be an array.');
-      achievements = body.achievements.filter(a => a && typeof a === 'object' && typeof a.id === 'string').slice(0, 2000);
+    if (body.achievements !== undefined && !Array.isArray(body.achievements)) throw new Error('achievements must be an array.');
+    if (body.streakTrophies !== undefined && !Array.isArray(body.streakTrophies)) throw new Error('streakTrophies must be an array.');
+    if (body.achievements !== undefined || body.streakTrophies !== undefined) {
+      // When a sync omits `achievements`, re-score the STORED list rather than
+      // scoring nothing — otherwise a streak-only sync would zero the user's
+      // points. This also means any progress sync self-heals a trophy_points
+      // value that was inflated before this fix landed.
+      const incomingAchievements = body.achievements !== undefined
+        ? body.achievements
+        : storedAchievements(req.user);
+      // Entitlement: re-verification showed that filtering ids alone still let a
+      // ZERO-GAME account claim all 105 real catalog ids for the maximum 3380
+      // points and rank #1. Pass the server's own counters (wins/elo/games/
+      // streak/arena/invites off the users row) so a claim the account cannot
+      // possibly have earned is dropped.
+      const scored = scoreAchievements(incomingAchievements, body.streakTrophies, statsFromUser(req.user));
+      // Only overwrite a column the sync actually carried (COALESCE in the store
+      // leaves the others untouched) — but ALWAYS write the recomputed points,
+      // since they are derived from the achievements we just accepted.
+      if (body.achievements !== undefined) achievements = scored.achievements;
+      if (body.streakTrophies !== undefined) streakTrophies = scored.streakTrophies;
+      trophyPoints = scored.trophyPoints;
     }
-    if (body.streakTrophies !== undefined) {
-      if (!Array.isArray(body.streakTrophies)) throw new Error('streakTrophies must be an array.');
-      streakTrophies = body.streakTrophies.slice(0, 2000);
-    }
-    if (body.trophyPoints !== undefined) {
-      if (!Number.isFinite(body.trophyPoints)) throw new Error('trophyPoints must be a number.');
-      trophyPoints = body.trophyPoints;
-    }
+    // Openings-trainer + Bot-Gauntlet progress: opaque plain JSON objects the
+    // client owns. Validated for shape + size only, then persisted inside the
+    // existing flags.progress blob (no new column — keeps db.js/db-pg.js parity).
+    let openings, gauntlet;
+    if (body.openings !== undefined) openings = validateProgressBlob(body.openings, 'openings');
+    if (body.gauntlet !== undefined) gauntlet = validateProgressBlob(body.gauntlet, 'gauntlet');
     // Appearance theme (board/piece) — short identifier strings, follow the account.
     let themeBoard, themePieces;
     if (body.themeBoard !== undefined) {
@@ -849,7 +1062,7 @@ app.post('/api/progress', requireAuth, async (req, res, next) => {
       if (typeof body.language !== 'string') throw new Error('language must be a string.');
       language = body.language.slice(0, 8);
     }
-    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles, showcase, achievements, streakTrophies, trophyPoints, themeBoard, themePieces, language });
+    const result = await store.setProgress(req.userId, { lessonsCompleted: [...merged], puzzles, showcase, achievements, streakTrophies, trophyPoints, themeBoard, themePieces, language, openings, gauntlet });
     res.json(result);
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
@@ -926,7 +1139,7 @@ app.post('/api/share/track', async (req, res, next) => {
 // it's never exposed by accident. Works on either DB backend via the store facade.
 app.get('/api/admin/stats', async (req, res, next) => {
   try {
-    const provided = req.get('x-admin-key') || req.query.key || '';
+    const provided = adminKeyFromReq(req);
     if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -1234,7 +1447,7 @@ app.get('/api/admin/stats', async (req, res, next) => {
 // profile snapshot + recent games. No password hash / tokens.
 app.get('/api/admin/user/:id', async (req, res, next) => {
   try {
-    const provided = req.get('x-admin-key') || req.query.key || '';
+    const provided = adminKeyFromReq(req);
     if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -1270,16 +1483,35 @@ app.get('/api/admin/user/:id', async (req, res, next) => {
 // nothing). 404 if the id doesn't exist (and not a dry run).
 app.delete('/api/admin/user/:id', async (req, res, next) => {
   try {
-    const provided = req.get('x-admin-key') || req.query.key || '';
+    const provided = adminKeyFromReq(req);
     if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
     const id = String(req.params.id || '');
     if (!id) return res.status(400).json({ error: 'User id required.' });
     const dryRun = /^(1|true|yes)$/i.test(String(req.query.dryRun || ''));
+
+    // AUDIT 2026-07 (S1), second path: the GDPR soft-delete (/api/me/delete)
+    // cancels Stripe via auth.deleteAccount, but this hard delete removes the
+    // users row OUTRIGHT — including stripe_customer_id and the email — so a
+    // subscription left live here could never be traced back to an account at
+    // all. Cancel FIRST, while the row still exists. Same best-effort contract:
+    // cancelSubscriptionsForUser never throws, and a Stripe failure must not
+    // block the scrub (it's logged loudly with the ids for a manual cancel).
+    const victim = await store.getUserById(id);
+    let stripeResult = { skipped: 'dry_run', cancelled: 0, failed: 0 };
+    if (!dryRun && victim) {
+      stripeResult = await cancelSubscriptionsForUser(victim);
+      if (stripeResult && stripeResult.failed) {
+        console.error(`[admin-delete] MANUAL ACTION REQUIRED: could not cancel every Stripe subscription for user ${id} (customer ${victim.stripe_customer_id || 'n/a'}, email ${victim.email || 'n/a'}). Cancelled ${stripeResult.cancelled}, failed ${stripeResult.failed}. Cancel the remainder in the Stripe Dashboard.`);
+      }
+    }
+
     const result = await store.adminDeleteUserHard(id, { dryRun });
     if (!result.found && !dryRun) return res.status(404).json({ error: 'User not found.' });
-    res.json(result);
+    // Surface the Stripe outcome so the operator sees a failed cancel in the
+    // response, not just the server log.
+    res.json({ ...result, stripe: stripeResult });
   } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 
@@ -1287,7 +1519,7 @@ app.delete('/api/admin/user/:id', async (req, res, next) => {
 // tool. type = events | users | games. Bounded row cap; no raw IPs or PGNs.
 app.get('/api/admin/export', async (req, res, next) => {
   try {
-    const provided = req.get('x-admin-key') || req.query.key || '';
+    const provided = adminKeyFromReq(req);
     if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -1345,7 +1577,7 @@ async function dailyCountSeries(table, days) {
 // case-insensitive substring match on username OR email (LIKE-escaped).
 app.get('/api/admin/users', async (req, res, next) => {
   try {
-    const provided = req.get('x-admin-key') || req.query.key || '';
+    const provided = adminKeyFromReq(req);
     if (!adminKeyOk(provided)) {
       return res.status(403).json({ error: 'Forbidden' });
     }

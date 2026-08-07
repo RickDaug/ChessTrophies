@@ -5,7 +5,23 @@
 // failure is swallowed (logged via console.warn) so the auth flow never breaks
 // on email.
 
+import * as store from './store.js';
+import { makeUnsubscribeToken } from './auth.js';
+
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
+
+// AUDIT 2026-07 (S2): the send had NO timeout, so a hung Resend endpoint parked
+// the signup / password-reset handler on an open socket for Node's default
+// ~300s. Mirrors the bound used by the /api/translate proxy in server.js.
+const SEND_TIMEOUT_MS = 8000;
+
+// CAN-SPAM: commercial (re-engagement) mail must carry a valid physical postal
+// address. Configured via MAILING_ADDRESS; when unset the block degrades to a
+// generic line rather than printing a broken/empty address.
+function postalAddress() {
+  const addr = (process.env.MAILING_ADDRESS || '').trim();
+  return addr || null;
+}
 
 // True when an email provider is configured. Used for a startup diagnostic so
 // it's obvious in the logs whether verification/reset emails will actually send.
@@ -15,7 +31,7 @@ export function isEmailConfigured() {
 
 // Low-level Resend send. Returns true on success, false if email is not
 // configured or sending failed. Never throws.
-async function sendEmail({ to, subject, text }) {
+async function sendEmail({ to, subject, text, headers }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return false; // No provider configured -> no-op.
   const from = process.env.RESEND_FROM || 'ChessTrophies <onboarding@resend.dev>';
@@ -23,7 +39,9 @@ async function sendEmail({ to, subject, text }) {
     const res = await fetch(RESEND_ENDPOINT, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to: [to], subject, text }),
+      body: JSON.stringify({ from, to: [to], subject, text, ...(headers ? { headers } : {}) }),
+      // Bounded: never let a wedged provider stall the calling auth handler.
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
@@ -32,6 +50,12 @@ async function sendEmail({ to, subject, text }) {
     }
     return true;
   } catch (e) {
+    // AbortSignal.timeout rejects with a TimeoutError DOMException; treat it like
+    // any other send failure (log + return false) so the caller never throws.
+    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      console.warn(`[email] send to Resend timed out after ${SEND_TIMEOUT_MS}ms — giving up (not retried).`);
+      return false;
+    }
     console.warn('[email] failed to send:', e && e.message ? e.message : e);
     return false;
   }
@@ -69,8 +93,26 @@ export async function sendResetEmail(email, token) {
 // configured or sending failed. Mirrors the other senders' no-op contract.
 export async function sendComebackEmail(email, reason) {
   if (!process.env.RESEND_API_KEY) return false; // No provider configured -> no-op.
+
+  // CAN-SPAM (audit 2026-07, S3): this is COMMERCIAL mail, so it needs a working
+  // one-click opt-out and a postal address, and we must not mail anyone who has
+  // already opted out. Resolve the recipient so we can (a) honour an existing
+  // opt-out and (b) mint their unsubscribe token. FAIL CLOSED: if we can't tell
+  // whether they opted out, we don't send — skipping a nudge is cheap, mailing an
+  // unsubscribed person is not.
+  let user;
+  try {
+    user = await store.get('SELECT id, flags FROM users WHERE email = ?', [String(email || '').toLowerCase()]);
+  } catch (e) {
+    console.warn('[email] comeback opt-out lookup failed; skipping send:', e && e.message ? e.message : e);
+    return false;
+  }
+  if (!user || !user.id) return false;
+  if (emailOptedOut(user)) return false;
+
   const appUrl = (process.env.APP_URL || '').replace(/\/+$/, '');
   const cta = appUrl ? `Play now: ${appUrl}` : 'Open ChessTrophies and play a game.';
+  const unsubUrl = unsubscribeUrl(appUrl, user.id);
   let subject, lead;
   switch (reason) {
     case 'streak_at_risk':
@@ -91,9 +133,58 @@ export async function sendComebackEmail(email, reason) {
       lead = 'Your rivals have been busy. Come back, play a game, and climb the board again.';
       break;
   }
+  const unsubLine = unsubUrl
+    ? `Unsubscribe from these emails (one click, no sign-in needed):\n${unsubUrl}`
+    : `You can stop these anytime from your profile settings.`;
+  const addr = postalAddress();
   const text =
     `${lead}\n\n` +
     `${cta}\n\n` +
-    `You're getting this because you turned on ChessTrophies updates. You can stop these anytime from your profile.`;
-  return sendEmail({ to: email, subject: `ChessTrophies — ${subject}`, text });
+    `---\n` +
+    `You're getting this because you created a ChessTrophies account and verified this email address.\n\n` +
+    `${unsubLine}\n` +
+    (addr ? `\nChessTrophies — ${addr}\n` : '');
+  // RFC 8058 / RFC 2369 one-click unsubscribe so mail clients can surface a
+  // native "Unsubscribe" button. Only set when we actually have a URL.
+  const headers = unsubUrl
+    ? { 'List-Unsubscribe': `<${unsubUrl}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' }
+    : undefined;
+  return sendEmail({ to: email, subject: `ChessTrophies — ${subject}`, text, headers });
+}
+
+// --- Unsubscribe plumbing ---------------------------------------------------
+
+// True when this user has opted out of re-engagement email. Stored as
+// `emailOptOut: true` inside the existing users.flags JSON blob (no new column,
+// so db.js / db-pg.js stay at parity). Unparseable flags => treated as opted out
+// (fail closed).
+export function emailOptedOut(user) {
+  if (!user) return true;
+  try {
+    const flags = user.flags ? JSON.parse(user.flags) : {};
+    return !!(flags && typeof flags === 'object' && flags.emailOptOut);
+  } catch (e) { return true; }
+}
+
+// Absolute base URL of THIS API server. The unsubscribe route is served by
+// Express (Railway), not by the static client (Vercel/APP_URL), so it needs its
+// own base. Order: API_URL, then Railway's injected public domain, then APP_URL
+// as a last resort (correct only for a single-origin deploy).
+function apiBaseUrl(appUrl) {
+  const explicit = (process.env.API_URL || '').trim().replace(/\/+$/, '');
+  if (explicit) return explicit;
+  const railway = (process.env.RAILWAY_PUBLIC_DOMAIN || '').trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  if (railway) return `https://${railway}`;
+  return appUrl || '';
+}
+
+// Build the tokenized unsubscribe URL for a user. Returns null when no absolute
+// base URL is configured — the caller then falls back to the "manage it in your
+// profile" line.
+export function unsubscribeUrl(appUrl, userId) {
+  const base = apiBaseUrl(appUrl);
+  if (!base || !userId) return null;
+  const token = makeUnsubscribeToken(userId);
+  if (!token) return null;
+  return `${base}/api/email/unsubscribe?token=${encodeURIComponent(token)}`;
 }

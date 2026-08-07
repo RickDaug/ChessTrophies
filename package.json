@@ -24,6 +24,7 @@
     "test:cohorts": "node test/cohorts.mjs",
     "test:billing": "node test/billing.mjs",
     "test:billing-churn": "node test/billing-churn.mjs",
+    "test:cancel-on-delete": "node test/billing-cancel-on-delete.mjs",
     "test:guest-migration": "node test/guest-migration.mjs",
     "test:concurrent-games": "node test/concurrent-games.mjs",
     "test:localstorage-recovery": "node test/localstorage-recovery.mjs",
@@ -78,7 +79,9 @@
     "test:season": "node test/season.mjs",
     "test:victim": "node test/victim.mjs",
     "test:chess960-ai-castle": "node test/chess960-ai-castle.mjs",
-    "test:chess960-castle": "node test/chess960-castle.mjs"
+    "test:chess960-castle": "node test/chess960-castle.mjs",
+    "test:trophy-authority": "node test/trophy-authority.mjs",
+    "test:deploy-assets": "node test/deploy-assets.mjs"
   },
   "repository": {
     "type": "git",

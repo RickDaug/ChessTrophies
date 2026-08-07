@@ -39,7 +39,14 @@ export async function signup({ email, username, password, region, invitedBy, geo
   const safeInvitedBy = typeof invitedBy === 'string' && invitedBy.trim() ? invitedBy.trim().slice(0, 64) : null;
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(lowEmail)) throw new Error('Email is invalid.');
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(safeUsername)) throw new Error('Username must be 3–20 letters, numbers, or underscores.');
-  if ((await store.getUserByEmail(lowEmail)) || (await store.getUserByUsername(safeUsername))) throw new Error('An account with that email or username already exists.');
+  // Anti-enumeration (audit 2026-07, S3): the old message ("An account with that
+  // email or username already exists.") was an oracle — anyone could probe an
+  // address or handle and get a definitive yes/no. Login and forgot-password are
+  // already generic; match their style here. NOTE: this deliberately does NOT
+  // say WHICH field collided, so the client shows a single generic hint.
+  if ((await store.getUserByEmail(lowEmail)) || (await store.getUserByUsername(safeUsername))) {
+    throw new Error('Could not create that account. Please try a different email or username.');
+  }
   const pw_hash = await bcrypt.hash(safePassword, 12);
   const id = 'u_' + crypto.randomBytes(8).toString('hex');
   await store.createUser({ id, email: lowEmail, username: safeUsername, region: safeRegion, pw_hash, invited_by: safeInvitedBy });
@@ -258,8 +265,68 @@ export async function deleteAccount(userId, currentPassword) {
   if (!u) throw new Error('User not found.');
   const ok = await bcrypt.compare(typeof currentPassword === 'string' ? currentPassword : '', u.pw_hash || '');
   if (!ok) { const e = new Error('Password is incorrect.'); e.status = 400; throw e; }
+
+  // AUDIT 2026-07 (S1): deleting the account used to blank stripe_customer_id
+  // WITHOUT telling Stripe anything, so a paying user kept getting charged for a
+  // subscription they could no longer see, manage or cancel. Cancel FIRST —
+  // while we still have the customer id AND the email to fall back on, both of
+  // which deleteAccountData is about to tombstone.
+  //
+  // Best-effort by design: a Stripe outage must NEVER block a GDPR deletion, so
+  // any failure is logged LOUDLY (with the ids an operator needs to cancel by
+  // hand) and the local delete proceeds regardless. billing.js is imported
+  // lazily so auth.js keeps no load-time dependency on it.
+  try {
+    const { cancelSubscriptionsForUser } = await import('./billing.js');
+    const r = await cancelSubscriptionsForUser(u);
+    if (r && r.failed) {
+      console.error(`[account-delete] MANUAL ACTION REQUIRED: could not cancel every Stripe subscription for user ${u.id} (customer ${u.stripe_customer_id || 'n/a'}, email ${u.email || 'n/a'}). Cancelled ${r.cancelled}, failed ${r.failed}. Cancel the remainder in the Stripe Dashboard.`);
+    }
+  } catch (e) {
+    console.error(`[account-delete] MANUAL ACTION REQUIRED: Stripe cancellation threw for user ${u.id} (customer ${u.stripe_customer_id || 'n/a'}, email ${u.email || 'n/a'}) — proceeding with the local delete anyway:`, e && e.message ? e.message : e);
+  }
+
   await store.deleteAccountData(u.id);
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Unsubscribe tokens (CAN-SPAM one-click opt-out)
+// ---------------------------------------------------------------------------
+//
+// A re-engagement email needs an opt-out link that works WITHOUT signing in and
+// WITHOUT expiring (CAN-SPAM requires the mechanism to keep working for at least
+// 30 days after the send). A JWT would expire; a DB row per send would be pure
+// churn. So: a stateless keyed HMAC over the user id, `<userId>.<hmac>`, signed
+// with the same secret as our JWTs. It is unforgeable, carries no PII, and is
+// only good for one thing (flipping this user's email opt-out flag).
+
+function unsubscribeMac(userId) {
+  return crypto.createHmac('sha256', SECRET).update(`unsub:${userId}`).digest('hex');
+}
+
+// Mint the opaque unsubscribe token for a user id. Returns '' for a falsy id.
+export function makeUnsubscribeToken(userId) {
+  if (!userId) return '';
+  return `${userId}.${unsubscribeMac(userId)}`;
+}
+
+// Verify an unsubscribe token and return the user id it authorizes, or null.
+// Constant-time MAC compare (same idiom as verifyEmailCode).
+export function verifyUnsubscribeToken(token) {
+  const raw = typeof token === 'string' ? token.trim() : '';
+  const dot = raw.lastIndexOf('.');
+  if (dot <= 0 || dot === raw.length - 1) return null;
+  const userId = raw.slice(0, dot);
+  const mac = raw.slice(dot + 1);
+  if (!/^[0-9a-f]+$/i.test(mac)) return null;
+  let a, b;
+  try {
+    a = Buffer.from(mac, 'hex');
+    b = Buffer.from(unsubscribeMac(userId), 'hex');
+  } catch (e) { return null; }
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  return userId;
 }
 
 export function makeToken(userId, tokenVersion = 0) {

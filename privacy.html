@@ -5,8 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Privacy Policy — ChessTrophies</title>
 <link rel="icon" type="image/svg+xml" href="icon.svg">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- Inter is SELF-HOSTED (fonts/*.woff2), not loaded from Google Fonts: the site
+     CSP is font-src 'self' / style-src 'self', and loading a third-party font CDN
+     here would also make this page's own third-party disclosure inaccurate. -->
+<link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+  /* Self-hosted Inter (variable, 100-900). Same files the app uses. */
+  @font-face {
+    font-family: 'Inter'; font-style: normal; font-weight: 100 900;
+    font-display: swap; src: url('fonts/inter-latin.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'Inter'; font-style: normal; font-weight: 100 900;
+    font-display: swap; src: url('fonts/inter-latin-ext.woff2') format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
   :root { --bg:#0b1220; --panel:#17223b; --border:#243556; --text:#e8eefc; --muted:#8a98b8; --accent:#f5c451; }
   * { box-sizing: border-box; }
   body { margin:0; padding:0; background: radial-gradient(ellipse at top, #1a2647 0%, #0b1220 60%); color: var(--text); font-family:'Inter', -apple-system, sans-serif; min-height:100vh; line-height:1.7; }
@@ -129,7 +143,7 @@
   <ul>
     <li><strong>Directly from you</strong> when you create an account, complete a profile, send a message, accept an invitation, or submit a support request;</li>
     <li><strong>Automatically</strong> when you interact with the Service, through cookies, browser local storage, server logs, and analytics tools further described in Section 9;</li>
-    <li><strong>From third-party service providers</strong>, including payment processors (subscription status only), hosting providers (server logs), ad networks (interaction signals), and authentication providers if you use a federated sign-in.</li>
+    <li><strong>From third-party service providers</strong>, currently limited to our payment processor (subscription status only) and our hosting providers (server and edge request logs). We do not offer federated ("sign in with…") authentication, so we receive no profile data from an identity provider. If we later enable an advertising network, interaction signals from that network would also fall into this category.</li>
   </ul>
 
   <h2 id="purposes">4. Purposes and Legal Bases for Processing</h2>
@@ -154,13 +168,16 @@
   <h2 id="sharing">5. Recipients and Disclosures</h2>
   <p>We disclose Personal Information only as described below. In the twelve (12) months preceding the effective date of this Policy, we have disclosed each category identified in Section 2 to the recipient categories below for the operational purposes indicated.</p>
   <h3>5.1 Service Providers and Processors</h3>
-  <p>We engage Service Providers and Processors who process Personal Information on our behalf and only pursuant to written contracts that satisfy the requirements of CCPA/CPRA § 1798.140(ag) and GDPR Article 28. Categories include:</p>
+  <p>We engage the Service Providers and Processors listed below to process Personal Information on our behalf, on our documented instructions, under the data-processing terms each provider makes generally available (typically a Data Processing Addendum incorporating the EU Standard Contractual Clauses) and consistent with the requirements of CCPA/CPRA § 1798.140(ag) and GDPR Article 28. This is the complete list of processors used to operate the Service as of the "Last revised" date above:</p>
   <ul>
-    <li><strong>Hosting and infrastructure:</strong> Vercel — provide server, database, content-delivery, and DDoS protection services.</li>
-    <li><strong>Payment processing:</strong> Stripe, Inc. — processes subscription payments. Stripe acts as an independent controller of payment-card data; see <a href="https://stripe.com/privacy">https://stripe.com/privacy</a>.</li>
-    <li><strong>Email delivery:</strong> our cPanel email host — delivers transactional emails.</li>
-    <li><strong>Analytics:</strong> Vercel Web Analytics — privacy-preserving usage analytics.</li>
-    <li><strong>Error monitoring:</strong> We do not currently use a third-party error-monitoring service.</li>
+    <li><strong>Static web hosting and content delivery:</strong> Vercel Inc. (United States) — serves the static website and app files (HTML, JavaScript, fonts, images) over its edge network, terminates TLS, and provides DDoS protection. Processes connection metadata only (IP address, user agent, requested URL, timestamp) in edge/request logs. Vercel does <em>not</em> host our application server, our database, or our email.</li>
+    <li><strong>Application server and database hosting:</strong> Railway Corp. (United States) — runs the ChessTrophies API and real-time game server and hosts the attached storage volume that holds our database. Because the database lives here, this provider stores substantially every category identified in Section 2: email address, hashed password, username, region, coarse country/state derived from your IP at signup, ELO and game history, in-game chat, subscription status, and product-analytics events.</li>
+    <li><strong>Database backup and disaster recovery:</strong> Cloudflare, Inc. — the application server continuously replicates the <em>entire</em> database file to a Cloudflare R2 object-storage bucket so that the Service can be restored if the primary volume is lost. That replica contains the same categories of Personal Information as the live database, including email addresses, hashed passwords, and coarse geolocation. See Section 6 regarding the location of that bucket.</li>
+    <li><strong>Payment processing:</strong> Stripe, Inc. — processes subscription payments. We do not receive or store full payment-card numbers. Stripe acts as an independent controller of payment-card data; see <a href="https://stripe.com/privacy">https://stripe.com/privacy</a>.</li>
+    <li><strong>Transactional email delivery:</strong> Resend (Plus Five Five, Inc.) — delivers email-verification codes and password-reset links. Processes your email address and the contents of those messages. We do not send marketing email through this provider today.</li>
+    <li><strong>Analytics:</strong> None. Product analytics are <strong>first-party</strong>: usage events are sent to our own API on the application host named above and stored in our own database. We do not embed any third-party analytics script, tag manager, or pixel. See Section 9 for what the analytics events contain.</li>
+    <li><strong>Error monitoring:</strong> None. We do not currently use a third-party error-monitoring service.</li>
+    <li><strong>Machine translation (not currently enabled):</strong> the Service contains an optional in-game chat auto-translation feature that, when switched on, would forward the text of a chat message to a LibreTranslate translation endpoint. This feature is <strong>disabled</strong> as of the "Last revised" date, and no chat text is sent to any translation provider. We will update this Policy and name the provider before enabling it.</li>
   </ul>
   <h3>5.2 Advertising Partners</h3>
   <p>We may show advertisements to free-tier accounts. If and when we enable an advertising network (such as Google AdSense), those partners may set cookies or similar identifiers to deliver and measure ads. To the extent that activity constitutes "sharing" under CCPA/CPRA or "tracking" requiring consent under ePrivacy law, we honor opt-out signals as described in Section 13 and obtain prior consent where required. <strong>Even with advertising, we never sell your account, email, or game data for money.</strong> You can remove ads entirely by upgrading to Premium.</p>
@@ -179,6 +196,7 @@
     <li>The <strong>EU-U.S. Data Privacy Framework</strong>, UK Extension, and Swiss-U.S. Data Privacy Framework where the recipient is self-certified;</li>
     <li>Supplementary technical, organizational, and contractual measures consistent with the EDPB's Recommendations 01/2020 on supplementary measures.</li>
   </ul>
+  <p><strong>Backup replication.</strong> As described in Section 5.1, our production database is continuously replicated to a Cloudflare R2 object-storage bucket for disaster recovery. That replica contains the same Personal Information as the live database. The storage region of the bucket is configured by us; where it is located outside the country in which your Personal Information was collected, that replication is an international transfer and relies on the safeguards described in this Section.</p>
   <p>You may request a copy of the safeguards in place by contacting us using the details in Section 20.</p>
 
   <h2 id="retention">7. Retention</h2>
@@ -209,7 +227,7 @@
   <ol>
     <li><strong>Strictly necessary</strong> — required to operate the Service (e.g., authentication tokens, security state). These cannot be disabled.</li>
     <li><strong>Functional</strong> — remember preferences (theme selection, sound on/off).</li>
-    <li><strong>Analytics</strong> — measure aggregate usage; we use privacy-preserving analytics that do not set cross-site identifiers wherever possible.</li>
+    <li><strong>Analytics</strong> — measure aggregate usage. Our analytics are first-party and run on our own servers: we store a randomly generated visitor identifier in your browser's local storage (key <code>ct_vid</code>) together with a first-touch referral/campaign string (key <code>ct_src</code>), and send a short allowlist of product events (for example "game started", "puzzle solved") to our own API. No third-party analytics script, tag, or pixel is loaded, no analytics cookie is set, and no cross-site identifier is created.</li>
     <li><strong>Advertising</strong> — set by ad networks for free-tier users; these may track activity for personalized advertising. We obtain consent prior to setting these where required by ePrivacy law and offer an opt-out mechanism elsewhere.</li>
   </ol>
   <p>You can manage Cookies through your browser settings and through our in-app cookie banner where one is presented. EU, UK, and other ePrivacy-jurisdiction users will be shown an explicit consent banner before non-essential Cookies are set.</p>

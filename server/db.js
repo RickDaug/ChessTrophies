@@ -103,6 +103,18 @@ CREATE INDEX IF NOT EXISTS idx_team_games_created ON team_games(created_at DESC)
 CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
 `);
 
+// Case-insensitive username uniqueness. The column's own `UNIQUE` constraint is a
+// byte comparison, but EVERY lookup is `WHERE LOWER(username) = LOWER(?)`, so two
+// concurrent signups for 'Bob' and 'bob' could both land and then collide on every
+// read. This expression index makes the DB enforce what the queries assume.
+// Created defensively: an existing DB that already contains such a duplicate pair
+// would reject the index, and that must not stop the server from booting.
+try {
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lower ON users(lower(username))');
+} catch (e) {
+  console.error('[db] could not create idx_users_username_lower (duplicate usernames?):', e && e.message);
+}
+
 // Idempotent migrations: add 2v2-specific columns to users if they don't exist.
 // SQLite has no IF NOT EXISTS for ADD COLUMN before 3.35, so we probe the schema.
 function ensureColumn(table, col, type, defaultLiteral) {
@@ -486,6 +498,10 @@ export function deleteAccountData(userId) {
     db.prepare('DELETE FROM password_resets WHERE user_id = ?').run(id);
     db.prepare('DELETE FROM email_verifications WHERE user_id = ?').run(id);
     db.prepare('DELETE FROM league_members WHERE user_id = ?').run(id);
+    // Unlink the (aggregate, non-PII) analytics rows from the deleted account so
+    // nothing still points at it. The events themselves are kept for funnel
+    // counts — they are anonymous once user_id is NULL.
+    db.prepare('UPDATE analytics_events SET user_id = NULL WHERE user_id = ?').run(id);
     db.prepare(
       `UPDATE users SET email = ?, username = ?, pw_hash = '', region = '',
          avatar_stock = '', avatar_data_url = '', is_premium = 0, subscription_status = '',
@@ -1027,7 +1043,20 @@ export function getProgress(user) {
     themeBoard: typeof p.themeBoard === 'string' ? p.themeBoard : 'walnut',
     themePieces: typeof p.themePieces === 'string' ? p.themePieces : 'classic',
     language: typeof p.language === 'string' ? p.language : 'en',
+    // Opening-trainer + gauntlet progress: plain JSON objects, kept inside the
+    // same flags.progress blob (no new column).
+    openings: isPlainObject(p.openings) ? p.openings : {},
+    gauntlet: isPlainObject(p.gauntlet) ? p.gauntlet : {},
   };
+}
+
+// A plain JSON object (not null, not an array) — the shape the openings/gauntlet
+// progress blobs must have.
+// True only for a plain object that actually carries data (see setProgress).
+function hasEntries(v) { return isPlainObject(v) && Object.keys(v).length > 0; }
+
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
 }
 
 // Pinned trophy ids for the profile showcase: ≤5 short string ids.
@@ -1049,6 +1078,16 @@ export function setProgress(userId, progress) {
     themeBoard: typeof progress.themeBoard === 'string' ? progress.themeBoard.slice(0, 32) : existing.themeBoard,
     themePieces: typeof progress.themePieces === 'string' ? progress.themePieces.slice(0, 32) : existing.themePieces,
     language: typeof progress.language === 'string' ? progress.language.slice(0, 8) : existing.language,
+    // Openings + gauntlet: preserve the stored blob when a sync omits the field
+    // (same pattern as themeBoard/themePieces).
+    // NOTE: an EMPTY object counts as "omitted", not as "clear it". The client
+    // sends `flags.openings || {}` unconditionally, so a device that syncs before
+    // its initial GET lands would otherwise PERMANENTLY erase the account's
+    // opening mastery and gauntlet ladder — the exact data-loss class this sync
+    // was added to fix. There is no user-facing "reset my progress" action, so
+    // preserve-on-empty is always the safe reading.
+    openings: hasEntries(progress.openings) ? progress.openings : existing.openings,
+    gauntlet: hasEntries(progress.gauntlet) ? progress.gauntlet : existing.gauntlet,
   };
   // Trophy leaderboard fields (optional, client-authoritative). When present, also
   // persist the achievements/streak_trophies arrays (so the count expr is real)

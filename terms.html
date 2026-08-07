@@ -5,8 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Terms of Service — ChessTrophies</title>
 <link rel="icon" type="image/svg+xml" href="icon.svg">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!-- Inter is SELF-HOSTED (fonts/*.woff2), not loaded from Google Fonts: the site
+     CSP is font-src 'self' / style-src 'self', and loading a third-party font CDN
+     here would also make this page's own third-party disclosure inaccurate. -->
+<link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
 <style>
+  /* Self-hosted Inter (variable, 100-900). Same files the app uses. */
+  @font-face {
+    font-family: 'Inter'; font-style: normal; font-weight: 100 900;
+    font-display: swap; src: url('fonts/inter-latin.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+  }
+  @font-face {
+    font-family: 'Inter'; font-style: normal; font-weight: 100 900;
+    font-display: swap; src: url('fonts/inter-latin-ext.woff2') format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  }
   :root { --bg:#0b1220; --panel:#17223b; --border:#243556; --text:#e8eefc; --muted:#8a98b8; --accent:#f5c451; }
   * { box-sizing: border-box; }
   body { margin:0; padding:0; background: radial-gradient(ellipse at top, #1a2647 0%, #0b1220 60%); color: var(--text); font-family:'Inter', -apple-system, sans-serif; min-height:100vh; line-height:1.7; }
@@ -183,7 +197,7 @@
   <p>Free-tier accounts see advertisements delivered through third-party advertising networks. Advertisements may be selected based on signals provided to those networks, including (where applicable and consented to) Personal Information. You can opt out of personalized advertising in your Account settings, through industry opt-out tools (NAI, DAA), and through recognized opt-out preference signals such as the Global Privacy Control. We do not endorse advertised products and are not responsible for advertiser conduct.</p>
 
   <h2 id="third">11. Third-Party Services</h2>
-  <p>The Service may integrate with or link to third-party services (e.g., Stripe, Google AdSense, Google Fonts, the Inter font CDN, Cloudflare). Your use of those services is governed by their own terms and privacy policies. Provider is not responsible for the availability, content, or practices of third-party services.</p>
+  <p>The Service is operated using third-party infrastructure and service providers, currently: Vercel (static site hosting and content delivery), Railway (application server and database hosting), Cloudflare R2 (encrypted-in-transit database backup storage), Stripe (payment processing), and Resend (transactional email). Fonts are self-hosted from our own domain; we do not load Google Fonts or a font CDN in the app. If we later enable an advertising network or an in-game chat translation provider, the Service will integrate with those providers as well. Your use of any third-party service is governed by its own terms and privacy policies. Provider is not responsible for the availability, content, or practices of third-party services. The current list of processors and what each one handles is maintained in Section 5.1 of the <a href="privacy.html">Privacy Policy</a>.</p>
 
   <h2 id="term">12. Suspension; Termination; Survival</h2>
   <p><strong>12.1 By you.</strong> You may stop using the Service at any time and may delete your Account in your settings.</p>

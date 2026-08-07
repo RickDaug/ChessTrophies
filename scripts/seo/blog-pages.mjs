@@ -311,12 +311,15 @@ export async function generate({ DIST, SITE }) {
 
   await fsp.mkdir(path.join(DIST, 'blog'), { recursive: true });
   const seen = new Set();
-  const urls = [{ loc: `${SITE}/blog/`, priority: '0.7' }];
+  // <lastmod> comes from each post's own front-matter date (posts are sorted
+  // newest-first, so posts[0].date is the hub's real last-changed date) — never
+  // the build date, which would tell crawlers every post changed on every deploy.
+  const urls = [{ loc: `${SITE}/blog/`, priority: '0.7', lastmod: posts[0].date }];
   for (const p of posts) {
     if (seen.has(p.slug)) throw new Error(`duplicate blog slug "${p.slug}"`);
     seen.add(p.slug);
     await fsp.writeFile(path.join(DIST, 'blog', p.slug + '.html'), postHtml(p, SITE), 'utf8');
-    urls.push({ loc: `${SITE}/blog/${p.slug}.html`, priority: '0.6' });
+    urls.push({ loc: `${SITE}/blog/${p.slug}.html`, priority: '0.6', lastmod: p.date });
   }
   await fsp.writeFile(path.join(DIST, 'blog', 'index.html'), hubHtml(posts, SITE), 'utf8');
   return { urls, count: posts.length };

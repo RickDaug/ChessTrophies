@@ -9,8 +9,9 @@
      Must stay the FIRST script and load synchronously. -->
 <script src="ct-head.js?v=20260623a"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<!-- Content-Security-Policy: script-src is hardened to 'self' (+ cdnjs for
-     socket.io) — NO 'unsafe-inline', so injected inline scripts/handlers can't
+<!-- Content-Security-Policy: script-src is hardened to 'self' ONLY — no CDN
+     origins at all (socket.io is served from the vendored same-origin copy in
+     vendor/), and NO 'unsafe-inline', so injected inline scripts/handlers can't
      execute. All formerly-inline scripts are externalized and all on* handlers
      are wired via addEventListener / delegation. NOTE: style-src intentionally
      KEEPS 'unsafe-inline' because the app generates HTML with many inline
@@ -21,7 +22,7 @@
      (BACKEND_URL) and server/server.js (DEFAULT_WEB_ORIGINS). All three MUST
      stay in sync — a backend host change here without the others silently
      blocks login + sockets. See config.js for the canonical note. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://chesstrophies-production.up.railway.app wss://chesstrophies-production.up.railway.app; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://chesstrophies-production.up.railway.app wss://chesstrophies-production.up.railway.app; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self';" />
 <meta name="theme-color" content="#f5c451" />
 <title>ChessTrophies</title>
 <meta name="description" content="Play ranked online chess (1v1 & 2v2), climb the ELO ladder, earn trophies, practice vs the computer, and learn with free lessons. Jump in free." />
@@ -262,9 +263,17 @@
      gains focus. Applies to selects too (the signup skill picker). */
   input[type="text"], input[type="email"], input[type="password"], input[type="search"], textarea, select {
     width: 100%; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--border);
-    background: var(--panel); color: var(--text); font-size: 16px; outline: none; transition: border .15s;
+    background: var(--panel); color: var(--text); font-size: 16px; transition: border .15s;
   }
   input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  /* A 1px border-colour change alone is NOT a sufficient keyboard focus cue (and
+     `outline:none` above used to remove the only one the UA gave us). Restore a
+     real focus ring for keyboard users — :focus-visible keeps it off for mouse
+     clicks, so the visual design is unchanged for pointer users. Mirrors the
+     .home-seo / .nav-item rings already in this stylesheet. */
+  input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
   label { display: block; margin: 14px 0 6px; font-size: 13px; color: var(--muted); font-weight: 500; }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 16px; margin: 12px 0; transition: border-color .15s, transform .12s; }
   .card[style*="cursor:pointer"]:hover, .card[style*="cursor:pointer"]:active { border-color: rgba(245, 196, 81, .35); }
@@ -279,6 +288,13 @@
   .muted { color: var(--muted); font-size: 13px; }
   .center { text-align: center; }
   .error { color: var(--danger); font-size: 13px; margin-top: 8px; min-height: 18px; }
+  /* Visually hidden but still announced by screen readers (the live regions at
+     the bottom of <body>). Standard clip-rect recipe — never use display:none
+     here, that would remove the node from the accessibility tree entirely. */
+  .sr-only {
+    position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+  }
   .small { font-size: 12px; }
   hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
 
@@ -288,8 +304,12 @@
   .auth-hero h1 { font-size: 32px; background: linear-gradient(135deg, var(--accent) 0%, #ffd97a 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
   .auth-hero p { color: var(--muted); margin: 8px 0 0; font-size: 14px; }
   .tabs { display: flex; background: var(--panel); padding: 4px; border-radius: 12px; margin: 20px 0 16px; }
-  .tab { flex: 1; padding: 10px; text-align: center; border-radius: 8px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: 14px; transition: all .15s; }
+  /* .tab is a real <button> (was a click-only <div>, which no keyboard user could
+     reach). The background/border/font resets keep the pixels identical to the
+     old div; :focus-visible restores a visible keyboard focus ring. */
+  .tab { flex: 1; padding: 10px; text-align: center; border-radius: 8px; cursor: pointer; color: var(--muted); font-weight: 600; font-size: 14px; transition: all .15s; background: transparent; border: 0; font-family: inherit; line-height: inherit; -webkit-appearance: none; appearance: none; }
   .tab.active { background: var(--panel-2); color: var(--text); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
   /* HOME SEO — below-the-fold crawlable content on the auth screen. Sits at the
      bottom of the .screen flex column, full width, purely static HTML/CSS. */
@@ -314,6 +334,15 @@
   .home-seo-links a { display: inline-flex; align-items: center; padding: 8px 12px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); font-size: 13px; font-weight: 600; }
   .home-seo-links a:hover { border-color: rgba(245, 196, 81, .35); text-decoration: none; }
   .home-seo a:focus-visible, .home-seo-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+  /* Visible FAQ (mirrors the FAQPage JSON-LD in <head>). Native <details>. */
+  .home-faq { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 0; }
+  .home-faq-item { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; }
+  .home-faq-item > summary { cursor: pointer; font-size: 14px; font-weight: 700; color: var(--text); list-style: none; }
+  .home-faq-item > summary::-webkit-details-marker { display: none; }
+  .home-faq-item > summary::after { content: '+'; float: right; color: var(--accent); font-weight: 700; margin-left: 10px; }
+  .home-faq-item[open] > summary::after { content: '–'; }
+  .home-faq-item > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+  .home-faq-item > p { margin: 10px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.6; }
   @media (max-width: 460px) { .home-seo-grid { grid-template-columns: 1fr; } }
   @media (prefers-reduced-motion: reduce) { .home-seo-card { transition: none; } }
 
@@ -330,6 +359,14 @@
   .stat .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-top: 2px; }
 
   /* BOARD */
+  /* RTL SAFETY: i18n.js sets <html dir="rtl"> for Arabic/Urdu. Every board here
+     is a CSS Grid, and grid item placement follows the inline direction — so in
+     an RTL locale the a-file rendered on the RIGHT and the whole board was
+     mirrored (a genuine wrong-board bug, not a cosmetic one). Chess/checkers
+     board geometry is direction-agnostic, so pin the board containers to LTR
+     regardless of the document direction. Text OUTSIDE the boards still flips
+     normally. Do not "fix" this in i18n.js — the boards are the exception. */
+  .board, .board-wrap, .lesson-board, .rv-board, #checkers-board { direction: ltr; }
   .board-wrap { padding: 0; margin: 12px 0; position: relative; }
   .board { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); aspect-ratio: 1/1; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,.4); user-select: none; position: relative; z-index: 1; }
   .board-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
@@ -377,8 +414,9 @@
 
   /* RANKINGS */
   .rank-sizes { display: flex; gap: 6px; margin: 10px 0 14px; overflow-x: auto; padding: 2px; }
-  .rank-size { padding: 6px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; white-space: nowrap; transition: all .15s; }
+  .rank-size { padding: 6px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--border); font-size: 12px; font-weight: 600; font-family: inherit; color: var(--muted); cursor: pointer; white-space: nowrap; transition: all .15s; -webkit-appearance: none; appearance: none; }
   .rank-size.active { background: var(--accent); color: #1a1300; border-color: var(--accent); }
+  .rank-size:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .rank-row { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; margin: 6px 0; }
   .rank-num { width: 28px; text-align: center; font-weight: 800; color: var(--muted); }
   .rank-row.top1 .rank-num { color: var(--accent); }
@@ -680,6 +718,17 @@
     .ct-provisional { display: inline-block; margin-left: 6px; font-size: 0.62em; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 6px; border-radius: 999px; background: rgba(245,196,81,.16); color: var(--accent, #f5c451); vertical-align: middle; }
     @media (prefers-reduced-motion: reduce) { .ct-confetti-piece, .ct-elo-pop, .ct-trophy-shine { animation: none !important; } }
   @keyframes mm-pulse{0%,100%{transform:scale(1);opacity:.85}50%{transform:scale(1.18);opacity:1}}
+  /* Matchmaking / checkers-search / arena "searching…" glyph. This lives in a
+     class (not an inline style="animation:…") so the reduced-motion block below
+     can switch it off — an infinite pulse is exactly the kind of motion that
+     triggers vestibular discomfort. */
+  .mm-spin { font-size: 44px; line-height: 1; animation: mm-pulse 1.2s ease-in-out infinite; }
+  /* Reduced motion: kill the remaining INFINITE animations (the search spinner
+     and the learn-tree "you are here" bounce). !important so it also beats any
+     inline style="animation:…" left on a node. */
+  @media (prefers-reduced-motion: reduce) {
+    .mm-spin, .lnode .here, #ct-splash .ct-spin { animation: none !important; }
+  }
 
     /* ---- Checkmate moment: flash the mated king's square + topple the king ---- */
     @keyframes ct-mate-flash { 0% { box-shadow: inset 0 0 0 0 rgba(248,113,113,0); background-color: rgba(248,113,113,.85); } 35% { box-shadow: inset 0 0 0 3px rgba(248,113,113,.95); background-color: rgba(248,113,113,.9); } 100% { box-shadow: inset 0 0 0 0 rgba(248,113,113,0); } }
@@ -833,9 +882,12 @@
     <!-- Account is secondary: a quiet prompt + tabs that expand a form on demand.
          Neither form is shown until a tab is tapped (set up in app.js). -->
     <p class="muted center small" style="margin:0 0 8px" data-i18n="auth.accountPrompt">Want to save your progress across devices?</p>
-    <div class="tabs">
-      <div class="tab" data-tab="login" data-i18n="auth.tabSignIn">Sign in</div>
-      <div class="tab" data-tab="signup" data-i18n="auth.tabCreate">Create account</div>
+    <!-- Real <button>s, not clickable <div>s: these were keyboard-unreachable, so a
+         keyboard-only user literally could not open the "Create account" form.
+         aria-pressed mirrors the .active class (kept in sync by app.js). -->
+    <div class="tabs" role="group" aria-label="Account">
+      <button type="button" class="tab" data-tab="login" aria-pressed="false" data-i18n="auth.tabSignIn">Sign in</button>
+      <button type="button" class="tab" data-tab="signup" aria-pressed="false" data-i18n="auth.tabCreate">Create account</button>
     </div>
 
     <form id="form-login" class="auth-form" style="display:none">
@@ -843,7 +895,7 @@
       <input type="text" id="login-email" autocomplete="username" placeholder="Email or username" data-i18n-ph="auth.emailOrUsername" required>
       <label for="login-password" data-i18n="auth.password">Password</label>
       <input type="password" id="login-password" autocomplete="current-password" required>
-      <div class="error" id="login-error"></div>
+      <div class="error" id="login-error" role="alert" aria-live="assertive"></div>
       <button type="submit" class="btn btn-block" style="margin-top:14px" data-i18n="auth.signInBtn">Sign in</button>
       <p class="center small" style="margin-top:10px">
         <a href="#" id="link-forgot-password" style="color:var(--accent)" data-i18n="auth.forgotPassword">Forgot password?</a>
@@ -874,7 +926,7 @@
         </select>
         <p class="muted small" style="margin:6px 0 0;font-size:11px" data-i18n="auth.eloHelp">Leave this and we’ll start you at Beginner — your rating adjusts as you play.</p>
       </details>
-        <div class="error" id="signup-error"></div>
+        <div class="error" id="signup-error" role="alert" aria-live="assertive"></div>
       <button type="submit" class="btn btn-block" style="margin-top:14px" data-i18n="auth.createBtn">Create account</button>
     </form>
 
@@ -956,6 +1008,41 @@
         <a href="/blog/">Chess blog</a>
         <a href="/tools/elo-rating-calculator.html">ELO rating calculator</a>
         <a href="/tools/fen-board-viewer.html">FEN board viewer</a>
+      </div>
+
+      <!-- ===================== VISIBLE FAQ =====================
+           The FAQPage JSON-LD in <head> used to be the ONLY place these answers
+           existed — structured data that isn't visible on the page violates
+           Google's structured-data guidelines (and earns no rich result). These
+           six Q&As are the SAME six, word for word, as the JSON-LD `mainEntity`
+           list; if you edit one, edit the other. Native <details>/<summary>, so
+           no JS and nothing inline — CSP-safe. -->
+      <h3 id="home-faq-title">Frequently asked questions</h3>
+      <div class="home-faq" aria-labelledby="home-faq-title">
+        <details class="home-faq-item">
+          <summary>Is ChessTrophies free to play?</summary>
+          <p>Yes. Ranked games, trophies, daily puzzles, the bot gauntlet, the opening trainer, the Learn library and checkers are all free to play. An optional Premium tier only removes ads and adds a supporter badge — it never gates gameplay or the themed board and piece sets.</p>
+        </details>
+        <details class="home-faq-item">
+          <summary>Do I need an account to play?</summary>
+          <p>No. You can tap Play now and start a game against the computer instantly as a guest. Creating a free account saves your rating, trophies and progress so they follow you across devices.</p>
+        </details>
+        <details class="home-faq-item">
+          <summary>Can I play chess online with friends?</summary>
+          <p>Yes. ChessTrophies has ranked 1v1 and 2v2 online chess, plus live arena tournaments where you play a series of games against other people.</p>
+        </details>
+        <details class="home-faq-item">
+          <summary>Does ChessTrophies have checkers?</summary>
+          <p>Yes. You can play full checkers and international draughts, including the 8×8 and 10×10 boards, alongside chess.</p>
+        </details>
+        <details class="home-faq-item">
+          <summary>How do chess trophies work?</summary>
+          <p>Trophies record your achievements — including who you beat while on a winning streak. As you win ranked games and keep streaks alive, you unlock and hold trophies that show up on your profile.</p>
+        </details>
+        <details class="home-faq-item">
+          <summary>Can I play ChessTrophies on mobile?</summary>
+          <p>Yes. ChessTrophies runs in any modern mobile or desktop web browser, with a touch-friendly board and drag-and-drop pieces — no app install required.</p>
+        </details>
       </div>
     </section>
   </section>
@@ -1119,9 +1206,9 @@
 
     <!-- GAME-TYPE selector: Chess (default) or Checkers. Selecting Checkers
          reveals board-size + rule-set pickers and swaps the Play cards. -->
-    <div class="tabs" id="gametype-tabs" style="margin-bottom:12px">
-      <div class="tab active" data-gametype="chess">♟ Chess</div>
-      <div class="tab" data-gametype="checkers">⛀ Checkers</div>
+    <div class="tabs" id="gametype-tabs" style="margin-bottom:12px" role="group" aria-label="Game type">
+      <button type="button" class="tab active" data-gametype="chess" aria-pressed="true">♟ Chess</button>
+      <button type="button" class="tab" data-gametype="checkers" aria-pressed="false">⛀ Checkers</button>
     </div>
 
     <!-- Checkers options (hidden until Checkers is selected). Mirrors the lobby
@@ -1448,19 +1535,19 @@
       </div>
       <button class="btn small" id="btn-open-feared" style="padding:8px 14px;white-space:nowrap">View wall</button>
     </div>
-    <div class="tabs" id="rank-metric-tabs">
-      <div class="tab active" data-metric="elo">ELO</div>
-      <div class="tab" data-metric="wins">Wins</div>
-      <div class="tab" data-metric="trophies">Trophies</div>
-      <div class="tab" data-metric="streak">Streak</div>
-      <div class="tab" data-metric="checkers8">Checkers 8×8</div>
-      <div class="tab" data-metric="checkers10">Checkers 10×10</div>
+    <div class="tabs" id="rank-metric-tabs" role="group" aria-label="Leaderboard metric">
+      <button type="button" class="tab active" data-metric="elo" aria-pressed="true">ELO</button>
+      <button type="button" class="tab" data-metric="wins" aria-pressed="false">Wins</button>
+      <button type="button" class="tab" data-metric="trophies" aria-pressed="false">Trophies</button>
+      <button type="button" class="tab" data-metric="streak" aria-pressed="false">Streak</button>
+      <button type="button" class="tab" data-metric="checkers8" aria-pressed="false">Checkers 8×8</button>
+      <button type="button" class="tab" data-metric="checkers10" aria-pressed="false">Checkers 10×10</button>
     </div>
-    <div class="rank-sizes" id="rank-size-tabs">
-      <div class="rank-size active" data-size="100">Top 100</div>
-      <div class="rank-size" data-size="500">Top 500</div>
-      <div class="rank-size" data-size="5000">Top 5000</div>
-      <div class="rank-size" data-size="all">All-time</div>
+    <div class="rank-sizes" id="rank-size-tabs" role="group" aria-label="Leaderboard size">
+      <button type="button" class="rank-size active" data-size="100" aria-pressed="true">Top 100</button>
+      <button type="button" class="rank-size" data-size="500" aria-pressed="false">Top 500</button>
+      <button type="button" class="rank-size" data-size="5000" aria-pressed="false">Top 5000</button>
+      <button type="button" class="rank-size" data-size="all" aria-pressed="false">All-time</button>
     </div>
     <div id="rank-list"></div>
     <p class="muted small center" id="rank-footer-note" style="margin-top:20px">Global rankings update as players around the world compete.</p>
@@ -1686,7 +1773,7 @@
       <div style="padding:12px 16px 0;">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center;">
           <input id="friend-search-input" type="text" placeholder="Search by username…"
-            style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:16px;outline:none;">
+            style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:16px;">
           <button class="btn btn-secondary small" id="btn-add-friend" style="padding:10px 14px;white-space:nowrap;">+ Add friend</button>
         </div>
         <div id="friend-search-results" style="margin-bottom:16px;"></div>
@@ -1767,7 +1854,7 @@
   <div class="modal">
     <div class="handle"></div>
     <div style="text-align:center;padding:8px 0">
-      <div id="mm-spinner" style="font-size:44px;line-height:1;animation:mm-pulse 1.2s ease-in-out infinite">⌛</div>
+      <div id="mm-spinner" class="mm-spin">⌛</div>
       <h2 id="mm-title" style="margin:12px 0 4px">Searching for an opponent…</h2>
       <p class="muted small" id="mm-status" style="margin:0">Looking for the next available player near your ELO…</p>
       <div class="pill" id="mm-timer" style="margin:14px auto 0;display:inline-block">0:00</div>
@@ -1782,7 +1869,7 @@
   <div class="modal">
     <div class="handle"></div>
     <div style="text-align:center;padding:8px 0">
-      <div style="font-size:44px;line-height:1;animation:mm-pulse 1.2s ease-in-out infinite">⛀</div>
+      <div class="mm-spin">⛀</div>
       <h2 style="margin:12px 0 4px">Searching for a checkers opponent…</h2>
       <p class="muted small" id="ck-mm-sub" style="margin:0">Looking for a player near your rating…</p>
       <div class="pill" id="ck-mm-timer" style="margin:14px auto 0;display:inline-block">0:00</div>
@@ -1819,7 +1906,7 @@
   <div class="modal">
     <div class="handle"></div>
     <div style="text-align:center;padding:8px 0">
-      <div style="font-size:44px;line-height:1;animation:mm-pulse 1.2s ease-in-out infinite">⚔️</div>
+      <div class="mm-spin">⚔️</div>
       <h2 id="tq-title" style="margin:12px 0 4px">Searching for a 2v2 match…</h2>
       <p class="muted small" id="tq-status" style="margin:0">Need 4 players for a match. Waiting up to 3 minutes.</p>
       <div class="pill" id="tq-timer" style="margin:14px auto 0;display:inline-block">3:00</div>
@@ -2174,6 +2261,23 @@
   </div>
 </div>
 
+<!-- ===================== SCREEN-READER LIVE REGIONS =====================
+     Nothing in the app used to be announced: a failed login, a toast, a change of
+     turn, check and the game result were all silent to assistive tech.
+
+     #toast-region  — app.js appends every .toast in here. role="status" +
+                      aria-live="polite" means the toast text is read out without
+                      interrupting. The container itself has NO layout (the toasts
+                      are position:fixed), so nothing moves visually.
+     #a11y-live     — visually-hidden polite region that app.js / ct-checkers.js
+                      write turn / check / game-result text into. Kept separate
+                      from #game-status so the on-screen string and the announced
+                      string can differ (the announcement is more verbose).
+     Both are polite; #login-error / #signup-error carry role="alert" (assertive)
+     because a failed sign-in must interrupt. -->
+<div id="toast-region" role="status" aria-live="polite" aria-atomic="false"></div>
+<div id="a11y-live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+
 <!-- Bottom-of-body scripts are `defer`red so they don't block HTML parsing.
      defer preserves document order, which matters here: these are order-dependent
      IIFEs (e.g. ct-auth before app, checkers before its UI). The head boot/onerror
@@ -2188,8 +2292,17 @@
 <script defer src="sounds.js?v=20260530m"></script>
 <script defer src="stockfish-ai.js?v=20260530m"></script>
 <script defer src="config.js?v=20260531d"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script defer src="ct-socket-fallback.js?v=20260606c"></script>
+<!-- socket.io-client is served from our OWN origin (vendor/socket.io.min.js).
+     It used to load from cdnjs with a `crossorigin` attribute but NO `integrity`
+     hash — i.e. a compromised or hijacked CDN could have executed arbitrary
+     script in the app. Serving it locally removes that supply-chain surface
+     entirely and lets script-src stay 'self' with no CDN origin allow-listed.
+     BONUS: the vendored file is socket.io-client 4.8.3, which is the exact
+     version server/package-lock.json resolves for the server; the cdnjs tag was
+     pinned to the OLDER 4.7.5. ct-socket-fallback.js re-tries the same
+     same-origin file once if window.io is still missing after this loads. -->
+<script defer src="vendor/socket.io.min.js?v=20260606a"></script>
+<script defer src="ct-socket-fallback.js?v=20260722a"></script>
 <script defer src="ct-auth.js?v=20260603a"></script>
 <script defer src="ct-net.js?v=20260601a"></script>
 <script defer src="ct-ai.js?v=20260604a"></script>

@@ -90,13 +90,25 @@ async function main() {
     const precached = new Set(
       [...m[1].matchAll(/["']([^"']+)["']/g)].map((x) => x[1].replace(/^\.\//, ''))
     );
-    for (const f of ['admin.html', 'icon-1024.png', 'og-image.png', 'robots.txt']) {
+    // Emitted, but deliberately NOT precached (runtime-cached on demand instead).
+    for (const f of ['admin.html', 'admin.js', 'og-image.png', 'robots.txt']) {
       assert(!precached.has(f) && !precached.has('./' + f),
         `expected "${f}" to be EXCLUDED from the SW precache list (first-load weight), but it is present`);
       // The asset must still be emitted into dist/ (excluded from precache != deleted),
       // so runtime caching can serve it on demand.
       assert(fs.existsSync(path.join(DIST, f)), `dist/${f} should still be emitted (only excluded from precache)`);
     }
+    // icon-1024.png is NOT shipped at all: manifest.json references only
+    // icon.svg / icon-192 / icon-512, so emitting it was ~155 KB of dead weight
+    // on the CDN with no consumer (audit 2026-07). Re-adding it to COPY_ASSETS
+    // without a manifest entry that uses it is a regression.
+    assert(!fs.existsSync(path.join(DIST, 'icon-1024.png')),
+      'dist/icon-1024.png should NOT be emitted — nothing references it (dead CDN weight)');
+    // admin.js MUST ship with admin.html: it was split out so the page could carry
+    // an enforceable script-src CSP, so a missing admin.js is a blank dashboard
+    // with no inline fallback. test/deploy-assets.mjs guards the source lists.
+    assert(fs.existsSync(path.join(DIST, 'admin.js')),
+      'dist/admin.js MUST be emitted — admin.html loads it and its CSP forbids an inline fallback');
     // Sanity: the app shell IS still precached.
     assert(precached.has('index.html') || precached.has('./index.html'), 'index.html missing from precache list');
     log(`precache assets: ${precached.size} (admin.html + heavy unused images correctly excluded)`);
