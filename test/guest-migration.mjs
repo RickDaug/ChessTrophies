@@ -32,7 +32,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { grantStats } from './lib/grant-stats.mjs';
+import { grantStatsAuto } from './lib/grant-stats.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(__dirname, '..', 'server');
@@ -101,7 +101,9 @@ async function main() {
     // Trophies are entitlement-checked server-side (audit 2026-07): a fresh
     // account has 0 games and is entitled to NO trophies. This test covers the
     // sync PLUMBING, so give the account the counters a real player would have.
-    grantStats(dbPath, uid);
+    // grantStatsAuto so this keeps working if the test is ever added to
+    // pg-run.mjs; it falls back to the SQLite write when not on Postgres.
+    await grantStatsAuto(dbPath, uid);
 
     assert(uid && me.isPremium === false, 'converted account should exist');
     // The brand-new account starts with NO carried progress (proves step 4 does it).

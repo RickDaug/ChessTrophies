@@ -25,6 +25,22 @@ export const DEFAULT_STATS = {
   elo_checkers_8: 1600, elo_checkers_10: 1600,
 };
 
+// Backend-aware entry point — USE THIS unless you know the backend statically.
+//
+// These tests run on BOTH backends (test/pg-run.mjs re-runs them with
+// DB_BACKEND=postgres). Calling the SQLite grantStats under Postgres is silently
+// useless rather than loud: store.js imports db.js unconditionally, so the
+// throwaway SQLite file exists with a full schema — the UPDATE just matches zero
+// rows while the server reads Postgres. The account keeps 0 wins, the server
+// correctly drops its unearned trophies, and the test fails somewhere far away
+// with "trophyPoints ... got 0". Dispatching on the env removes that trap.
+export async function grantStatsAuto(dbPath, userId, stats = {}) {
+  if (process.env.DB_BACKEND === 'postgres') {
+    return grantStatsPg(process.env.DATABASE_URL, userId, stats);
+  }
+  return grantStats(dbPath, userId, stats);
+}
+
 // Postgres counterpart of grantStats, for the tests that run BOTH backends
 // (pg-smoke). Same columns, same defaults — only the driver and placeholder
 // dialect differ. Async because node-postgres is.

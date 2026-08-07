@@ -29,7 +29,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { grantStats, grantStatsPg } from './lib/grant-stats.mjs';
+import { grantStatsAuto } from './lib/grant-stats.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(__dirname, '..', 'server');
@@ -83,8 +83,7 @@ async function main() {
     // sync PLUMBING, so give the account the counters a real player would have.
     // BOTH backends need this — granting only on the sqlite leg left the pg leg
     // asserting trophyCount === 3 for an account entitled to none.
-    if (PG) await grantStatsPg(process.env.DATABASE_URL, userId);
-    else grantStats(dbPath, userId);
+    await grantStatsAuto(dbPath, userId);
 
     log('signup -> /api/me (users table read/write) ✓');
 
