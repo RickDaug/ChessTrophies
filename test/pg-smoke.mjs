@@ -13,7 +13,7 @@
  *     verified; only the PG SQL execution is the fresh coverage in CI).
  *
  * Flows (the parts most likely to drift between the two SQL dialects):
- *   - signup -> login -> GET /api/me           (users table, premium/trophy fields)
+ *   - signup -> login -> GET /api/me           (users table, trophy fields)
  *   - POST then GET /api/progress              (flags JSON + achievements/trophy
  *                                               columns round-trip — the exact
  *                                               /api/progress forwarding hazard)
@@ -76,7 +76,7 @@ async function main() {
     const token = JSON.parse(suText).token;
     const auth = { Authorization: `Bearer ${token}` };
     const me0 = await (await get('/api/me', auth)).json();
-    assert(me0.id && me0.isPremium === false, `fresh /api/me wrong: ${JSON.stringify(me0)}`);
+    assert(me0.id, `fresh /api/me wrong: ${JSON.stringify(me0)}`);
     const userId = me0.id;
     // Trophies are entitlement-checked server-side (audit 2026-07): a fresh
     // account has 0 games and is entitled to NO trophies. This test covers the

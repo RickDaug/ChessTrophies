@@ -65,7 +65,7 @@ function makeClock(parsed) {
   return { w: parsed.initialMs, b: parsed.initialMs, incrementMs: parsed.incrementMs, running: 'w', turnStartedAt: Date.now() };
 }
 function eloDelta(a, b, score) { const K2 = 32; const exp = 1 / (1 + Math.pow(10, (b - a) / 400)); return Math.round(K2 * (score - exp)); }
-function publicUser(u) { return { id: u.id, username: u.username, elo: u.elo, wins: u.wins, losses: u.losses, isPremium: !!u.is_premium, avatarStock: u.avatar_stock || 'av_knight', avatarDataUrl: u.avatar_data_url || '' }; }
+function publicUser(u) { return { id: u.id, username: u.username, elo: u.elo, wins: u.wins, losses: u.losses, avatarStock: u.avatar_stock || 'av_knight', avatarDataUrl: u.avatar_data_url || '' }; }
 function newGameId() { return 'g_' + crypto.randomBytes(6).toString('hex'); }
 function colorHasMatingMaterial(chess, color) {
   try {

@@ -160,19 +160,18 @@ async function main() {
       await page.evaluate(() => window.CT.closeModal('challenge-invite'));
     });
 
-    // ----- 4) Premium modal via the lobby premium card (converted handler) -
-    // The card is now hidden until the user has finished a game (ad/upsell gate),
-    // so force it visible first — this step verifies the CONVERTED (CSP-safe,
-    // non-inline) click handler still fires, not the visibility gate.
-    await step('lobby premium card -> premium modal (converted onclick)', async () => {
-      await page.evaluate(() => { const c = document.getElementById('lobby-premium-card'); if (c) c.style.display = ''; });
-      await click('#lobby-premium-card');
-      await page.waitForFunction(() => document.querySelector('#modal-premium.show'), { timeout: 5000 });
+    // ----- 4) Invite modal via the friends-screen Invite button (converted handler)
+    // Verifies a CONVERTED (CSP-safe, non-inline) click handler still fires: the
+    // button lives on the friends screen, so switch to it first.
+    await step('friends invite button -> invite modal (converted onclick)', async () => {
+      await page.evaluate(() => window.CT.showScreen('friends'));
+      await click('#btn-invite');
+      await page.waitForFunction(() => document.querySelector('#modal-invite.show'), { timeout: 5000 });
     });
-    assert(await isModalOpen('premium'), 'premium modal did not open from converted card handler');
-    await step('close premium modal', async () => {
-      await click('#btn-premium-close');
-      await page.waitForFunction(() => !document.querySelector('#modal-premium.show'), { timeout: 5000 });
+    assert(await isModalOpen('invite'), 'invite modal did not open from converted button handler');
+    await step('close invite modal', async () => {
+      await click('#btn-invite-cancel');
+      await page.waitForFunction(() => !document.querySelector('#modal-invite.show'), { timeout: 5000 });
     });
 
     // ----- 5) Friends screen + search input (converted oninput) -----------

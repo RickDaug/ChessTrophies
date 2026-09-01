@@ -11,8 +11,8 @@
  * falls back to the built-in Staunton renderer when no themed set is active or the
  * piece isn't available. Board colors are applied via CSS vars on <html>.
  *
- * enforcePremium() is a no-op (cosmetics are no longer gated). Premium is purely an
- * optional supporter perk (removes ads + a profile badge).
+ * Every set is free to equip. A curated subset is ALSO earnable as a trophy
+ * reward, which is a milestone, not a gate.
  */
 (function () {
   'use strict';
@@ -20,31 +20,31 @@
   // Light metadata for every set (no heavy SVG). price in cents. accent = a CSS color
   // used for the Store card's faction chip. era = grouping label.
   var MANIFEST = [
-    { slug: 'samurai-ninja',       name: 'Samurai vs Ninja',                 factions: { w: 'Samurai', b: 'Ninja' },              price: 299, era: 'Feudal Japan',   accent: '#c0392b' },
-    { slug: 'medieval-crusaders',  name: 'Medieval Europe vs Crusaders',     factions: { w: 'Knights', b: 'Crusaders' },          price: 299, era: 'Middle Ages',    accent: '#c0392b' },
-    { slug: 'romans-barbarians',   name: 'Romans vs Barbarians',             factions: { w: 'Romans', b: 'Barbarians' },          price: 299, era: 'Antiquity',      accent: '#b03a2e' },
-    { slug: 'spartans-persians',   name: 'Spartans vs Persians',             factions: { w: 'Spartans', b: 'Persians' },          price: 299, era: 'Antiquity',      accent: '#7d3c98' },
-    { slug: 'vikings-saxons',      name: 'Vikings vs Anglo-Saxons',          factions: { w: 'Vikings', b: 'Anglo-Saxons' },       price: 299, era: 'Dark Ages',      accent: '#2e86c1' },
-    { slug: 'pirates-navy',        name: 'Pirates vs Royal Navy',            factions: { w: 'Pirates', b: 'Royal Navy' },         price: 299, era: 'Age of Sail',    accent: '#1f3a93' },
-    { slug: 'templars-saracens',   name: 'Knights Templar vs Saracens',      factions: { w: 'Templars', b: 'Saracens' },          price: 299, era: 'Crusades',       accent: '#229954' },
-    { slug: 'aztecs-conquistadors',name: 'Aztecs vs Conquistadors',          factions: { w: 'Aztecs', b: 'Conquistadors' },       price: 299, era: 'New World',      accent: '#16a085' },
-    { slug: 'egypt-nubia',         name: 'Ancient Egypt vs Nubia',           factions: { w: 'Egypt', b: 'Nubia' },                price: 299, era: 'Ancient',        accent: '#c9a227' },
-    { slug: 'gods-titans',         name: 'Greek Gods vs Titans',             factions: { w: 'Gods', b: 'Titans' },                price: 299, era: 'Mythology',      accent: '#d4ac0d' },
-    { slug: 'arthur-morgan',       name: 'King Arthur vs Morgan Le Fay',     factions: { w: 'Camelot', b: 'Morgan' },             price: 299, era: 'Arthurian',      accent: '#5b2c6f' },
-    { slug: 'dragons-slayers',     name: 'Dragons vs Dragon Slayers',        factions: { w: 'Dragons', b: 'Slayers' },            price: 299, era: 'Fantasy',        accent: '#1e8449' },
-    { slug: 'angels-demons',       name: 'Angels vs Demons',                 factions: { w: 'Angels', b: 'Demons' },              price: 299, era: 'Celestial',      accent: '#b9770e' },
-    { slug: 'orcs-elves',          name: 'Orcs vs Elves',                    factions: { w: 'Elves', b: 'Orcs' },                 price: 299, era: 'Fantasy',        accent: '#1e8449' },
-    { slug: 'wizards-necromancers',name: 'Wizards vs Necromancers',          factions: { w: 'Wizards', b: 'Necromancers' },       price: 299, era: 'Arcane',         accent: '#2471a3' },
-    { slug: 'steampunk-clockwork', name: 'Steampunk Empire vs Clockwork Rebels', factions: { w: 'Empire', b: 'Rebels' },         price: 299, era: 'Steampunk',      accent: '#b9770e' },
-    { slug: 'aliens-humans',       name: 'Aliens vs Humans',                 factions: { w: 'Humans', b: 'Aliens' },              price: 299, era: 'Sci-Fi',         accent: '#16a085' },
-    { slug: 'robots-cyborgs',      name: 'Robots vs Cyborgs',                factions: { w: 'Robots', b: 'Cyborgs' },             price: 299, era: 'Sci-Fi',         accent: '#17a2b8' },
-    { slug: 'zombies-survivors',   name: 'Zombies vs Survivors',             factions: { w: 'Survivors', b: 'Zombies' },          price: 299, era: 'Apocalypse',     accent: '#7f8c8d' }
+    { slug: 'samurai-ninja',       name: 'Samurai vs Ninja',                 factions: { w: 'Samurai', b: 'Ninja' },              era: 'Feudal Japan',   accent: '#c0392b' },
+    { slug: 'medieval-crusaders',  name: 'Medieval Europe vs Crusaders',     factions: { w: 'Knights', b: 'Crusaders' },          era: 'Middle Ages',    accent: '#c0392b' },
+    { slug: 'romans-barbarians',   name: 'Romans vs Barbarians',             factions: { w: 'Romans', b: 'Barbarians' },          era: 'Antiquity',      accent: '#b03a2e' },
+    { slug: 'spartans-persians',   name: 'Spartans vs Persians',             factions: { w: 'Spartans', b: 'Persians' },          era: 'Antiquity',      accent: '#7d3c98' },
+    { slug: 'vikings-saxons',      name: 'Vikings vs Anglo-Saxons',          factions: { w: 'Vikings', b: 'Anglo-Saxons' },       era: 'Dark Ages',      accent: '#2e86c1' },
+    { slug: 'pirates-navy',        name: 'Pirates vs Royal Navy',            factions: { w: 'Pirates', b: 'Royal Navy' },         era: 'Age of Sail',    accent: '#1f3a93' },
+    { slug: 'templars-saracens',   name: 'Knights Templar vs Saracens',      factions: { w: 'Templars', b: 'Saracens' },          era: 'Crusades',       accent: '#229954' },
+    { slug: 'aztecs-conquistadors',name: 'Aztecs vs Conquistadors',          factions: { w: 'Aztecs', b: 'Conquistadors' },       era: 'New World',      accent: '#16a085' },
+    { slug: 'egypt-nubia',         name: 'Ancient Egypt vs Nubia',           factions: { w: 'Egypt', b: 'Nubia' },                era: 'Ancient',        accent: '#c9a227' },
+    { slug: 'gods-titans',         name: 'Greek Gods vs Titans',             factions: { w: 'Gods', b: 'Titans' },                era: 'Mythology',      accent: '#d4ac0d' },
+    { slug: 'arthur-morgan',       name: 'King Arthur vs Morgan Le Fay',     factions: { w: 'Camelot', b: 'Morgan' },             era: 'Arthurian',      accent: '#5b2c6f' },
+    { slug: 'dragons-slayers',     name: 'Dragons vs Dragon Slayers',        factions: { w: 'Dragons', b: 'Slayers' },            era: 'Fantasy',        accent: '#1e8449' },
+    { slug: 'angels-demons',       name: 'Angels vs Demons',                 factions: { w: 'Angels', b: 'Demons' },              era: 'Celestial',      accent: '#b9770e' },
+    { slug: 'orcs-elves',          name: 'Orcs vs Elves',                    factions: { w: 'Elves', b: 'Orcs' },                 era: 'Fantasy',        accent: '#1e8449' },
+    { slug: 'wizards-necromancers',name: 'Wizards vs Necromancers',          factions: { w: 'Wizards', b: 'Necromancers' },       era: 'Arcane',         accent: '#2471a3' },
+    { slug: 'steampunk-clockwork', name: 'Steampunk Empire vs Clockwork Rebels', factions: { w: 'Empire', b: 'Rebels' },         era: 'Steampunk',      accent: '#b9770e' },
+    { slug: 'aliens-humans',       name: 'Aliens vs Humans',                 factions: { w: 'Humans', b: 'Aliens' },              era: 'Sci-Fi',         accent: '#16a085' },
+    { slug: 'robots-cyborgs',      name: 'Robots vs Cyborgs',                factions: { w: 'Robots', b: 'Cyborgs' },             era: 'Sci-Fi',         accent: '#17a2b8' },
+    { slug: 'zombies-survivors',   name: 'Zombies vs Survivors',             factions: { w: 'Survivors', b: 'Zombies' },          era: 'Apocalypse',     accent: '#7f8c8d' }
   ];
 
-  // TROPHY UNLOCKS — a curated subset of sets is earnable FREE by hitting a
-  // milestone trophy (no Premium needed); the rest stay Premium-only so the
-  // subscription keeps real exclusive value. slug -> { ach: <achievement id>,
-  // label: <how to earn it> }. The achievement ids live in trophy-data.js.
+  // TROPHY UNLOCKS — a curated subset of sets is ALSO tied to a milestone
+  // trophy, so earning it is a moment rather than a purchase. Every set is
+  // equippable regardless. slug -> { ach: <achievement id>, label: <how to earn
+  // it> }. The achievement ids live in trophy-data.js.
   var UNLOCKS = {
     'vikings-saxons':       { ach: 'streak_t4',  label: 'Win 10 ranked games in a row' },
     'gods-titans':          { ach: 'wins_t6',    label: 'Win 100 ranked games' },
@@ -117,20 +117,13 @@
     }).catch(function (e) { return null; });
   }
 
-  // Apply a set TEMPORARILY without persisting — used by the Store so anyone
-  // (incl. non-subscribers) can preview a set before subscribing. A reload or
-  // enforcePremium() will drop it.
+  // Apply a set TEMPORARILY without persisting — used by the Store so a set can
+  // be previewed before equipping it. A reload drops it.
   function preview(slug) {
     if (!slug || slug === 'classic') { activeSlug = null; clearBoard(); rerender(); return Promise.resolve(null); }
     return load(slug).then(function (set) { activeSlug = slug; applyBoard(set); rerender(); return set; })
       .catch(function () { return null; });
   }
-
-  // Themed sets are FREE for everyone now — equipping one is never gated by a
-  // subscription, so we NEVER strip an equipped set. Kept as a no-op (rather than
-  // removed) so existing callers in app.js don't need to change; a player's chosen
-  // set stays put regardless of premium status. (Premium is now ads/badge only.)
-  function enforcePremium(isPremium) { /* cosmetics are free — nothing to enforce */ }
 
   // Recompute which sets are unlocked from the user's earned achievement ids.
   // Returns the slugs that became unlocked since the last call (for a toast).
@@ -182,7 +175,6 @@
   window.CT_PIECE_SETS_MANIFEST = MANIFEST;
   window.CT_Sets = {
     manifest: manifest, get: get, load: load, equip: equip, preview: preview,
-    enforcePremium: enforcePremium,
     setTrophyUnlocks: setTrophyUnlocks, isTrophyUnlocked: isTrophyUnlocked,
     trophyUnlockedSlugs: trophyUnlockedSlugs, unlockInfo: unlockInfo,
     unlockForAchievement: unlockForAchievement,

@@ -169,9 +169,11 @@ ensureColumn('users', 'last_notified_at', 'INTEGER', '0');
 // string ('8'|'10') for checkers rows; '' for chess.
 ensureColumn('games', 'game_type', 'TEXT', "'chess'");
 ensureColumn('games', 'variant', 'TEXT', "''");
-// --- Stripe subscription billing (additive; inert until Stripe is configured) ---
-// The Stripe Customer id for this user (set on first checkout) and the latest
-// subscription status string from Stripe webhooks. Default '' = no billing yet.
+// --- RETAINED, NO LONGER WRITTEN: subscription billing was removed (2026-08) ---
+// Nothing reads or writes these any more. They are kept, rather than dropped,
+// because `is_premium`/`subscription_status` record who once subscribed and
+// dropping a column on a live database is irreversible. A future migration can
+// remove them once that history is no longer wanted.
 ensureColumn('users', 'stripe_customer_id', 'TEXT', "''");
 ensureColumn('users', 'subscription_status', 'TEXT', "''");
 
@@ -420,12 +422,10 @@ export function incShareCount(platform) {
   `).run(platform, Date.now());
 }
 
-// --- Stripe billing: payments ledger ---------------------------------------
-// One row per recorded Stripe revenue event (checkout completion / paid invoice).
-// `stripe_event_id` is UNIQUE so webhook retries can't double-count revenue
-// (idempotent on the Stripe event id). Amounts are stored in the smallest
-// currency unit (cents) as Stripe reports them. Aggregate telemetry (no FKs so a
-// payment can still be recorded if the user row is missing/late).
+// --- RETAINED, NO LONGER WRITTEN: the historical payments ledger -----------
+// Billing was removed in 2026-08. This table is kept because it is the only
+// record of revenue actually taken, which accounting may still need. Nothing
+// inserts into it any more and nothing reads it.
 db.exec(`
 CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY,
@@ -808,11 +808,11 @@ export function recordSeasonResult({ seasonId, userId, result, elo, now }) {
 }
 
 // Top N for a season's leaderboard: ordered by points then peak_elo, joined to
-// users for the live username/elo/premium. Parameterized.
+// users for the live username/elo. Parameterized.
 export function seasonLeaderboard(seasonId, limit = 50) {
   return db.prepare(
     `SELECT s.user_id, s.wins, s.losses, s.draws, s.points, s.peak_elo,
-            u.username, u.elo, u.is_premium
+            u.username, u.elo
      FROM season_stats s
      JOIN users u ON u.id = s.user_id
      WHERE s.season_id = ?
@@ -840,7 +840,7 @@ export function seasonStatsForUser(seasonId, userId) {
 export function seasonChampion(seasonId) {
   return db.prepare(
     `SELECT s.user_id, s.points, s.peak_elo, s.wins, s.losses, s.draws,
-            u.username, u.is_premium
+            u.username
      FROM season_stats s
      JOIN users u ON u.id = s.user_id
      WHERE s.season_id = ?
@@ -881,25 +881,6 @@ export function grantEntitlement(userId, sku, eventId) {
   return res.changes > 0;
 }
 
-// Atomically (one transaction) grant a one-time set purchase AND record its
-// revenue, both idempotent on the Stripe event id. Used by the webhook so a
-// retry can neither double-grant the set nor double-count the revenue. The
-// entitlement is keyed UNIQUE(user_id, sku); the payment UNIQUE(stripe_event_id).
-export function grantSetPurchase({ userId, sku, eventId, amountCents, currency }) {
-  const tx = db.transaction(() => {
-    db.prepare(
-      `INSERT OR IGNORE INTO entitlements (id, user_id, sku, granted_at, source_event_id)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run('ent_' + (eventId || ('x' + Math.random().toString(36).slice(2))), userId, sku, Date.now(), eventId || null);
-    db.prepare(
-      `INSERT OR IGNORE INTO payments (id, user_id, stripe_event_id, amount_cents, currency, kind, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run('pay_' + (eventId || ('x' + Math.random().toString(36).slice(2))), userId || null, eventId || null,
-      Number(amountCents) || 0, currency || 'usd', 'piece_set', Date.now());
-  });
-  tx();
-}
-
 // True if `userId` owns `sku`.
 export function userOwnsSku(userId, sku) {
   if (!userId || !sku) return false;
@@ -918,63 +899,6 @@ export function revokeEntitlement(userId, sku) {
   if (!userId || !sku) return false;
   const res = db.prepare('DELETE FROM entitlements WHERE user_id = ? AND sku = ?').run(userId, sku);
   return res.changes > 0;
-}
-
-// Persist the Stripe Customer id for a user (set on first checkout).
-export function setStripeCustomer(userId, customerId) {
-  return db.prepare('UPDATE users SET stripe_customer_id = ? WHERE id = ?').run(customerId, userId);
-}
-
-// Flip a user's premium flag + subscription status, keyed by Stripe Customer id.
-export function setPremiumByCustomer(customerId, isPremium, status) {
-  return db.prepare('UPDATE users SET is_premium = ?, subscription_status = ? WHERE stripe_customer_id = ?')
-    .run(isPremium ? 1 : 0, status == null ? '' : String(status), customerId);
-}
-
-// Flip a user's premium flag + subscription status, keyed by user id.
-export function setPremiumByUserId(userId, isPremium, status) {
-  return db.prepare('UPDATE users SET is_premium = ?, subscription_status = ? WHERE id = ?')
-    .run(isPremium ? 1 : 0, status == null ? '' : String(status), userId);
-}
-
-// Idempotently record a revenue event. INSERT OR IGNORE on the UNIQUE
-// stripe_event_id means a webhook retry for the same event is a no-op (the
-// amount is counted exactly once).
-export function recordPayment({ userId, eventId, amountCents, currency, kind, createdAt }) {
-  return db.prepare(`INSERT OR IGNORE INTO payments
-      (id, user_id, stripe_event_id, amount_cents, currency, kind, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(
-      'pay_' + (eventId || ('x' + Math.random().toString(36).slice(2))),
-      userId || null,
-      eventId || null,
-      Number(amountCents) || 0,
-      currency || 'usd',
-      kind || 'subscription',
-      Number(createdAt) || Date.now()
-    );
-}
-
-export function getUserByStripeCustomer(customerId) {
-  if (!customerId) return undefined;
-  return db.prepare("SELECT * FROM users WHERE stripe_customer_id = ? AND stripe_customer_id <> ''").get(customerId);
-}
-
-// Revenue rollups for the admin dashboard. Sums payments for the current
-// calendar month, current calendar year, and all-time, plus the count of active
-// subscribers (users.is_premium = 1). Boundaries use the SERVER's clock.
-export function revenueStats() {
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  const yearStart = new Date(now.getFullYear(), 0, 1).getTime();
-  const sum = (sql, p = []) => { const r = db.prepare(sql).get(...p); return r && r.s != null ? Number(r.s) : 0; };
-  return {
-    monthCents:      sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments WHERE created_at >= ?', [monthStart]),
-    yearCents:       sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments WHERE created_at >= ?', [yearStart]),
-    allTimeCents:    sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments'),
-    activeSubscribers: (() => { const r = db.prepare('SELECT COUNT(*) AS n FROM users WHERE is_premium = 1').get(); return r ? Number(r.n) : 0; })(),
-    currency: 'usd',
-  };
 }
 
 // Email verification: a per-user 6-digit code (one live code per user) with an
@@ -1169,7 +1093,7 @@ export function topByMetric(metric, limit = 100) {
   // Trophies get a count tiebreak before elo; other metrics keep the elo tiebreak.
   const tiebreak = (metric === 'trophies') ? `${trophiesExpr} DESC, elo DESC` : 'elo DESC';
   const whereExpr = participation[metric] || participation.elo;
-  return db.prepare(`SELECT id, username, region, elo, wins, losses, best_streak, is_premium,
+  return db.prepare(`SELECT id, username, region, elo, wins, losses, best_streak,
                             elo_checkers_8, elo_checkers_10, checkers8_games, checkers10_games,
                             ${trophiesExpr} AS trophies, trophy_points
                      FROM users WHERE ${whereExpr} ORDER BY ${orderExpr} DESC, ${tiebreak} LIMIT ?`).all(limit);
@@ -1205,7 +1129,7 @@ export function adminListUsers({ sort = 'elo', limit = 1000, q = '' } = {}) {
   const total = totalRow ? Number(totalRow.n) : 0;
   const rows = db.prepare(`
     SELECT id, username, email, elo, elo_checkers_8, elo_checkers_10,
-           wins, losses, draws, last_seen, created_at, email_verified, is_premium
+           wins, losses, draws, last_seen, created_at, email_verified
     FROM users ${where}
     ORDER BY ${orderExpr} LIMIT ?
   `).all(...whereParams, lim);
@@ -1215,7 +1139,7 @@ export function adminListUsers({ sort = 'elo', limit = 1000, q = '' } = {}) {
     wins: r.wins, losses: r.losses, draws: r.draws,
     games: (r.wins || 0) + (r.losses || 0) + (r.draws || 0),
     lastSeen: r.last_seen, createdAt: r.created_at,
-    emailVerified: !!r.email_verified, isPremium: !!r.is_premium,
+    emailVerified: !!r.email_verified,
   }));
   return { total, users };
 }

@@ -3,11 +3,11 @@
  * trophy-cosmetics.mjs — verifies trophy-tied cosmetic (board/piece set) unlocks:
  *   1) CT_Sets.setTrophyUnlocks maps earned achievement ids -> unlocked set slugs,
  *      and reports only the NEWLY-unlocked slugs on each call;
- *   2) enforcePremium(false) is a NO-OP — cosmetics are free for everyone, so it
- *      KEEPS any equipped set (trophy-earned or not); nothing is ever stripped;
+ *   2) an equipped set STAYS equipped whether or not it is trophy-earned —
+ *      cosmetics are free for everyone, so nothing is ever stripped;
  *   3) CT_Sets.unlockForAchievement reverse-maps a trophy -> its reward set;
- *   4) the Store shows an "Equip" action for EVERY set to a NON-premium user
- *      (trophy-earned or not) and a free/trophy tag instead of a lock.
+ *   4) the Store shows an "Equip" action for EVERY set (trophy-earned or not)
+ *      and a free/trophy tag instead of a lock.
  *
  * Run:   node test/trophy-cosmetics.mjs   (needs Playwright Chromium). Exit 0 = PASS.
  */
@@ -73,16 +73,14 @@ async function main() {
       const rev = S.unlockForAchievement('gauntlet_t4');
       out.reverse = rev && rev.slug;
 
-      // 2a) enforcePremium KEEPS a trophy-unlocked set equipped.
+      // 2a) a trophy-unlocked set stays equipped.
       await S.equip('dragons-slayers');
-      S.enforcePremium(false);
       out.keptUnlocked = S.activeSlug();
 
-      // 2b) enforcePremium also KEEPS a non-trophy set — cosmetics are free now,
-      //     so nothing is stripped for a non-subscriber.
+      // 2b) a set with NO trophy behind it stays equipped too — cosmetics are
+      //     free, so there is no gate that could strip it.
       S.setTrophyUnlocks([]); // nothing trophy-unlocked
       await S.equip('pirates-navy');
-      S.enforcePremium(false);
       out.keptNonTrophy = S.activeSlug(); // expect 'pirates-navy' (kept, not stripped)
 
       return out;
@@ -97,14 +95,14 @@ async function main() {
     assert(r.reverse === 'dragons-slayers', `unlockForAchievement(gauntlet_t4) should be dragons-slayers, got ${r.reverse}`);
     log('reverse map: trophy -> reward set ✓');
 
-    assert(r.keptUnlocked === 'dragons-slayers', `enforcePremium must KEEP a trophy-unlocked set, got ${r.keptUnlocked}`);
-    assert(r.keptNonTrophy === 'pirates-navy', `enforcePremium must KEEP any set now (cosmetics are free), got ${r.keptNonTrophy}`);
-    log('cosmetics free: enforcePremium keeps every equipped set ✓');
+    assert(r.keptUnlocked === 'dragons-slayers', `a trophy-unlocked set must stay equipped, got ${r.keptUnlocked}`);
+    assert(r.keptNonTrophy === 'pirates-navy', `any set must stay equipped (cosmetics are free), got ${r.keptNonTrophy}`);
+    log('cosmetics free: every equipped set stays equipped ✓');
 
-    // 4) Store UI for a NON-premium user with the unlock earned.
+    // 4) Store UI with the unlock earned.
     const ui = await page.evaluate(() => {
       window.CT_Sets.equip(null); // reset to classic
-      window.CT.setUser({ username: 'Tester', isPremium: false, streakTrophies: [], achievements: [{ id: 'gauntlet_t4', count: 1 }], flags: {}, wins: 0, losses: 0, draws: 0, currentStreak: 0, bestStreak: 0, elo: 1200 });
+      window.CT.setUser({ username: 'Tester', streakTrophies: [], achievements: [{ id: 'gauntlet_t4', count: 1 }], flags: {}, wins: 0, losses: 0, draws: 0, currentStreak: 0, bestStreak: 0, elo: 1200 });
       window.CT_applyTrophyUnlocks({ silent: true });
       window.CT_Shop.open();
       const eq = document.querySelector('#ct-shop-grid [data-slug="dragons-slayers"]');

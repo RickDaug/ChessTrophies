@@ -88,9 +88,6 @@ jobs:
       - name: Checkers move animation test
         run: npm run test:checkers-anim
 
-      - name: Stripe billing (inert + revenue) test
-        run: npm run test:billing
-
       - name: Online checkers (ranked Elo + isolation) test
         run: npm run test:checkers-online
 

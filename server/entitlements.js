@@ -1,16 +1,12 @@
-// Cosmetic STORE — themed piece-sets as a PREMIUM-SUBSCRIBER PERK.
+// Cosmetic STORE — themed piece-sets, free for everyone.
 //
-// MONETIZATION MODEL (changed): the themed piece-sets are NO LONGER one-time
-// microtransactions. They are now a perk of the active premium subscription —
-// accessible only while the user's premium is active, and access revokes
-// automatically when they cancel/suspend (the existing premium reconcile in
-// billing.js handles revocation). There is no per-set purchase, no entitlement
-// to grant, and no ownership to track: a user can equip ANY set iff is_premium.
+// There is no monetization here. The sets were once one-time microtransactions,
+// then a premium-subscription perk; subscription billing was removed in 2026-08
+// and every set is now simply free. There is no purchase route, no entitlement
+// to grant, and no ownership to track — anyone can equip any set.
 //
-// This module now only exposes the public catalog so the client knows which
-// cosmetic sets exist; the client gates equip on the user's is_premium (from
-// /api/me). The old POST /api/store/checkout one-time route + the entitlements
-// grant/revoke call sites have been removed.
+// This module exposes only the public catalog, so the client knows which sets
+// exist.
 
 // The 19 themed sets (slugs + faction names mirror STORE_DESIGN.md §5).
 // `name`/`factions` are server-owned display metadata so the catalog is
@@ -38,23 +34,21 @@ const SETS = [
   { sku: 'zombies-survivors',     name: 'Survivors vs Zombies',        factions: { w: 'Survivors', b: 'Zombies' } },
 ];
 
-// The full catalog: premium-only cosmetics. Order matches STORE_DESIGN.md §5.
-// `premium:true` signals these are gated on an active premium subscription; the
-// client decides whether to allow equip based on the user's is_premium.
+// The full catalog. Order matches STORE_DESIGN.md §5. No price and no gate —
+// every set is equippable by anyone.
 export function listProducts() {
-  return SETS.map(s => ({ sku: s.sku, name: s.name, factions: s.factions, premium: true }));
+  return SETS.map(s => ({ sku: s.sku, name: s.name, factions: s.factions }));
 }
 
 // Register the store route. Mounted AFTER express.json() in server.js.
 export function mountStore(app) {
-  // PUBLIC catalog of the premium cosmetic sets. No ownership / pricing — these
-  // are a premium perk; the client gates equip on the user's is_premium.
+  // PUBLIC catalog of the cosmetic sets. No ownership, no pricing, no gate.
   app.get('/api/store/catalog', (req, res) => {
     res.json(listProducts());
   });
 }
 
-// Startup diagnostic: how many premium cosmetic sets exist.
+// Startup diagnostic: how many cosmetic sets exist.
 export function logStoreStatus() {
-  console.log(`[store] ${SETS.length} premium cosmetic piece-set(s) available to active premium subscribers.`);
+  console.log(`[store] ${SETS.length} cosmetic piece-set(s) available, free to everyone.`);
 }

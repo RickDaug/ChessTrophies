@@ -33,7 +33,7 @@ function parseTc(tc) { const k = normalizeTc(tc); if (k === 'unlimited') return 
 function makeClock(parsed) { return parsed ? { w: parsed.initialMs, b: parsed.initialMs, incrementMs: parsed.incrementMs, running: 'w', turnStartedAt: Date.now() } : null; }
 function clockStartSnap(c, p) { return (c && p) ? { initialMs: p.initialMs, incrementMs: c.incrementMs, w: c.w, b: c.b, running: c.running, serverNow: Date.now() } : null; }
 function clockMoveSnap(c) { return { w: c.w, b: c.b, running: c.running, serverNow: Date.now() }; }
-function publicUser(u) { return { id: u.id, username: u.username, elo: u.elo, wins: u.wins, losses: u.losses, isPremium: !!u.is_premium }; }
+function publicUser(u) { return { id: u.id, username: u.username, elo: u.elo, wins: u.wins, losses: u.losses }; }
 function newGameId() { return 'g_' + crypto.randomBytes(6).toString('hex'); }
 function newDuoInviteId() { return 'di_' + crypto.randomBytes(5).toString('hex'); }
 function newTeamEntryId() { return 'tq_' + crypto.randomBytes(5).toString('hex'); }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <!-- Content-Security-Policy — this page had NONE, while rendering the most
-     sensitive data in the product (user emails, IPs, payment/premium state).
+     sensitive data in the product (user emails and IPs).
      Mirrors index.html: script-src 'self' with NO 'unsafe-inline', so an XSS'd
      admin field can't execute. That is only possible because the dashboard's
      ~1150-line script was moved out of an inline <script> into admin.js — do NOT
@@ -199,22 +199,6 @@
   .stand .pts { font-weight:800; color:var(--accent); }
   .stand .wld { color:var(--muted); }
   .stand .fire { font-weight:800; color:var(--red); }
-
-  /* mini stat strip inside revenue panel */
-  .mini { display:flex; gap:18px; flex-wrap:wrap; margin-top:2px; }
-  .mini > div { min-width:84px; }
-  .mini .m-lbl { color:var(--faint); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
-  .mini .m-val { font-size:18px; font-weight:800; margin-top:3px; }
-
-  /* ---------- recent payments ---------- */
-  .pay-list { display:flex; flex-direction:column; gap:2px; max-height:330px; overflow:auto; }
-  .pay { display:flex; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px solid var(--border); }
-  .pay:last-child { border-bottom:none; }
-  .pay .pic { width:34px; height:34px; border-radius:10px; flex:none; background:rgba(84,224,154,.12); color:var(--green); display:flex; align-items:center; justify-content:center; font-size:15px; }
-  .pay .pmid { flex:1; min-width:0; }
-  .pay .plabel { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .pay .pdate { font-size:11.5px; color:var(--faint); margin-top:2px; }
-  .pay .pamt { font-weight:800; color:var(--green); font-size:14px; white-space:nowrap; }
 
   /* ---------- shares ---------- */
   .shares-row { display:flex; align-items:center; gap:10px; padding:7px 0; }
@@ -493,27 +477,8 @@
     </div>
 
     <div class="sec-head">
-      <h2>💵 Monetization &amp; growth</h2>
+      <h2>📈 Growth</h2>
       <div class="line"></div>
-    </div>
-
-    <!-- revenue chart + recent payments -->
-    <div class="row2 c2">
-      <div class="panel">
-        <div class="hrow">
-          <div>
-            <h3>💰 Revenue <span id="revBadge"></span></h3>
-            <p class="h3sub">Daily revenue · last 30 days</p>
-          </div>
-          <div class="mini" id="revMini"></div>
-        </div>
-        <div id="revChart"></div>
-      </div>
-      <div class="panel">
-        <h3>🧾 Recent payments</h3>
-        <p class="h3sub">Newest first</p>
-        <div class="pay-list" id="payList"></div>
-      </div>
     </div>
 
     <!-- signups + games charts -->
@@ -615,7 +580,7 @@
           <tr>
             <th>#</th><th>Username</th><th>Email</th>
             <th class="sortable" data-sort="elo">ELO</th><th class="sortable" data-sort="checkers8">Ck 8×8</th><th class="sortable" data-sort="checkers10">Ck 10×10</th>
-            <th class="sortable" data-sort="games">Games</th><th class="sortable" data-sort="recent">Last seen</th><th class="sortable" data-sort="joined">Joined</th><th>Verified</th><th>Premium</th>
+            <th class="sortable" data-sort="games">Games</th><th class="sortable" data-sort="recent">Last seen</th><th class="sortable" data-sort="joined">Joined</th><th>Verified</th>
           </tr>
         </thead>
         <tbody id="usersBody"><tr><td colspan="11" class="faint" style="padding:16px 12px;">Loading users…</td></tr></tbody>

@@ -1,14 +1,20 @@
 # ChessTrophies — Themed Piece-Set Store (design + art bible + progress)
 
-**Status:** IN PROGRESS (started 2026-06-08). This is the living, resumable spec for the
-cosmetic Store + the 19 themed chess-piece/board sets. Read this first when resuming.
+**Status:** SHIPPED, but **no longer a store**. Started 2026-06-08 as a paid cosmetic shop;
+the sets became a premium perk, and in **2026-08 all monetization was removed** — every one
+of the 19 sets is now simply FREE for everyone, and there is no purchase path at all. The
+art bible and set list below remain accurate and useful; **every pricing, ownership,
+entitlement and Premium-gate section is historical.**
 
 ---
 
 ## 1. Goal & principles (NON-PREDATORY)
 
-Sell premium **themed chess-piece + board sets** ($2.99 each, owned forever) via a **Store
-under Profile**. Cosmetic only — zero competitive impact. Rules we hold to:
+~~Sell~~ **Give away** themed chess-piece + board sets via a **Store under Profile**.
+Cosmetic only — zero competitive impact. Originally $2.99 each owned forever, then a
+premium perk; **since 2026-08 they are free to everyone and nothing is for sale.** The
+non-predatory rules below were written for the paid model and are all still honoured — now
+trivially, since there is no money involved:
 
 - **Generous free base.** Classic Staunton + the existing 8 board / 5 piece themes stay FREE.
 - **Owned forever**, one-time purchase. No subscriptions-to-keep, no rentals.

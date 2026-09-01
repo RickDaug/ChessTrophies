@@ -227,7 +227,9 @@ tuning.
 - Matchmaking starts with ±50 ELO tolerance, widens 25 every second, caps at ±500
 - Games are kept in-memory while active, persisted to SQLite when finished
 - The PGN is stored for each game — useful for the "Analyze with engine" feature
-- Schema includes `is_premium` and `invites_accepted` to match the client's user shape
+- Schema still declares `is_premium`, `subscription_status`, `stripe_customer_id` and the
+  `payments` table, but NOTHING reads or writes them: subscription billing was removed in
+  2026-08. They are retained so the record of who once subscribed survives; see `db.js`.
 
 ## Next steps
 
@@ -235,4 +237,3 @@ tuning.
 - Add time controls (clocks on each side, time forfeit)
 - Add tournament tables (Swiss/Arena formats)
 - Add anti-cheat: time-per-move analysis, Stockfish similarity score
-- Hook up Stripe for the Premium subscription

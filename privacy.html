@@ -129,7 +129,6 @@
     <tr><td>Identifiers</td><td>Email address, username, account ID, IP address, device identifiers</td><td>(A) Identifiers</td></tr>
     <tr><td>Authentication Data</td><td>Salted password hash (never plain text), session tokens</td><td>(A) / (B) Customer records</td></tr>
     <tr><td>Customer Records</td><td>Username, region (city, country, if provided)</td><td>(B) Customer records under Cal. Civ. Code § 1798.80(e)</td></tr>
-    <tr><td>Commercial Information</td><td>Subscription status, transaction history (limited; payment card data is processed by Stripe, not by us)</td><td>(D) Commercial information</td></tr>
     <tr><td>Internet/Network Activity</td><td>Pages viewed, features used, referring URL, request timestamps, browser type, approximate device characteristics</td><td>(F) Internet or network activity</td></tr>
     <tr><td>Geolocation</td><td>Coarse geolocation derived from IP address; user-supplied region if you choose to enter one. We do not collect precise GPS location.</td><td>(G) Geolocation</td></tr>
     <tr><td>Inferences</td><td>ELO rating, skill level, lesson progress, playing patterns derived from gameplay</td><td>(K) Inferences</td></tr>
@@ -143,7 +142,7 @@
   <ul>
     <li><strong>Directly from you</strong> when you create an account, complete a profile, send a message, accept an invitation, or submit a support request;</li>
     <li><strong>Automatically</strong> when you interact with the Service, through cookies, browser local storage, server logs, and analytics tools further described in Section 9;</li>
-    <li><strong>From third-party service providers</strong>, currently limited to our payment processor (subscription status only) and our hosting providers (server and edge request logs). We do not offer federated ("sign in with…") authentication, so we receive no profile data from an identity provider. If we later enable an advertising network, interaction signals from that network would also fall into this category.</li>
+    <li><strong>From third-party service providers</strong>, currently limited to our hosting providers (server and edge request logs). We do not offer federated ("sign in with…") authentication, so we receive no profile data from an identity provider.</li>
   </ul>
 
   <h2 id="purposes">4. Purposes and Legal Bases for Processing</h2>
@@ -152,8 +151,7 @@
     <tr><th>Purpose</th><th>Categories Used</th><th>Legal Basis (GDPR)</th></tr>
     <tr><td>Account creation, authentication, and operation of the Service</td><td>Identifiers, Authentication Data, Customer Records</td><td>Performance of a contract (Art. 6(1)(b))</td></tr>
     <tr><td>Matchmaking, rankings, and game-state synchronization</td><td>Identifiers, Inferences, Internet Activity</td><td>Performance of a contract (Art. 6(1)(b))</td></tr>
-    <tr><td>Processing subscription payments</td><td>Commercial Information (via Stripe)</td><td>Performance of a contract (Art. 6(1)(b))</td></tr>
-    <tr><td>Service-related communications (account, billing, security alerts)</td><td>Identifiers, Commercial Information</td><td>Performance of a contract (Art. 6(1)(b)); legal obligation (Art. 6(1)(c)) where required</td></tr>
+    <tr><td>Service-related communications (account and security alerts)</td><td>Identifiers</td><td>Performance of a contract (Art. 6(1)(b)); legal obligation (Art. 6(1)(c)) where required</td></tr>
     <tr><td>Marketing communications</td><td>Identifiers</td><td>Consent (Art. 6(1)(a)); legitimate interests in direct marketing to existing customers under the soft opt-in (Art. 6(1)(f); ePrivacy Directive)</td></tr>
     <tr><td>Fraud, abuse, and cheat prevention</td><td>Identifiers, Internet Activity, Inferences</td><td>Legitimate interests (Art. 6(1)(f)) and, where applicable, legal obligation (Art. 6(1)(c))</td></tr>
     <tr><td>Security monitoring and logging</td><td>Identifiers, Internet Activity</td><td>Legitimate interests (Art. 6(1)(f)); legal obligation</td></tr>
@@ -171,16 +169,15 @@
   <p>We engage the Service Providers and Processors listed below to process Personal Information on our behalf, on our documented instructions, under the data-processing terms each provider makes generally available (typically a Data Processing Addendum incorporating the EU Standard Contractual Clauses) and consistent with the requirements of CCPA/CPRA § 1798.140(ag) and GDPR Article 28. This is the complete list of processors used to operate the Service as of the "Last revised" date above:</p>
   <ul>
     <li><strong>Static web hosting and content delivery:</strong> Vercel Inc. (United States) — serves the static website and app files (HTML, JavaScript, fonts, images) over its edge network, terminates TLS, and provides DDoS protection. Processes connection metadata only (IP address, user agent, requested URL, timestamp) in edge/request logs. Vercel does <em>not</em> host our application server, our database, or our email.</li>
-    <li><strong>Application server and database hosting:</strong> Railway Corp. (United States) — runs the ChessTrophies API and real-time game server and hosts the attached storage volume that holds our database. Because the database lives here, this provider stores substantially every category identified in Section 2: email address, hashed password, username, region, coarse country/state derived from your IP at signup, ELO and game history, in-game chat, subscription status, and product-analytics events.</li>
+    <li><strong>Application server and database hosting:</strong> Railway Corp. (United States) — runs the ChessTrophies API and real-time game server and hosts the attached storage volume that holds our database. Because the database lives here, this provider stores substantially every category identified in Section 2: email address, hashed password, username, region, coarse country/state derived from your IP at signup, ELO and game history, in-game chat, and product-analytics events.</li>
     <li><strong>Database backup and disaster recovery:</strong> Cloudflare, Inc. — the application server continuously replicates the <em>entire</em> database file to a Cloudflare R2 object-storage bucket so that the Service can be restored if the primary volume is lost. That replica contains the same categories of Personal Information as the live database, including email addresses, hashed passwords, and coarse geolocation. See Section 6 regarding the location of that bucket.</li>
-    <li><strong>Payment processing:</strong> Stripe, Inc. — processes subscription payments. We do not receive or store full payment-card numbers. Stripe acts as an independent controller of payment-card data; see <a href="https://stripe.com/privacy">https://stripe.com/privacy</a>.</li>
     <li><strong>Transactional email delivery:</strong> Resend (Plus Five Five, Inc.) — delivers email-verification codes and password-reset links. Processes your email address and the contents of those messages. We do not send marketing email through this provider today.</li>
     <li><strong>Analytics:</strong> None. Product analytics are <strong>first-party</strong>: usage events are sent to our own API on the application host named above and stored in our own database. We do not embed any third-party analytics script, tag manager, or pixel. See Section 9 for what the analytics events contain.</li>
     <li><strong>Error monitoring:</strong> None. We do not currently use a third-party error-monitoring service.</li>
     <li><strong>Machine translation (not currently enabled):</strong> the Service contains an optional in-game chat auto-translation feature that, when switched on, would forward the text of a chat message to a LibreTranslate translation endpoint. This feature is <strong>disabled</strong> as of the "Last revised" date, and no chat text is sent to any translation provider. We will update this Policy and name the provider before enabling it.</li>
   </ul>
   <h3>5.2 Advertising Partners</h3>
-  <p>We may show advertisements to free-tier accounts. If and when we enable an advertising network (such as Google AdSense), those partners may set cookies or similar identifiers to deliver and measure ads. To the extent that activity constitutes "sharing" under CCPA/CPRA or "tracking" requiring consent under ePrivacy law, we honor opt-out signals as described in Section 13 and obtain prior consent where required. <strong>Even with advertising, we never sell your account, email, or game data for money.</strong> You can remove ads entirely by upgrading to Premium.</p>
+  <p>We do not show advertisements and we do not integrate an advertising network, so no advertising partner receives or sets identifiers through the Service. If that ever changes, this Policy will be updated before any advertising is enabled, and any consent required under CCPA/CPRA or ePrivacy law will be obtained at that time. <strong>We never sell your account, email, or game data for money.</strong></p>
   <h3>5.3 Other Users of the Service</h3>
   <p>Your username, region (if provided), ELO, win/loss/draw record, trophies, and game history are visible to other users of the Service through rankings, friend lists, and shared game records. Do not include sensitive information in your username.</p>
   <h3>5.4 Corporate Transactions</h3>
@@ -279,7 +276,7 @@
   <h3>13.3 Shine the Light</h3>
   <p>California Civil Code § 1798.83 ("Shine the Light") permits California residents to request information about disclosures of Personal Information to third parties for those third parties' direct marketing purposes. We do not make such disclosures.</p>
   <h3>13.4 Financial Incentives</h3>
-  <p>Premium subscriptions are not "financial incentive programs" within the meaning of CCPA/CPRA. We do not offer reduced pricing in exchange for retention of Personal Information.</p>
+  <p>The Service is free and we operate no financial incentive program within the meaning of CCPA/CPRA. We do not offer reduced pricing in exchange for retention of Personal Information.</p>
 
   <h2 id="usstates">14. Notice for Residents of Other U.S. States</h2>
   <p>This section applies to residents of Colorado (CPA), Connecticut (CTDPA), Virginia (VCDPA), Utah (UCPA), Texas (TDPSA), Oregon (OCPA), Montana (MCDPA), Tennessee (TIPA), Iowa (ICDPA), Delaware (DPDPA), New Hampshire (NHDPA), New Jersey (NJDPL), Florida (FDBR), Indiana (INCDPA), and any other state that adopts a substantially similar comprehensive consumer-privacy law.</p>

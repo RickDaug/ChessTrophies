@@ -1,7 +1,7 @@
 // admin.js — ChessTrophies admin dashboard logic.
 //
 // This used to be a ~1150-line INLINE <script> in admin.html, which made a real
-// CSP impossible (admin.html renders user PII — emails, IPs, payment state — and
+// CSP impossible (admin.html renders user PII — emails and IPs — and
 // shipped with NO Content-Security-Policy at all). Externalizing it verbatim lets
 // admin.html declare the same script-src 'self' policy index.html uses.
 // Classic <script> (no modules, no imports) so it behaves exactly as the inline
@@ -16,8 +16,7 @@
   var dashEl = $('dash'), topControls = $('topControls');
   var errEl = $('err'), updEl = $('upd'), autoBtn = $('auto');
   var kpisEl = $('kpis'), tipEl = $('tip');
-  var revBadge = $('revBadge'), revMini = $('revMini'), revChart = $('revChart');
-  var payList = $('payList'), signupChart = $('signupChart'), gamesChart = $('gamesChart');
+  var signupChart = $('signupChart'), gamesChart = $('gamesChart');
   var sharesEl = $('shares'), sharesSub = $('sharesSub');
   var engageTiles = $('engageTiles'), puzzleTiles = $('puzzleTiles');
   var todayTiles = $('todayTiles'), todaySub = $('todaySub');
@@ -81,18 +80,6 @@
     try { return new Intl.NumberFormat(undefined, { notation:'compact', maximumFractionDigits:1 }).format(x); }
     catch (e) { return x.toLocaleString(); }
   }
-  function money(cents, currency) {
-    var n = Number(cents); if (isNaN(n)) return '–';
-    var cur = (currency || 'usd').toUpperCase();
-    try { return new Intl.NumberFormat(undefined, { style:'currency', currency:cur, maximumFractionDigits:(Math.abs(n)>=100000?0:2) }).format(n/100); }
-    catch (e) { return '$' + (n/100).toFixed(2); }
-  }
-  function moneyCompact(cents, currency) {
-    var n = Number(cents); if (isNaN(n)) return '–';
-    var cur = (currency || 'usd').toUpperCase();
-    try { return new Intl.NumberFormat(undefined, { style:'currency', currency:cur, notation:'compact', maximumFractionDigits:1 }).format(n/100); }
-    catch (e) { return '$' + (n/100).toFixed(0); }
-  }
   function toDate(ms) {
     if (ms == null || ms === '') return null;
     var v = Number(ms);
@@ -113,7 +100,6 @@
   // ===================================================================
   //  KPI CARDS
   // ===================================================================
-  function rev(s) { return (s && s.revenue) || {}; }
   function pick() { // first non-null arg
     for (var i = 0; i < arguments.length; i++) if (arguments[i] != null) return arguments[i];
     return null;
@@ -121,28 +107,8 @@
 
   function renderKpis(s) {
     s = s || {};
-    var r = rev(s);
-    var cur = r.currency || s.currency || 'usd';
-    var allTime = pick(r.allTimeCents, s.revenueAllTimeCents);
-    var mrr = pick(r.mrrCents);
-    var subs = pick(r.activeSubscribers, s.activeSubscribers);
-    var arpu = pick(r.arpuCents);
-
     var ser = s.series || {};
     var cards = [
-      { ic:'💰', label:'Revenue · all-time', val: allTime != null ? money(allTime, cur) : '–',
-        c:'var(--green)', b:'rgba(84,224,154,.14)', g:'rgba(84,224,154,.12)',
-        spark: sparkVals(r.dailyCents),
-        sub: r.source ? null : (s.revenueMonthCents != null ? 'this month ' + moneyCompact(s.revenueMonthCents, cur) : null) },
-      { ic:'🔁', label:'MRR', val: mrr != null ? money(mrr, cur) : '–',
-        c:'var(--teal)', b:'rgba(79,214,200,.14)', g:'rgba(79,214,200,.12)',
-        sub: arpu != null ? 'ARPU ' + money(arpu, cur) : null },
-      { ic:'⭐', label:'Active subscribers', val: subs != null ? num(subs) : '–',
-        c:'var(--accent)', b:'rgba(245,196,81,.14)', g:'rgba(245,196,81,.12)',
-        sub: s.premiumUsers != null ? num(s.premiumUsers) + ' premium total' : null },
-      { ic:'💎', label:'Premium users', val: num(s.premiumUsers),
-        c:'var(--purple)', b:'rgba(169,139,255,.14)', g:'rgba(169,139,255,.12)',
-        sub: (s.verifiedUsers != null) ? num(s.verifiedUsers) + ' verified' : null },
       { ic:'👥', label:'Total users', val: num(s.totalUsers),
         c:'var(--blue)', b:'rgba(90,166,255,.14)', g:'rgba(90,166,255,.12)',
         spark: sparkVals(ser.signupsDaily, 'count'),
@@ -432,68 +398,8 @@
     return d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
   }
 
+
   // ===================================================================
-  //  REVENUE PANEL
-  // ===================================================================
-  function renderRevenue(s) {
-    s = s || {};
-    var r = rev(s);
-    var cur = r.currency || s.currency || 'usd';
-
-    // badge
-    if (r.source === 'stripe') revBadge.innerHTML = '<span class="badge live">● Stripe (live)</span>';
-    else if (r.source === 'ledger') revBadge.innerHTML = '<span class="badge approx">≈ ledger (approx)</span>';
-    else revBadge.innerHTML = '';
-
-    // mini stats
-    var month = pick(r.monthCents, s.revenueMonthCents);
-    var year = pick(r.yearCents, s.revenueYearCents);
-    var allTime = pick(r.allTimeCents, s.revenueAllTimeCents);
-    var mini = [];
-    if (month != null) mini.push({ l:'This month', v:money(month, cur) });
-    if (year != null) mini.push({ l:'This year', v:money(year, cur) });
-    if (allTime != null) mini.push({ l:'All-time', v:money(allTime, cur) });
-    revMini.innerHTML = mini.map(function (m) {
-      return '<div><div class="m-lbl">' + esc(m.l) + '</div><div class="m-val">' + m.v + '</div></div>';
-    }).join('');
-
-    // daily chart
-    var daily = Array.isArray(r.dailyCents) ? r.dailyCents : null;
-    if (daily && daily.length) {
-      var data = daily.map(function (d) {
-        return { label: shortDay(d && d.date), tipLabel: longDay(d && d.date), value: Number((d && d.cents) || 0) };
-      });
-      areaChart(revChart, data, {
-        fmtAxis: function (c) { return moneyCompact(c, cur); },
-        fmtVal: function (c) { return money(c, cur); }
-      });
-    } else {
-      emptyChart(revChart, 'No revenue history yet');
-    }
-
-    // recent payments
-    renderPayments(r.recentPayments, cur);
-  }
-
-  function renderPayments(list, cur) {
-    if (!Array.isArray(list) || !list.length) {
-      payList.innerHTML = '<div class="chart-empty">No payments yet</div>';
-      return;
-    }
-    payList.innerHTML = list.slice(0, 10).map(function (p) {
-      p = p || {};
-      var when = ago(p.createdAt) || fmtDateShort(p.createdAt);
-      return '<div class="pay">' +
-        '<div class="pic">$</div>' +
-        '<div class="pmid">' +
-          '<div class="plabel">' + esc(p.label || 'Payment') + '</div>' +
-          '<div class="pdate">' + esc(when) + '</div>' +
-        '</div>' +
-        '<div class="pamt">' + money(p.amountCents, p.currency || cur) + '</div>' +
-      '</div>';
-    }).join('');
-  }
-
   // ===================================================================
   //  SIGNUP / GAMES CHARTS
   // ===================================================================
@@ -942,7 +848,7 @@
       var u = await res.json();
       var games = u.recentGames || [];
       body.innerHTML =
-        '<div class="um-head"><div class="um-name">' + esc(u.username) + (u.isPremium ? ' <span class="pill">PREMIUM</span>' : '') + '</div>' +
+        '<div class="um-head"><div class="um-name">' + esc(u.username) + '</div>' +
         '<div class="muted">' + esc(u.email || '') + '</div></div>' +
         '<div class="um-grid">' +
           umStat('ELO', num(u.elo)) +
@@ -977,7 +883,6 @@
     renderDailyActivity(lastStats);
     renderTopEvents(lastStats);
     renderSources(lastStats);
-    renderRevenue(lastStats);
     renderSeries(lastStats);
     renderShares(lastStats);
     renderEngagement(lastStats);
@@ -1050,7 +955,6 @@
         '<td class="muted">' + esc(lsTxt) + '</td>' +
         '<td class="muted">' + esc(fmtDateShort(u.createdAt)) + '</td>' +
         '<td>' + (u.emailVerified ? '<span class="yes">✓</span>' : '<span class="faint">—</span>') + '</td>' +
-        '<td>' + (u.isPremium ? '<span class="pill">PREMIUM</span>' : '<span class="faint">—</span>') + '</td>' +
       '</tr>';
     }).join('');
   }

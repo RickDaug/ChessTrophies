@@ -1,19 +1,17 @@
 #!/usr/bin/env node
 /*
- * store.mjs — tests for the cosmetic STORE (themed piece-sets as a PREMIUM
- * perk). NO real Stripe network calls.
+ * store.mjs — tests for the cosmetic STORE (themed piece-sets).
  *
- * The monetization model CHANGED: the themed sets are no longer one-time
- * microtransactions — they're a premium-subscriber perk (access while premium
- * is active, revoked on cancel via the premium reconcile). So there is no
- * /api/store/checkout route, no per-set price env, no ownership/entitlement.
+ * There is no monetization left: the sets were one-time microtransactions, then
+ * a premium-subscriber perk, and are now simply FREE for everyone. Subscription
+ * billing was removed in 2026-08, so there is no /api/store/checkout route, no
+ * price env, no ownership/entitlement and no premium gate.
  *
- * Integration: boot the REAL backend on a throwaway SQLite DB (no Stripe env
- * needed) and assert:
- *   - GET  /api/store/catalog (unauth) -> 19 sets, each { sku, name, factions,
- *     premium:true }, and NO ownership/pricing fields
+ * Integration: boot the REAL backend on a throwaway SQLite DB and assert:
+ *   - GET  /api/store/catalog (unauth) -> 19 sets, each { sku, name, factions },
+ *     and NO ownership/pricing/premium fields
  *   - POST /api/store/checkout no longer exists (404/405/410, never 200)
- *   - /api/me has NO ownedSets field (access is purely is_premium)
+ *   - /api/me carries neither ownedSets nor isPremium
  *
  * Run:  node test/store.mjs   (exit 0 = PASS, 1 = FAIL)
  */
@@ -50,8 +48,8 @@ async function testCatalogAndNoCheckout() {
 
   let proc, errOut = '';
   try {
-    // No Stripe env required — the catalog is just a static list of premium
-    // cosmetic sets; access is gated on is_premium, not per-set purchase.
+    // The catalog is just a static list of free cosmetic sets. The STRIPE_* deletes
+    // below stay as a guard: a stray key in the environment must not resurrect billing.
     const env = { ...process.env, PORT: String(port), DATABASE_PATH: dbPath, CORS_ORIGIN: '*', NODE_ENV: 'development' };
     delete env.STRIPE_SECRET_KEY; delete env.STRIPE_PRICE_ID; delete env.STRIPE_WEBHOOK_SECRET; delete env.STRIPE_PUBLISHABLE_KEY;
     for (const k of Object.keys(env)) if (k.startsWith('STRIPE_PRICE_SET_')) delete env[k];
@@ -61,19 +59,18 @@ async function testCatalogAndNoCheckout() {
     await waitForHealth(`${BASE}/health`);
     log('backend healthy');
 
-    // Catalog is PUBLIC and lists the 19 premium sets.
+    // Catalog is PUBLIC and lists the 19 free sets.
     const catRes = await fetch(`${BASE}/api/store/catalog`);
     assert(catRes.ok, `catalog failed: ${catRes.status}`);
     const cat = await catRes.json();
     assert(Array.isArray(cat) && cat.length === 19, `catalog should list 19 sets, got ${cat && cat.length}`);
-    assert(cat.every(p => p.premium === true), 'every set should be premium:true');
     assert(cat.every(p => p.sku && p.name && p.factions && p.factions.w && p.factions.b), 'each set carries sku + name + factions');
     // The new model drops ownership + pricing from the catalog entirely.
-    assert(cat.every(p => !('owned' in p) && !('priceCents' in p) && !('comingSoon' in p) && !('stripe_price_id' in p)),
-      'catalog must NOT carry owned/priceCents/comingSoon/stripe_price_id (premium-only, no purchase)');
+    assert(cat.every(p => !('owned' in p) && !('priceCents' in p) && !('comingSoon' in p) && !('premium' in p) && !('stripe_price_id' in p)),
+      'catalog must NOT carry owned/priceCents/comingSoon/premium/stripe_price_id — every set is free');
     const samurai = cat.find(p => p.sku === 'samurai-ninja');
     assert(samurai && samurai.name === 'Samurai vs Ninja', 'samurai-ninja present with its display name');
-    log('GET /api/store/catalog -> 19 sets, premium:true, no ownership/pricing ✓');
+    log('GET /api/store/catalog -> 19 sets, no gate, no ownership/pricing ✓');
 
     // Sign up to get a bearer token (used for /api/me + the removed-route check).
     const RUN = Date.now().toString(36).slice(-5);
@@ -94,13 +91,13 @@ async function testCatalogAndNoCheckout() {
     assert([404, 405, 410].includes(coAuth.status), `/api/store/checkout should 404/405/410, got ${coAuth.status}`);
     log('POST /api/store/checkout removed -> 404/405/410 (never 200) ✓');
 
-    // /api/me no longer exposes ownedSets — access is purely is_premium.
+    // /api/me exposes neither ownedSets nor any premium flag — every set is free.
     const meRes = await fetch(`${BASE}/api/me`, { headers: authH });
     assert(meRes.ok, `/api/me failed: ${meRes.status}`);
     const me = await meRes.json();
     assert(!('ownedSets' in me), `/api/me should NOT carry ownedSets anymore, got ${JSON.stringify(me.ownedSets)}`);
-    assert(me.isPremium === false, `a fresh user should be isPremium:false, got ${me.isPremium}`);
-    log('GET /api/me -> no ownedSets; isPremium drives access ✓');
+    assert(!('isPremium' in me), `/api/me should NOT carry isPremium anymore, got ${me.isPremium}`);
+    log('GET /api/me -> no ownedSets, no isPremium ✓');
   } finally {
     if (proc && proc.exitCode === null) await new Promise(r => { proc.once('exit', r); try { proc.kill(); } catch { r(); } setTimeout(r, 3000); });
     rmDb(dbPath);
@@ -109,7 +106,7 @@ async function testCatalogAndNoCheckout() {
 
 async function main() {
   await testCatalogAndNoCheckout();
-  log('PASS — catalog lists 19 premium-only sets; no checkout route; /api/me has no ownedSets');
+  log('PASS — catalog lists 19 free sets; no checkout route; /api/me has no ownedSets or isPremium');
   return 0;
 }
 main().then(c => process.exit(c ?? 0)).catch(e => { console.error('[store] FAIL:', e.message); process.exit(1); });

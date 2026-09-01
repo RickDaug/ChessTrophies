@@ -97,7 +97,7 @@
       "name": "Is ChessTrophies free to play?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Yes. Ranked games, trophies, daily puzzles, the bot gauntlet, the opening trainer, the Learn library and checkers are all free to play. An optional Premium tier only removes ads and adds a supporter badge — it never gates gameplay or the themed board and piece sets."
+        "text": "Yes. Ranked games, trophies, daily puzzles, the bot gauntlet, the opening trainer, the Learn library, checkers and every themed board and piece set are all free. There is nothing to buy and no subscription."
       }
     },
     {
@@ -524,23 +524,6 @@
   .theme-preview > div { width: 100%; height: 100%; }
   .theme-preview.piece { display: flex; align-items: center; justify-content: center; gap: 4px; }
   .theme-label { text-align: center; font-size: 12px; font-weight: 600; margin-top: 6px; color: var(--text); }
-
-  /* ADS */
-  .ad-slot { background: var(--panel-2); border: 1px dashed var(--border); border-radius: 12px; padding: 10px 12px; margin: 10px 0; position: relative; }
-  .ad-slot .ad-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
-  .ad-slot .ad-body { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .ad-slot .ad-copy { font-size: 12px; color: var(--text); flex: 1; }
-  .ad-slot .ad-upgrade { background: transparent; border: 1px solid var(--accent); color: var(--accent); border-radius: 8px; padding: 6px 10px; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
-  .ad-slot .ad-upgrade:hover { background: rgba(245, 196, 81, .1); }
-  .ad-medium { min-height: 140px; padding: 14px; }
-  .ad-medium .ad-body { flex-direction: column; align-items: stretch; gap: 8px; }
-  .premium-card { background: linear-gradient(135deg, rgba(245, 196, 81, .14), var(--panel)); border: 1px solid rgba(245, 196, 81, .35); border-radius: 16px; padding: 14px 16px; margin: 12px 0; cursor: pointer; transition: transform .12s; }
-  .premium-card:hover { transform: translateY(-1px); }
-  .premium-card .pc-row { display: flex; align-items: center; gap: 12px; }
-  .premium-card .pc-icon { font-size: 28px; }
-  .premium-card .pc-title { font-weight: 800; color: var(--accent); }
-  .premium-card .pc-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .premium-badge { background: linear-gradient(135deg, var(--accent), #ffd97a); color: #1a1300; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 999px; letter-spacing: 0.5px; }
 
   /* LOBBY VISUAL HIERARCHY (single focal point) */
   /* The primary Play action is the dominant element near the top. Secondary
@@ -1021,7 +1004,7 @@
       <div class="home-faq" aria-labelledby="home-faq-title">
         <details class="home-faq-item">
           <summary>Is ChessTrophies free to play?</summary>
-          <p>Yes. Ranked games, trophies, daily puzzles, the bot gauntlet, the opening trainer, the Learn library and checkers are all free to play. An optional Premium tier only removes ads and adds a supporter badge — it never gates gameplay or the themed board and piece sets.</p>
+          <p>Yes. Ranked games, trophies, daily puzzles, the bot gauntlet, the opening trainer, the Learn library, checkers and every themed board and piece set are all free. There is nothing to buy and no subscription.</p>
         </details>
         <details class="home-faq-item">
           <summary>Do I need an account to play?</summary>
@@ -1055,7 +1038,6 @@
         <div>
           <div style="font-weight:700;display:flex;align-items:center;gap:6px">
             <span id="lobby-name">Player</span>
-            <span class="premium-badge" id="premium-badge" style="display:none">⭐ PREMIUM</span>
           </div>
           <div class="muted small" id="lobby-region">—</div>
         </div>
@@ -1088,8 +1070,7 @@
       <div class="stat"><div class="v" id="ck-stat-streak">0</div><div class="l">CK Streak</div></div>
     </div>
 
-    <!-- Daily play-streak card (rendered by renderLobby in app.js). Sits above the
-         ad / premium cards so it's the first compelling thing a returning user sees. -->
+    <!-- Daily play-streak card (rendered by renderLobby in app.js). -->
     <div id="playstreak-card"></div>
 
     <!-- Today's daily puzzle. Surfaced here (always visible, beside the streak
@@ -1310,21 +1291,6 @@
         </div>
         <input type="range" id="ck-practice-elo" min="100" max="2800" step="100" value="1200" style="width:100%;margin-bottom:12px;">
         <button class="btn btn-block" id="ck-btn-start-practice">Start Checkers Practice</button>
-      </div>
-    </div>
-
-    <!-- Ad slot + Premium upsell. Moved below the Play action so the primary CTA
-         leads the lobby. Both self-hide for new users (renderLobby gates on
-         adsUnlocked()), so a day-1 player sees Play, not monetization. -->
-    <div id="lobby-ad-slot"></div>
-    <div class="premium-card" id="lobby-premium-card">
-      <div class="pc-row">
-        <div class="pc-icon">⭐</div>
-        <div style="flex:1">
-          <div class="pc-title">Support ChessTrophies ⭐</div>
-          <div class="pc-desc" id="lobby-premium-desc">Boards &amp; piece sets are free for everyone. Subscribe to remove ads, get a badge, and support the game — optional.</div>
-        </div>
-        <div class="pill gold" id="lobby-premium-pill">$4.99/mo</div>
       </div>
     </div>
 
@@ -1751,16 +1717,6 @@
             🔑 &nbsp; Change Password
           </button>
           <button id="btn-sign-out" style="width:100%;padding:11px;background:#8b2020;border:none;border-radius:10px;color:#fff;font-size:14px;cursor:pointer;font-weight:600;" data-i18n="settings.signOut">Sign Out</button>
-        </div>
-
-        <!-- SUBSCRIPTION (shown only when Stripe billing is live) -->
-        <div class="settings-section" id="settings-subscription" style="display:none;">
-          <h3>💳 Subscription</h3>
-          <p class="muted small" style="margin-bottom:10px;">Premium removes ads and supports the game. Update your payment method or cancel anytime.</p>
-          <button id="btn-manage-subscription" style="width:100%;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:10px;">
-            💳 &nbsp; Manage Subscription
-          </button>
-          <a id="link-billing-portal" href="https://billing.stripe.com/p/login/4gMcN73Ol8OBbKH8a793y00" target="_blank" rel="noopener noreferrer" class="muted small" style="display:block;text-align:center;text-decoration:underline;">Can't open it here? Manage billing on Stripe →</a>
         </div>
 
       </div>
@@ -2207,35 +2163,6 @@
   </div>
 </div>
 
-<div class="modal-overlay" id="modal-premium">
-  <div class="modal">
-    <div class="handle"></div>
-    <div class="center" style="margin-bottom:14px">
-      <div style="font-size:48px">⭐</div>
-      <h2 style="margin-top:4px;background:linear-gradient(135deg,var(--accent),#ffd97a);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent">ChessTrophies Premium</h2>
-    </div>
-    <div class="card" style="padding:14px">
-      <div style="font-weight:700;margin-bottom:6px">What you get:</div>
-      <ul style="margin:0;padding-left:20px;color:var(--text);line-height:1.7;font-size:14px">
-        <li>🎨 <b>All board &amp; piece sets are free for everyone</b> — Samurai, Dragons, Vikings, Angels &amp; more, no subscription needed</li>
-        <li>🚫 No ads anywhere in the app</li>
-        <li>⭐ Premium badge on your profile and rank rows</li>
-        <li>New themed sets &amp; lessons as they drop</li>
-        <li>❤️ Support continued development</li>
-      </ul>
-    </div>
-    <!-- Price/disclaimer copy is set by openPremium() in app.js from billingCfg so
-         it can never contradict the button (live billing vs demo fallback). -->
-    <p class="muted small center" id="premium-price-line" style="margin:10px 0">$4.99/mo · cancel anytime</p>
-    <div class="stack">
-      <button class="btn btn-block" id="btn-premium-buy">Upgrade · $4.99/mo</button>
-      <button class="btn btn-secondary btn-block" id="btn-premium-cancel-paid" style="display:none">Manage subscription</button>
-      <button class="btn btn-ghost btn-block" id="btn-premium-close">Not now</button>
-    </div>
-    <p class="muted small center" id="premium-disclaimer" style="margin-top:14px;line-height:1.5">$4.99/month, billed via Stripe. Cancel anytime from Manage subscription.</p>
-  </div>
-</div>
-
 <div class="modal-overlay" id="modal-invite">
   <div class="modal">
     <div class="handle"></div>
@@ -2311,7 +2238,6 @@
 <script defer src="checkers-ai.js?v=20260607a"></script>
 <script defer src="trophy-data.js?v=20260603a"></script>
 <script defer src="ct-duo.js?v=20260603a"></script>
-<script defer src="ct-ads.js?v=20260603a"></script>
 <script defer src="piece-sets.js?v=20260608a"></script>
   <script defer src="app.js?v=20260606c"></script>
 <script defer src="academy.js?v=20260531c"></script>

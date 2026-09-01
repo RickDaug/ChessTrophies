@@ -1,6 +1,14 @@
 # ChessTrophies — Launch Guide
 
-A real, sequenced plan for going from your Downloads folder to a live, paid product on the web and app stores.
+A real, sequenced plan for going from your Downloads folder to a live product on the web
+and app stores.
+
+> **⚠️ OUT OF DATE as of 2026-08: monetization was removed.** ChessTrophies no longer
+> takes payment. The Stripe subscription, the Premium tier and the ad slots were deleted
+> from the codebase, and the app is now entirely free with nothing to buy. Every section
+> below that describes ads, Premium, Stripe or revenue is **aspirational and no longer
+> implemented** — kept only as a reference if monetization is ever revisited. Do not follow
+> those steps expecting them to match the code.
 
 ## TL;DR cost summary
 

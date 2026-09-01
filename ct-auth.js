@@ -48,8 +48,6 @@
         if (!u.lossesByOpponent) u.lossesByOpponent = {};
         if (typeof u.lastWinDate === 'undefined') u.lastWinDate = null;
         if (!Array.isArray(u.recentGameDays)) u.recentGameDays = [];
-        if (typeof u.isPremium !== 'boolean') u.isPremium = false;
-        if (typeof u.premiumSince === 'undefined') u.premiumSince = null;
       }
       return merged;
     } catch (e) {
@@ -189,7 +187,6 @@
       bestStreak: Number.isFinite(profile.bestStreak) ? profile.bestStreak : (existing.bestStreak || 0),
       invitesAccepted: Number.isFinite(profile.invitesAccepted) ? profile.invitesAccepted : (existing.invitesAccepted || 0),
       arenaWins: Number.isFinite(profile.arenaWins) ? profile.arenaWins : (existing.arenaWins || 0),
-      isPremium: Boolean(profile.isPremium ?? existing.isPremium),
       // Email verification is server-authoritative (soft nudge only).
       emailVerified: Boolean(profile.emailVerified ?? existing.emailVerified),
       // Avatar is server-authoritative (so it follows the user across devices and
@@ -254,8 +251,6 @@
       // Preferred UI language (ISO code). Defaults to whatever the visitor has
       // already selected on this device, else English. Synced via /api/progress.
       language: (typeof window !== 'undefined' && window.CT_i18n && window.CT_i18n.getLang && window.CT_i18n.getLang()) || 'en',
-      isPremium: false,    // ads hidden when true (set via Upgrade flow)
-      premiumSince: null,
       // Trophy tracking flags (counters consumed by Hidden + Oops trophies)
       flags: {
         underpromoWins: 0, enPassants: 0, queensideCastles: 0, bareBonesWins: 0,

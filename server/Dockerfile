@@ -65,7 +65,7 @@ COPY index.html admin.html admin.js privacy.html terms.html manifest.json sw.js 
      chess.min.js chess960.js checkers.js checkers-ai.js checkers-ai-worker.js \
      trophy-data.js trophy-extras.js \
      ct-head.js ct-chess-check.js ct-socket-fallback.js ct-auth.js ct-net.js \
-     ct-ai.js ct-ai-worker.js ct-checkers.js ct-duo.js ct-ads.js ct-sw-register.js \
+     ct-ai.js ct-ai-worker.js ct-checkers.js ct-duo.js ct-sw-register.js \
      ct-analytics.js ct-arena.js ct-gauntlet.js ct-leagues.js ct-push.js \
      ./public/
 COPY vendor/ ./public/vendor/

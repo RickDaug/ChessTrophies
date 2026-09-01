@@ -49,7 +49,6 @@ import * as store from './store.js';
 // authoritative: unknown ids are dropped and the point total is computed here.
 import { scoreAchievements, statsFromUser } from './trophy-catalog.js';
 import { sendResetEmail, sendVerifyEmail, isEmailConfigured } from './email.js';
-import { mountBilling, mountBillingWebhook, logBillingStatus, stripeRevenueStats, cancelSubscriptionsForUser } from './billing.js';
 import { mountStore, logStoreStatus } from './entitlements.js';
 import { mountPush, logPushStatus, sendPushToUser } from './push.js';
 import { mountPuzzles } from './puzzles.js';
@@ -233,10 +232,6 @@ app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: corsOrigins }));
-// Stripe webhook MUST be registered BEFORE express.json() — signature
-// verification requires the RAW request body (express.raw inside the route).
-// CORS/helmet above still apply; the global JSON parser below does not touch it.
-mountBillingWebhook(app);
 app.use(express.json({ limit: '256kb' }));
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/')) return apiLimiter(req, res, next);
@@ -305,14 +300,8 @@ app.get('/health', async (req, res) => {
 // so this is purely a hint — disabling ranked is enforced server-side regardless.
 app.get('/api/config', (req, res) => res.json({ rankedEnabled: rankedEnabled() }));
 
-// Stripe subscription billing JSON routes (config/checkout/portal). Registered
-// after express.json() so req.body is parsed; the raw-body webhook is mounted
-// above, before the JSON parser. Inert (503) until Stripe env vars are set.
-mountBilling(app);
-
-// Cosmetic STORE (themed piece-sets as a PREMIUM perk). Public catalog only —
-// the sets are accessible while a user's premium subscription is active; the
-// client gates equip on is_premium (from /api/me). No per-set purchase route.
+// Cosmetic STORE (themed piece-sets). Public catalog only — every set is free
+// to equip for everyone. No purchase route, no gating.
 mountStore(app);
 
 // Interactive chess puzzles (daily challenge + trainer). Public daily/next
@@ -544,8 +533,8 @@ app.post('/api/me/delete', authLimiter, requireAuth, async (req, res, next) => {
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
 
-// Profile. Note: themed cosmetic piece-sets are a PREMIUM perk now, so access is
-// purely `isPremium` — there is no per-set ownership to return here.
+// Profile. Every cosmetic piece-set is free for everyone, so there is no
+// entitlement or ownership to return here.
 app.get('/api/me', requireAuth, async (req, res, next) => {
   try {
     const u = req.user;
@@ -553,7 +542,7 @@ app.get('/api/me', requireAuth, async (req, res, next) => {
       id: u.id, username: u.username, email: u.email, region: u.region,
       elo: u.elo, wins: u.wins, losses: u.losses, draws: u.draws,
       currentStreak: u.current_streak, bestStreak: u.best_streak,
-      invitesAccepted: u.invites_accepted, isPremium: !!u.is_premium,
+      invitesAccepted: u.invites_accepted,
       avatarStock: u.avatar_stock || 'av_knight', avatarDataUrl: u.avatar_data_url || '',
       emailVerified: !!u.email_verified,
       // Checkers ratings (additive; separate from the chess `elo` above).
@@ -581,7 +570,7 @@ app.get('/api/users/:id/profile', async (req, res, next) => {
     res.json({
       id: u.id, username: u.username, region: u.region || '',
       elo: u.elo, wins: u.wins, losses: u.losses, draws: u.draws,
-      bestStreak: u.best_streak, isPremium: !!u.is_premium,
+      bestStreak: u.best_streak,
       avatarStock: u.avatar_stock || 'av_knight', avatarDataUrl: u.avatar_data_url || '',
       arenaWins: u.arena_wins || 0,
       trophyPoints: u.trophy_points || 0,
@@ -636,7 +625,7 @@ app.get('/api/feared', async (req, res, next) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
     // Top active streakers. current_streak > 0 = a live, unbroken win streak.
     const leaders = await store.all(
-      `SELECT id, username, current_streak, best_streak, elo, is_premium
+      `SELECT id, username, current_streak, best_streak, elo
        FROM users
        WHERE current_streak > 0
        ORDER BY current_streak DESC, best_streak DESC, elo DESC
@@ -667,7 +656,6 @@ app.get('/api/feared', async (req, res, next) => {
         currentStreak: Number(u.current_streak) || 0,
         bestStreak: Number(u.best_streak) || 0,
         elo: Number(u.elo) || 0,
-        isPremium: !!u.is_premium,
         recentVictims: victims,
       });
     }
@@ -723,7 +711,6 @@ app.get('/api/season', async (req, res, next) => {
       draws: Number(r.draws) || 0,
       peakElo: Number(r.peak_elo) || 0,
       elo: Number(r.elo) || 0,
-      premium: !!r.is_premium,
     }));
     // End-of-season recognition v1: surface the PRIOR season's champion if any.
     // (Full reward distribution can be a later cron — this just shows the name.)
@@ -734,7 +721,6 @@ app.get('/api/season', async (req, res, next) => {
         lastSeasonChampion = {
           username: champ.username,
           points: Number(champ.points) || 0,
-          premium: !!champ.is_premium,
         };
       }
     } catch (e) { /* no prior champion -> omit */ }
@@ -789,7 +775,7 @@ app.get('/api/users/search', requireAuth, async (req, res, next) => {
 app.get('/api/friends', requireAuth, async (req, res, next) => {
   try {
     const rows = await store.all(`
-      SELECT u.id, u.username, u.elo, u.wins, u.losses, u.region, u.is_premium
+      SELECT u.id, u.username, u.elo, u.wins, u.losses, u.region
       FROM friendships f JOIN users u ON u.id = f.friend_id
       WHERE f.user_id = ? ORDER BY u.username COLLATE NOCASE
     `, [req.userId]);
@@ -857,7 +843,7 @@ app.post('/api/friends/accept', requireAuth, async (req, res, next) => {
     if (!pending) return res.status(404).json({ error: 'No such request.' });
     await makeFriends(req.userId, fromId);
     notifyUser(fromId, 'friend_accepted', { by: req.userId, username: req.user.username });
-    const friend = await store.get('SELECT id, username, elo, wins, losses, region, is_premium FROM users WHERE id = ?', [fromId]);
+    const friend = await store.get('SELECT id, username, elo, wins, losses, region FROM users WHERE id = ?', [fromId]);
     res.json({ ok: true, friend });
   } catch (e) { if (!e.status) e.status = 400; next(e); }
 });
@@ -1152,7 +1138,6 @@ app.get('/api/admin/stats', async (req, res, next) => {
     const stats = {
       totalUsers:     await n('SELECT COUNT(*) AS n FROM users'),
       verifiedUsers:  await n('SELECT COUNT(*) AS n FROM users WHERE email_verified = 1'),
-      premiumUsers:   await n('SELECT COUNT(*) AS n FROM users WHERE is_premium = 1'),
       newUsers24h:    await n('SELECT COUNT(*) AS n FROM users WHERE created_at > ?', [now - DAY]),
       newUsers7d:     await n('SELECT COUNT(*) AS n FROM users WHERE created_at > ?', [now - 7 * DAY]),
       newUsers30d:    await n('SELECT COUNT(*) AS n FROM users WHERE created_at > ?', [now - 30 * DAY]),
@@ -1177,44 +1162,6 @@ app.get('/api/admin/stats', async (req, res, next) => {
       shareTotal += c;
     }
     stats.shares = { total: shareTotal, byPlatform };
-
-    // Subscription revenue rollups (Stripe billing). Computed from the payments
-    // ledger via the store facade so it works on either DB backend. Zeros when
-    // no payments have been recorded (e.g. before billing is configured).
-    try {
-      const rev = await store.revenueStats();
-      stats.revenueMonthCents   = Number(rev.monthCents) || 0;
-      stats.revenueYearCents    = Number(rev.yearCents) || 0;
-      stats.revenueAllTimeCents = Number(rev.allTimeCents) || 0;
-      stats.activeSubscribers   = Number(rev.activeSubscribers) || 0;
-      stats.currency            = rev.currency || 'usd';
-    } catch (e) {
-      console.error('[admin] revenueStats failed:', e && e.message ? e.message : e);
-      stats.revenueMonthCents = 0; stats.revenueYearCents = 0; stats.revenueAllTimeCents = 0;
-      stats.activeSubscribers = 0; stats.currency = 'usd';
-    }
-
-    // Accurate revenue straight from Stripe (source of truth) — immune to any
-    // local-ledger double-counting. Preferred for the dashboard; falls back to
-    // the ledger numbers above if Stripe is unavailable.
-    try {
-      const sr = await stripeRevenueStats();
-      stats.revenue = sr;
-      stats.revenueAllTimeCents = sr.allTimeCents;
-      stats.revenueMonthCents   = sr.monthCents;
-      stats.revenueYearCents    = sr.yearCents;
-      stats.activeSubscribers   = sr.activeSubscribers;
-      stats.currency            = sr.currency;
-    } catch (e) {
-      stats.revenue = {
-        source: 'ledger', currency: stats.currency || 'usd',
-        allTimeCents: stats.revenueAllTimeCents || 0,
-        monthCents: stats.revenueMonthCents || 0,
-        yearCents: stats.revenueYearCents || 0,
-        mrrCents: 0, activeSubscribers: stats.activeSubscribers || 0, arpuCents: 0,
-        recentPayments: [], dailyCents: [],
-      };
-    }
 
     // Engagement time-series for the dashboard charts (last 30 days). Portable
     // SQL (just created_at); bucketed by UTC day in JS so it works on either DB.
@@ -1468,7 +1415,7 @@ app.get('/api/admin/user/:id', async (req, res, next) => {
       bestStreak: u.best_streak, currentStreak: u.current_streak,
       arenaWins: u.arena_wins || 0, trophyPoints: u.trophy_points || 0, trophyCount: achievements.length,
       invitesAccepted: u.invites_accepted || 0,
-      isPremium: !!u.is_premium, emailVerified: !!u.email_verified,
+      emailVerified: !!u.email_verified,
       createdAt: u.created_at, lastSeen: u.last_seen,
       recentGames: (games || []).map(g => ({ id: g.id, mode: g.mode, type: g.game_type || 'chess', variant: g.variant || '', result: g.result || '', at: g.created_at })),
     });
@@ -1491,27 +1438,9 @@ app.delete('/api/admin/user/:id', async (req, res, next) => {
     if (!id) return res.status(400).json({ error: 'User id required.' });
     const dryRun = /^(1|true|yes)$/i.test(String(req.query.dryRun || ''));
 
-    // AUDIT 2026-07 (S1), second path: the GDPR soft-delete (/api/me/delete)
-    // cancels Stripe via auth.deleteAccount, but this hard delete removes the
-    // users row OUTRIGHT — including stripe_customer_id and the email — so a
-    // subscription left live here could never be traced back to an account at
-    // all. Cancel FIRST, while the row still exists. Same best-effort contract:
-    // cancelSubscriptionsForUser never throws, and a Stripe failure must not
-    // block the scrub (it's logged loudly with the ids for a manual cancel).
-    const victim = await store.getUserById(id);
-    let stripeResult = { skipped: 'dry_run', cancelled: 0, failed: 0 };
-    if (!dryRun && victim) {
-      stripeResult = await cancelSubscriptionsForUser(victim);
-      if (stripeResult && stripeResult.failed) {
-        console.error(`[admin-delete] MANUAL ACTION REQUIRED: could not cancel every Stripe subscription for user ${id} (customer ${victim.stripe_customer_id || 'n/a'}, email ${victim.email || 'n/a'}). Cancelled ${stripeResult.cancelled}, failed ${stripeResult.failed}. Cancel the remainder in the Stripe Dashboard.`);
-      }
-    }
-
     const result = await store.adminDeleteUserHard(id, { dryRun });
     if (!result.found && !dryRun) return res.status(404).json({ error: 'User not found.' });
-    // Surface the Stripe outcome so the operator sees a failed cancel in the
-    // response, not just the server log.
-    res.json({ ...result, stripe: stripeResult });
+    res.json(result);
   } catch (e) { if (!e.status) e.status = 500; next(e); }
 });
 
@@ -1530,7 +1459,7 @@ app.get('/api/admin/export', async (req, res, next) => {
     const esc = (v) => { const s = (v == null) ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     let cols, rows;
     if (type === 'users') {
-      cols = ['id', 'username', 'region', 'geo_country', 'geo_region', 'elo', 'wins', 'losses', 'draws', 'is_premium', 'email_verified', 'created_at', 'last_seen'];
+      cols = ['id', 'username', 'region', 'geo_country', 'geo_region', 'elo', 'wins', 'losses', 'draws', 'email_verified', 'created_at', 'last_seen'];
       rows = await store.all(`SELECT ${cols.join(', ')} FROM users ORDER BY created_at DESC LIMIT 100000`);
     } else if (type === 'games') {
       cols = ['id', 'mode', 'game_type', 'variant', 'result', 'white_elo_before', 'black_elo_before', 'white_elo_delta', 'black_elo_delta', 'created_at', 'ended_at'];
@@ -1686,9 +1615,7 @@ httpServer.listen(PORT, () => {
   } else {
     console.warn('[email] RESEND_API_KEY is NOT set — signup verification and password-reset emails will NOT be sent. Set RESEND_API_KEY, RESEND_FROM, and APP_URL to enable email.');
   }
-  // Make the Stripe billing state obvious in the logs too (mirrors email above).
-  logBillingStatus();
-  // ...and how many cosmetic-store sets are live vs preview-only.
+  // How many cosmetic piece-sets are available (all free, to everyone).
   logStoreStatus();
   // ...and whether Web Push is configured (VAPID) or inert.
   logPushStatus();

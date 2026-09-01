@@ -73,11 +73,11 @@ async function main() {
     // ---- 1) MODAL a11y -----------------------------------------------------
     await page.click('#btn-continue-guest').catch(() => {});
     await page.waitForFunction(() => document.getElementById('screen-lobby')?.classList.contains('active'), { timeout: 10000 });
-    await page.evaluate(() => window.CT.openModal('premium'));
-    await page.waitForFunction(() => document.querySelector('#modal-premium.show'), { timeout: 5000 });
+    await page.evaluate(() => window.CT.openModal('invite'));
+    await page.waitForFunction(() => document.querySelector('#modal-invite.show'), { timeout: 5000 });
     await page.waitForTimeout(120);
     const modal = await page.evaluate(() => {
-      const d = document.querySelector('#modal-premium .modal');
+      const d = document.querySelector('#modal-invite .modal');
       return { role: d && d.getAttribute('role'), ariaModal: d && d.getAttribute('aria-modal'),
         labelled: !!(d && d.getAttribute('aria-label')), focusInside: !!(d && d.contains(document.activeElement)) };
     });
@@ -87,7 +87,7 @@ async function main() {
     assert(modal.focusInside, 'focus did not move into the modal');
     await page.keyboard.press('Escape');
     await page.waitForTimeout(80);
-    const modalClosed = await page.evaluate(() => !document.querySelector('#modal-premium.show'));
+    const modalClosed = await page.evaluate(() => !document.querySelector('#modal-invite.show'));
     assert(modalClosed, 'Escape did not close the modal');
     log('modal: role=dialog + aria-modal + aria-label + focus-trap + Escape ✓');
 

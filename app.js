@@ -12,8 +12,8 @@
   // Modern flat SVG chess pieces (redesigned for clear silhouettes)
   // ---------------------------------------------------------------------------
   function pieceSVG(type, color) {
-    // Premium themed Store set override: if a set is equipped and provides this
-    // piece, use its themed SVG. Falls through to the built-in Staunton below.
+    // Themed Store set override: if a set is equipped and provides this piece,
+    // use its themed SVG. Falls through to the built-in Staunton below.
     try { var _themed = (window.CT_Sets && window.CT_Sets.pieceSVG) ? window.CT_Sets.pieceSVG(type, color) : null; if (_themed) return _themed; } catch (e) {}
     // Default "Classic" Staunton palette (warm ivory / charcoal). A theme override
     // via window.CT_PIECE_THEME still wins; the piece geometry below is shared.
@@ -842,176 +842,6 @@
   }
 
   // ---------------------------------------------------------------------------
-  // ADS FRAMEWORK
-  // ---------------------------------------------------------------------------
-  // Industry-standard ad slot system. Free users see placeholder ads; premium users
-  // (state.user.isPremium === true) see nothing.
-  //
-  // TO INTEGRATE A REAL AD NETWORK (Google AdSense / AdMob / Carbon / etc.):
-  //   1. Replace the inner HTML of renderAdSlot() with your provider's snippet.
-  //   2. Make sure the early-return for state.user.isPremium stays at the top.
-  //   3. For AdSense banner: <ins class="adsbygoogle" style="display:block"
-  //        data-ad-client="ca-pub-XXX" data-ad-slot="XXX"
-  //        data-ad-format="auto" data-full-width-responsive="true"></ins>
-  //        + push to (adsbygoogle = window.adsbygoogle || []).push({});
-  //   4. For AdMob (Cordova/Capacitor): call admob.banner.show() in renderLobby etc.
-  //   5. For rewarded ads (e.g. give a hint after watching), call your provider's
-  //      rewarded API and on success call CT_grantReward(type).
-  // How many games this user has FINISHED (any mode). Registered users have it in
-  // their record (wins+losses+draws); guests have no record, so we track a simple
-  // session counter (state._sessionGamesFinished, bumped in finishGame). Used to
-  // hold back ad/upsell clutter until the user has actually completed a game.
-  function gamesFinishedCount() {
-    const u = state.user;
-    if (!u) return 0;
-    const recorded = (u.wins || 0) + (u.losses || 0) + (u.draws || 0);
-    return Math.max(recorded, state._sessionGamesFinished || 0);
-  }
-  // Ads + the "Remove ads" upsell stay hidden until the user has finished >=1 game.
-  // (No point selling ad-removal to someone who's seen zero ads.) Premium users
-  // never see either, regardless.
-  function adsUnlocked() {
-    const u = state.user;
-    if (!u || u.isPremium) return false;
-    return gamesFinishedCount() >= 1;
-  }
-
-  function renderAdSlot(type) {
-    if (state.user && state.user.isPremium) return '';
-    // Don't render any ad (or its "Remove ads" upsell) before the user has
-    // finished a game — there's no real inventory and it's pure clutter at start.
-    if (!adsUnlocked()) return '';
-    const cfg = {
-      banner: { label: 'Sponsored', size: '320×50',  copy: 'Your brand here. Premium players never see this.' },
-      medium: { label: 'Sponsored', size: '300×250', copy: 'Sponsored — upgrade to Premium to remove all ads.' },
-      native: { label: 'Sponsored', size: 'Native',  copy: 'A relevant chess product or learning resource could appear here.' },
-    }[type] || { label: 'Sponsored', size: 'Banner', copy: 'Ad placeholder' };
-    return `<div class="ad-slot ad-${type}" data-ad-type="${type}">
-      <div class="ad-label">${cfg.label} · ${cfg.size}</div>
-      <div class="ad-body">
-        <div class="ad-copy">${cfg.copy}</div>
-        <button class="ad-upgrade" data-act="open-premium">Remove ads</button>
-      </div>
-    </div>`;
-  }
-
-  // --- Stripe billing (subscription) ---------------------------------------
-  // Stays a no-op/demo until the backend has Stripe keys configured; the client
-  // discovers that via GET /api/billing/config.
-  let billingCfg = { enabled: false, publishableKey: null, mode: 'subscription' };
-  async function fetchBillingConfig() {
-    try { const c = await api('/api/billing/config'); if (c) billingCfg = Object.assign(billingCfg, c); } catch (e) {}
-    // Re-paint any premium copy now that we know whether billing is live.
-    try { applyPremiumCopy(); } catch (e) {}
-    // Reveal the Settings "Subscription" (manage/cancel) section only when live.
-    try { const ss = $('#settings-subscription'); if (ss) ss.style.display = billingCfg.enabled ? '' : 'none'; } catch (e) {}
-  }
-  async function startCheckout() {
-    try {
-      const r = await api('/api/billing/checkout', { method: 'POST', body: JSON.stringify({}) });
-      if (r && r.url) { window.location.href = r.url; return; }
-      toast('Could not start checkout — please try again.');
-    } catch (e) {
-      toast(e && e.status === 401 ? 'Please sign in to upgrade.' : 'Could not start checkout — please try again.');
-    }
-  }
-  async function openBillingPortal() {
-    try {
-      const r = await api('/api/billing/portal', { method: 'POST', body: JSON.stringify({}) });
-      if (r && r.url) { window.location.href = r.url; return; }
-      toast('Could not open the billing portal.');
-    } catch (e) { toast('Could not open the billing portal.'); }
-  }
-  // After returning from Stripe Checkout (success_url adds ?billing=success), the
-  // subscription is confirmed by the webhook, which flips is_premium server-side.
-  // Poll /api/me a few times so Premium activates without a manual refresh.
-  function handleBillingReturn() {
-    let bp;
-    try { bp = new URLSearchParams(window.location.search).get('billing'); } catch (e) { return; }
-    if (!bp) return;
-    try { history.replaceState({}, '', window.location.pathname); } catch (e) {}
-    if (bp === 'cancel') { toast('Checkout cancelled — you were not charged.'); return; }
-    if (bp !== 'success') return;
-    toast('Payment received — activating Premium…', true);
-    let tries = 0;
-    const poll = function () {
-      tries++;
-      fetchMe().then(function (profile) {
-        const fresh = profile ? syncRemoteProfile(profile) : null;
-        if (fresh) state.user = fresh;
-        if (state.user && state.user.isPremium) {
-          try { if (window.CT_Ads) window.CT_Ads.refresh(true); } catch (e) {}
-          toast('Premium is active 🎉 ads removed', true);
-          if (typeof renderLobby === 'function') renderLobby();
-          return;
-        }
-        if (tries < 5) setTimeout(poll, 1500);
-      }).catch(function () { if (tries < 5) setTimeout(poll, 1500); });
-    };
-    setTimeout(poll, 1200);
-  }
-
-  // Drive ALL premium price/CTA copy (modal button, modal disclaimer, lobby card)
-  // from billingCfg.enabled so the screen never contradicts itself. When billing
-  // is LIVE: consistent "$4.99/mo · cancel anytime" everywhere. When disabled
-  // (demo/self-host with no Stripe keys): honest demo wording, no fake price.
-  function applyPremiumCopy() {
-    const live = !!billingCfg.enabled;
-    const priceLine = $('#premium-price-line');
-    const disclaimer = $('#premium-disclaimer');
-    const lobbyDesc = $('#lobby-premium-desc');
-    const lobbyPill = $('#lobby-premium-pill');
-    if (live) {
-      if (priceLine) priceLine.textContent = '$4.99/mo · cancel anytime';
-      if (disclaimer) disclaimer.textContent = '$4.99/month, billed securely via Stripe. Cancel anytime from Manage subscription.';
-      if (lobbyDesc) lobbyDesc.textContent = 'Support the app, hide all ad slots, unlock a Premium badge on your profile.';
-      if (lobbyPill) lobbyPill.textContent = '$4.99/mo';
-    } else {
-      if (priceLine) priceLine.textContent = 'Free demo · unlocks the perks instantly';
-      if (disclaimer) disclaimer.textContent = 'Billing isn’t enabled on this server, so upgrading is a free demo that just unlocks the perks above.';
-      if (lobbyDesc) lobbyDesc.textContent = 'Hide all ad slots and unlock a Premium badge on your profile.';
-      if (lobbyPill) lobbyPill.textContent = 'Try it';
-    }
-  }
-
-  function openPremium() {
-    // Analytics: the premium modal opened.
-    try { window.CT_Analytics && window.CT_Analytics.track('premium_view'); } catch (e) {}
-    const isPremium = state.user && state.user.isPremium;
-    const live = !!billingCfg.enabled;
-    applyPremiumCopy();
-    const buyBtn = $('#btn-premium-buy');
-    const cancelBtn = $('#btn-premium-cancel-paid');
-    if (buyBtn) {
-      buyBtn.style.display = isPremium ? 'none' : '';
-      buyBtn.textContent = live ? 'Upgrade · $4.99/mo' : 'Unlock Premium (free demo)';
-    }
-    if (cancelBtn) {
-      cancelBtn.style.display = isPremium ? '' : 'none';
-      // With real billing on, "cancel" opens the Stripe portal (manage/cancel);
-      // in demo mode it simply toggles Premium off.
-      cancelBtn.textContent = live ? 'Manage subscription' : 'Cancel Premium';
-    }
-    openModal('premium');
-  }
-  function setPremium(value) {
-    state.user.isPremium = !!value;
-    state.user.premiumSince = value ? Date.now() : null;
-    // Analytics: a confirmed premium activation (client-side activation point).
-    if (value) { try { window.CT_Analytics && window.CT_Analytics.track('purchase'); } catch (e) {} }
-    const db = loadDB();
-    db.users[state.user.id] = state.user;
-    saveDB(db);
-    toast(value ? 'Premium activated 🎉 ads removed' : 'Premium cancelled', true);
-    // Show/hide the native AdMob banner to match the new premium state.
-    try { if (window.CT_Ads) window.CT_Ads.refresh(!!value); } catch (e) {}
-    // Refresh whichever screen is visible
-    if ($('#screen-lobby').classList.contains('active')) renderLobby();
-    if ($('#screen-rankings').classList.contains('active') && typeof renderRankings === 'function') renderRankings();
-    if ($('#screen-trophies').classList.contains('active') && typeof renderTrophies === 'function') renderTrophies();
-  }
-
-  // ---------------------------------------------------------------------------
   // Screen / nav
   // ---------------------------------------------------------------------------
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -1611,7 +1441,7 @@
       email: '', region: '',
       elo: 1200, wins: 0, losses: 0, draws: 0,
       currentStreak: 0, bestStreak: 0, invitesAccepted: 0,
-      isPremium: false, isGuest: true,
+      isGuest: true,
       friends: [], streakVictims: [], streakTrophies: [],
       achievements: [], flags: {},
       themeBoard: 'walnut', themePieces: 'classic',
@@ -1788,21 +1618,6 @@
       totalTrophies === 0 ? '🏆 No trophies yet — start a match' :
       `🏆 ${u.achievements.length} trophies${u.streakTrophies.length ? ` · ${u.streakTrophies.length} streak ${u.streakTrophies.length === 1 ? 'trophy' : 'trophies'}` : ''} — view your case`;
     renderFriendsSummary();
-    // Inject ad slot (renderAdSlot returns '' for premium users AND for users who
-    // haven't finished a game yet). Hide the container whenever it's empty so it
-    // can't leave a gap.
-    const adWrap = $('#lobby-ad-slot');
-    if (adWrap) {
-      const adHtml = renderAdSlot('banner');
-      adWrap.innerHTML = adHtml;
-      adWrap.style.display = adHtml ? '' : 'none';
-    }
-    // The "Go Premium / Remove ads" upsell follows the same gate as ads: hidden for
-    // premium users and for anyone who hasn't finished a game yet (don't pitch
-    // ad-removal to someone who has seen no ads).
-    const upWrap = $('#lobby-premium-card');
-    if (upWrap) upWrap.style.display = adsUnlocked() ? '' : 'none';
-    applyPremiumCopy();
     // Season ladder nudge ("Season ends in N days") — ranked-only, best-effort.
     refreshSeasonNudge();
     // Today's Challenge card + Puzzles nav: only when the puzzle module loaded.
@@ -1811,8 +1626,6 @@
     if (dailyCard) dailyCard.style.display = _puz ? '' : 'none';
     const navPuz = $('#nav-puzzles');
     if (navPuz) navPuz.style.display = _puz ? '' : 'none';
-    const premiumBadge = $('#premium-badge');
-    if (premiumBadge) premiumBadge.style.display = u.isPremium ? '' : 'none';
     updateVerifyBanner();
     // Paint ranked entry points per the seasonal switch (Coming soon when off).
     applyRankedGate();
@@ -4583,9 +4396,6 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     const me = state.user;
     state.gameEnded = true;
     clockStop();
-    // Session "games finished" signal — gates ad/upsell clutter until the user has
-    // completed at least one game (covers guests, who have no persisted record).
-    state._sessionGamesFinished = (state._sessionGamesFinished || 0) + 1;
     // DAILY STREAK: advances on finishing a game OR solving the daily puzzle —
     // whichever a player actually does that day. recordDailyPlay() is idempotent
     // per calendar day, so doing both (or several games) only counts once. It's
@@ -4966,7 +4776,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // Announce the outcome too — the result modal is opened programmatically, so
     // without this a screen-reader user just hears the dialog title and no verdict.
     announce('Game over. ' + title + '. ' + body);
-    $('#result-rewards').innerHTML = rewards.join('') + renderAdSlot('medium');
+    $('#result-rewards').innerHTML = rewards.join('');
     // Rematch UI: only for online 1v1 games (eligible flag set at match start and
     // cleared for offline/2v2). Reset to its default "Rematch" state each time.
     resetRematchUI();
@@ -5520,7 +5330,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     body.innerHTML = `
       <div class="center">
         <div style="width:72px;height:72px;margin:0 auto">${avatarHTML}</div>
-        <h2 style="margin-top:8px">${escapeHTML(p.username)}${p.isPremium ? ' <span class="pill gold small">⭐ Premium</span>' : ''}</h2>
+        <h2 style="margin-top:8px">${escapeHTML(p.username)}</h2>
         <div class="muted small" style="margin-top:2px">${escapeHTML(p.region || '—')}</div>
       </div>
       <div class="stat-grid" style="margin-top:14px">
@@ -5765,7 +5575,6 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         '<div style="flex:1;min-width:0">' +
           '<div style="font-weight:700;display:flex;align-items:center;gap:6px">' +
             escapeHTML(p.username || 'Player') +
-            (p.isPremium ? ' <span title="Premium">⭐</span>' : '') +
           '</div>' +
           '<div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + victimLine + '</div>' +
         '</div>' +
@@ -5839,7 +5648,7 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     if (champWrap && champLine) {
       if (data.lastSeasonChampion && data.lastSeasonChampion.username) {
         const c = data.lastSeasonChampion;
-        champLine.innerHTML = escapeHTML(c.username) + (c.premium ? ' <span title="Premium">⭐</span>' : '') +
+        champLine.innerHTML = escapeHTML(c.username) +
           ' — ' + (Number(c.points) || 0) + ' pts';
         champWrap.style.display = '';
       } else {
@@ -5880,7 +5689,6 @@ $('#btn-mm-cancel').addEventListener('click', () => {
         '<div style="flex:1;min-width:0">' +
           '<div style="font-weight:700;display:flex;align-items:center;gap:6px">' +
             escapeHTML(p.username || 'Player') +
-            (p.premium ? ' <span title="Premium">⭐</span>' : '') +
           '</div>' +
           '<div class="muted small">' + (Number(p.wins) || 0) + '-' + (Number(p.losses) || 0) + '-' + (Number(p.draws) || 0) +
             ' (W-L-D) · ELO ' + (Number(p.elo) || 0) + '</div>' +
@@ -6336,29 +6144,6 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     return d + 'd ago';
   }
 
-  // Self-heal premium from Stripe on entry: if the user is logged in (has a
-  // token), ask the server to reconcile is_premium against Stripe's LIVE
-  // subscription status, then refresh local state + ads. Fixes the "paid but
-  // prompted to pay again on next login" case when a webhook was missed/dropped.
-  async function syncPremiumFromStripe() {
-    try {
-      const s = getSession();
-      if (!s || !s.token) return;               // guests / offline: nothing to sync
-      const r = await api('/api/billing/sync', { method: 'POST', body: JSON.stringify({}) });
-      if (!r || typeof r.isPremium !== 'boolean' || !state.user) return;
-      // Themed sets are a premium-only perk — enforce on EVERY sync (even when the
-      // flag didn't change) so a lapsed/cancelled member loses access (reverts to
-      // Classic) rather than keeping a set persisted in localStorage.
-      try { applyTrophyUnlocks({ silent: true }); } catch (e) {}
-      try { if (window.CT_Sets && window.CT_Sets.enforcePremium) window.CT_Sets.enforcePremium(r.isPremium); } catch (e) {}
-      if (state.user.isPremium === r.isPremium) return;
-      state.user.isPremium = r.isPremium;
-      try { const db = loadDB(); if (db.users[state.user.id]) { db.users[state.user.id].isPremium = r.isPremium; saveDB(db); } } catch (e) {}
-      try { if (window.CT_Ads) window.CT_Ads.refresh(!!r.isPremium); } catch (e) {}
-      if (typeof renderLobby === 'function') renderLobby();
-    } catch (e) { /* best-effort self-heal */ }
-  }
-
   function enterApp() {
     // Fresh (re)entry — reset the one-shot auth-expiry guard so a future token
     // expiry can prompt again.
@@ -6369,16 +6154,8 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     try { if (window.CT_i18n && state.user && state.user.language) window.CT_i18n.setLang(state.user.language); } catch (e) {}
     showNav(true);
     showScreen('lobby');
-    // Native AdMob banner: shown for free users, suppressed for premium. No-op on web.
-    try { if (window.CT_Ads) window.CT_Ads.refresh(!!(state.user && state.user.isPremium)); } catch (e) {}
-    // Populate trophy-unlocked sets first, then enforce the premium-only gate from
-    // cached state (syncPremiumFromStripe re-enforces against Stripe right after).
-    // Order matters: enforcePremium must see the unlocked list so it won't strip a
-    // trophy-earned set from a non-subscriber.
+    // Sets unlocked by trophies are applied on entry; every themed set is free.
     try { applyTrophyUnlocks({ silent: true }); } catch (e) {}
-    try { if (window.CT_Sets && window.CT_Sets.enforcePremium) window.CT_Sets.enforcePremium(!!(state.user && state.user.isPremium)); } catch (e) {}
-    // Reconcile premium from Stripe (self-healing; best-effort, async).
-    syncPremiumFromStripe();
   }
   // i18n: wire the welcome-screen language <select>. Changing it switches the UI
   // language immediately (stored in localStorage by CT_i18n) for guests AND
@@ -6424,9 +6201,6 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     // forget: it defaults to FALSE on failure and re-paints the ranked UI itself
     // via applyRankedGate() when it resolves, so it never blocks boot.
     fetchServerConfig();
-    // Discover whether Stripe billing is live, and handle a return from Checkout.
-    fetchBillingConfig();
-    handleBillingReturn();
     // Wire the Daily Challenge / puzzle module (puzzles.js). It's a deferred script
     // that loads AFTER app.js, and init() can run synchronously at readyState
     // 'interactive' (before later deferred scripts execute), so bind initPuzzles to
@@ -6512,20 +6286,6 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     doneBoot();
   }
 
-  // Premium modal wiring
-  if ($('#btn-premium-buy')) $('#btn-premium-buy').addEventListener('click', () => {
-    if (billingCfg.enabled) { startCheckout(); } // redirects to Stripe Checkout
-    else { setPremium(true); closeModal('premium'); } // demo fallback until Stripe is configured
-  });
-  if ($('#btn-premium-cancel-paid')) $('#btn-premium-cancel-paid').addEventListener('click', () => {
-    if (billingCfg.enabled) { openBillingPortal(); } // Stripe customer portal (manage/cancel)
-    else { setPremium(false); closeModal('premium'); }
-  });
-  // Settings → Manage Subscription: opens the Stripe customer portal (per-customer
-  // session). The static fallback link (#link-billing-portal) covers the rest.
-  if ($('#btn-manage-subscription')) $('#btn-manage-subscription').addEventListener('click', () => {
-    if (billingCfg.enabled) openBillingPortal();
-  });
   // Profile → Enable daily reminders (Web Push opt-in; subscribes via ct-push.js).
   if ($('#btn-enable-reminders')) $('#btn-enable-reminders').addEventListener('click', () => {
     try {
@@ -6536,14 +6296,11 @@ $('#btn-mm-cancel').addEventListener('click', () => {
       }).catch(() => { toast('Couldn’t enable reminders.'); });
     } catch (e) { toast('Couldn’t enable reminders.'); }
   });
-  if ($('#btn-premium-close')) $('#btn-premium-close').addEventListener('click', () => closeModal('premium'));
-
   // Static handlers formerly inline on* attributes in index.html. Removing
   // 'unsafe-inline' from the CSP script-src blocks on* attributes, so we wire
   // them here. Functions defined outside this IIFE (openAvatarEditor, signOut,
   // renderFriendSearchResults) are referenced via window.* inside the handler so
   // they resolve at click time (after the window.* assignments at file end run).
-  if ($('#lobby-premium-card')) $('#lobby-premium-card').addEventListener('click', () => openPremium());
   if ($('#btn-open-avatar-editor')) $('#btn-open-avatar-editor').addEventListener('click', () => window.openAvatarEditor && window.openAvatarEditor());
   if ($('#btn-view-profile')) $('#btn-view-profile').addEventListener('click', () => showScreen('profile'));
   if ($('#btn-sign-out')) $('#btn-sign-out').addEventListener('click', () => window.signOut && window.signOut());
@@ -6551,15 +6308,13 @@ $('#btn-mm-cancel').addEventListener('click', () => {
   if ($('#friend-search-input')) $('#friend-search-input').addEventListener('input', function () { window.renderFriendSearchResults && window.renderFriendSearchResults(this.value); });
 
   // Document-level delegation for dynamically-rendered controls that aren't part
-  // of a dedicated modal container (e.g. the ad-slot "Remove ads" button which
-  // renderAdSlot() injects into the lobby/various screens). Inline onclick was
-  // removed for CSP, so dispatch on data-act here.
+  // of a dedicated modal container. Inline onclick was removed for CSP, so
+  // dispatch on data-act here.
   document.addEventListener('click', function (e) {
     const t = e.target.closest('[data-act]');
     if (!t) return;
     const act = t.getAttribute('data-act');
-    if (act === 'open-premium') openPremium();
-    else if (act === 'open-daily') openDailyPuzzle();
+    if (act === 'open-daily') openDailyPuzzle();
     else if (act === 'open-season') showScreen('season');
     else if (act === 'open-arena') showScreen('arena');
     else if (act === 'open-gauntlet') showScreen('gauntlet');
@@ -6628,7 +6383,6 @@ $('#btn-mm-cancel').addEventListener('click', () => {
     ACHIEVEMENT_TIERS,
     hasAchievement, achievementCount, unlockAchievement, checkAchievementsFor, tierColor,
     renderLobby, renderProfile, renderBoard,
-    openPremium, setPremium, renderAdSlot,
     rankedEnabled, applyRankedGate,
     recordDailyPlay, renderPlayStreak,
     // Pure daily-play-streak helpers, exposed for testing.
@@ -7239,7 +6993,6 @@ function signOut() {
   try { localStorage.removeItem('chesstrophies_session_v1'); } catch(e) {}
   state.user = null;
   state.userId = null;
-  try { if (window.CT_Ads) window.CT_Ads.hide(); } catch (e) {}
   showScreen('lobby');
   renderLobby();
   showNav(true);

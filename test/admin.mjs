@@ -69,7 +69,7 @@ async function main() {
     const ok = await fetch(`${BASE}/api/admin/stats`, { headers: { 'x-admin-key': ADMIN_KEY } });
     assert(ok.ok, `stats with key failed: ${ok.status}`);
     const s = await ok.json();
-    const fields = ['totalUsers','verifiedUsers','premiumUsers','newUsers24h','newUsers7d','newUsers30d','activeUsers24h','activeUsers7d','onlineNow','gamesTotal','games24h','serverTime'];
+    const fields = ['totalUsers','verifiedUsers','newUsers24h','newUsers7d','newUsers30d','activeUsers24h','activeUsers7d','onlineNow','gamesTotal','games24h','serverTime'];
     for (const f of fields) assert(typeof s[f] === 'number', `missing/non-numeric stat: ${f} (${s[f]})`);
     assert(s.totalUsers >= 1, `totalUsers should be >= 1, got ${s.totalUsers}`);
     assert(s.newUsers24h >= 1, `newUsers24h should be >= 1, got ${s.newUsers24h}`);
@@ -121,7 +121,7 @@ async function main() {
     assert(ud.total >= 1 && ud.users.length >= 1, 'admin/users should return our user');
     const u0 = ud.users.find(x => x.username === username);
     assert(u0, 'our signed-up user should appear in admin/users');
-    for (const f of ['id','username','email','elo','eloCheckers8','eloCheckers10','wins','losses','draws','games','lastSeen','createdAt','emailVerified','isPremium']) {
+    for (const f of ['id','username','email','elo','eloCheckers8','eloCheckers10','wins','losses','draws','games','lastSeen','createdAt','emailVerified']) {
       assert(f in u0, `admin/users row missing field: ${f}`);
     }
     assert(u0.email === email, `admin/users should expose the real email (${u0.email})`);
