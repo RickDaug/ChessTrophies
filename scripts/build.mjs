@@ -299,7 +299,7 @@ async function main() {
     log(`copied ${files.length} static asset(s) -> dist/assets/`);
   }
 
-  // sets/ (premium themed piece-set JSON, lazy-loaded by piece-sets.js) — copy
+  // sets/ (themed piece-set JSON, lazy-loaded by piece-sets.js) — copy
   // verbatim. EXCLUDED from the SW precache (step 6) so they don't bloat install;
   // they're fetched on demand and runtime-cached when a user previews/equips a set.
   const setsDir = path.join(ROOT, 'sets');
@@ -500,7 +500,7 @@ async function rewriteServiceWorker() {
   // EXCEPT sw.js itself (a SW need not precache its own script).
   const distAssets = (await listDistFiles(DIST))
     .filter((rel) => rel !== 'sw.js')
-    // EXCLUDE premium themed sets/ — large, owner-gated, lazy-loaded on equip and
+    // EXCLUDE themed sets/ — large, lazy-loaded on equip and
     // runtime-cached; precaching all 19 would bloat the install for files most
     // users never use.
     .filter((rel) => !rel.split(path.sep).join('/').startsWith('sets/'))

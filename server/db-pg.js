@@ -126,7 +126,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS elo_checkers_10 INTEGER NOT NULL DEFA
 -- Per-board-size ranked checkers games-played counters (participation filter).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS checkers8_games INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS checkers10_games INTEGER NOT NULL DEFAULT 0;
--- Stripe subscription billing (additive; inert until Stripe is configured).
+-- RETAINED, NO LONGER WRITTEN: subscription billing was removed (2026-08).
+-- Kept rather than dropped: they record who once subscribed, and dropping a
+-- column on a live database is irreversible.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
@@ -245,10 +247,9 @@ CREATE TABLE IF NOT EXISTS share_counts (
   updated_at BIGINT
 );
 
--- Stripe billing: payments ledger. One row per recorded revenue event;
--- stripe_event_id is UNIQUE so webhook retries can't double-count (idempotent).
--- Amounts stored in the smallest currency unit (cents). No FKs (a payment can
--- still be recorded if the user row is missing/late).
+-- RETAINED, NO LONGER WRITTEN: the historical payments ledger. Billing was
+-- removed in 2026-08; this is kept because it is the only record of revenue
+-- actually taken, which accounting may still need.
 CREATE TABLE IF NOT EXISTS payments (
   id TEXT PRIMARY KEY,
   user_id TEXT,
@@ -479,7 +480,7 @@ export async function recordSeasonResult({ seasonId, userId, result, elo, now })
 export async function seasonLeaderboard(seasonId, limit = 50) {
   const { rows } = await pool.query(
     `SELECT s.user_id, s.wins, s.losses, s.draws, s.points, s.peak_elo,
-            u.username, u.elo, u.is_premium
+            u.username, u.elo
      FROM season_stats s
      JOIN users u ON u.id = s.user_id
      WHERE s.season_id = $1
@@ -508,7 +509,7 @@ export async function seasonStatsForUser(seasonId, userId) {
 export async function seasonChampion(seasonId) {
   const { rows } = await pool.query(
     `SELECT s.user_id, s.points, s.peak_elo, s.wins, s.losses, s.draws,
-            u.username, u.is_premium
+            u.username
      FROM season_stats s
      JOIN users u ON u.id = s.user_id
      WHERE s.season_id = $1
@@ -829,25 +830,6 @@ export async function grantEntitlement(userId, sku, eventId) {
   return res.rowCount > 0;
 }
 
-// Atomically grant a one-time set purchase AND record its revenue in one
-// transaction, both idempotent (entitlements UNIQUE(user_id, sku); payments
-// UNIQUE(stripe_event_id)). Async mirror of db.js grantSetPurchase.
-export async function grantSetPurchase({ userId, sku, eventId, amountCents, currency }) {
-  return transaction(async (client) => {
-    await client.query(
-      `INSERT INTO entitlements (id, user_id, sku, granted_at, source_event_id)
-       VALUES ($1, $2, $3, $4, $5) ON CONFLICT (user_id, sku) DO NOTHING`,
-      ['ent_' + (eventId || ('x' + Math.random().toString(36).slice(2))), userId, sku, Date.now(), eventId || null]
-    );
-    await client.query(
-      `INSERT INTO payments (id, user_id, stripe_event_id, amount_cents, currency, kind, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (stripe_event_id) DO NOTHING`,
-      ['pay_' + (eventId || ('x' + Math.random().toString(36).slice(2))), userId || null, eventId || null,
-       Number(amountCents) || 0, currency || 'usd', 'piece_set', Date.now()]
-    );
-  });
-}
-
 export async function userOwnsSku(userId, sku) {
   if (!userId || !sku) return false;
   const { rows } = await pool.query('SELECT 1 FROM entitlements WHERE user_id = $1 AND sku = $2 LIMIT 1', [userId, sku]);
@@ -864,66 +846,6 @@ export async function revokeEntitlement(userId, sku) {
   if (!userId || !sku) return false;
   const res = await pool.query('DELETE FROM entitlements WHERE user_id = $1 AND sku = $2', [userId, sku]);
   return res.rowCount > 0;
-}
-
-// --- Stripe billing (async mirrors of db.js) -------------------------------
-
-// Persist the Stripe Customer id for a user (set on first checkout).
-export async function setStripeCustomer(userId, customerId) {
-  await pool.query('UPDATE users SET stripe_customer_id = $1 WHERE id = $2', [customerId, userId]);
-}
-
-// Flip a user's premium flag + subscription status, keyed by Stripe Customer id.
-export async function setPremiumByCustomer(customerId, isPremium, status) {
-  await pool.query('UPDATE users SET is_premium = $1, subscription_status = $2 WHERE stripe_customer_id = $3',
-    [isPremium ? 1 : 0, status == null ? '' : String(status), customerId]);
-}
-
-// Flip a user's premium flag + subscription status, keyed by user id.
-export async function setPremiumByUserId(userId, isPremium, status) {
-  await pool.query('UPDATE users SET is_premium = $1, subscription_status = $2 WHERE id = $3',
-    [isPremium ? 1 : 0, status == null ? '' : String(status), userId]);
-}
-
-// Idempotently record a revenue event (ON CONFLICT (stripe_event_id) DO NOTHING
-// so a webhook retry for the same event is a no-op; the amount is counted once).
-export async function recordPayment({ userId, eventId, amountCents, currency, kind, createdAt }) {
-  await pool.query(`INSERT INTO payments
-      (id, user_id, stripe_event_id, amount_cents, currency, kind, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      ON CONFLICT (stripe_event_id) DO NOTHING`,
-    [
-      'pay_' + (eventId || ('x' + Math.random().toString(36).slice(2))),
-      userId || null,
-      eventId || null,
-      Number(amountCents) || 0,
-      currency || 'usd',
-      kind || 'subscription',
-      Number(createdAt) || Date.now(),
-    ]);
-}
-
-export async function getUserByStripeCustomer(customerId) {
-  if (!customerId) return undefined;
-  const { rows } = await pool.query(
-    "SELECT * FROM users WHERE stripe_customer_id = $1 AND stripe_customer_id <> ''", [customerId]);
-  return rows[0];
-}
-
-// Revenue rollups for the admin dashboard. Current calendar month, current
-// calendar year, all-time, plus active-subscriber count (is_premium = 1).
-// Boundaries use the SERVER's clock.
-export async function revenueStats() {
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-  const yearStart = new Date(now.getFullYear(), 0, 1).getTime();
-  const sum = async (sql, p = []) => { const r = await pool.query(sql, p); return r.rows[0] && r.rows[0].s != null ? Number(r.rows[0].s) : 0; };
-  const monthCents = await sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments WHERE created_at >= $1', [monthStart]);
-  const yearCents = await sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments WHERE created_at >= $1', [yearStart]);
-  const allTimeCents = await sum('SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments');
-  const subRes = await pool.query('SELECT COUNT(*) AS n FROM users WHERE is_premium = 1');
-  const activeSubscribers = subRes.rows[0] ? Number(subRes.rows[0].n) : 0;
-  return { monthCents, yearCents, allTimeCents, activeSubscribers, currency: 'usd' };
 }
 
 // Increment (or create) the counter for a share platform. Idempotent upsert.
@@ -1116,7 +1038,7 @@ export async function topByMetric(metric, limit = 100) {
   const tiebreak = (metric === 'trophies') ? `${trophiesExpr} DESC, elo DESC` : 'elo DESC';
   const whereExpr = participation[metric] || participation.elo;
   const { rows } = await pool.query(
-    `SELECT id, username, region, elo, wins, losses, best_streak, is_premium,
+    `SELECT id, username, region, elo, wins, losses, best_streak,
             elo_checkers_8, elo_checkers_10, checkers8_games, checkers10_games,
             ${trophiesExpr} AS trophies, trophy_points
      FROM users WHERE ${whereExpr} ORDER BY ${orderExpr} DESC, ${tiebreak} LIMIT $1`,
@@ -1154,7 +1076,7 @@ export async function adminListUsers({ sort = 'elo', limit = 1000, q = '' } = {}
   const limPlaceholder = '$' + (whereParams.length + 1);
   const res = await pool.query(`
     SELECT id, username, email, elo, elo_checkers_8, elo_checkers_10,
-           wins, losses, draws, last_seen, created_at, email_verified, is_premium
+           wins, losses, draws, last_seen, created_at, email_verified
     FROM users ${where}
     ORDER BY ${orderExpr} LIMIT ${limPlaceholder}
   `, [...whereParams, lim]);
@@ -1164,7 +1086,7 @@ export async function adminListUsers({ sort = 'elo', limit = 1000, q = '' } = {}
     wins: r.wins, losses: r.losses, draws: r.draws,
     games: (r.wins || 0) + (r.losses || 0) + (r.draws || 0),
     lastSeen: r.last_seen, createdAt: r.created_at,
-    emailVerified: !!r.email_verified, isPremium: !!r.is_premium,
+    emailVerified: !!r.email_verified,
   }));
   return { total, users };
 }

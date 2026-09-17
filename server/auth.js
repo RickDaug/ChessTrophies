@@ -266,26 +266,6 @@ export async function deleteAccount(userId, currentPassword) {
   const ok = await bcrypt.compare(typeof currentPassword === 'string' ? currentPassword : '', u.pw_hash || '');
   if (!ok) { const e = new Error('Password is incorrect.'); e.status = 400; throw e; }
 
-  // AUDIT 2026-07 (S1): deleting the account used to blank stripe_customer_id
-  // WITHOUT telling Stripe anything, so a paying user kept getting charged for a
-  // subscription they could no longer see, manage or cancel. Cancel FIRST —
-  // while we still have the customer id AND the email to fall back on, both of
-  // which deleteAccountData is about to tombstone.
-  //
-  // Best-effort by design: a Stripe outage must NEVER block a GDPR deletion, so
-  // any failure is logged LOUDLY (with the ids an operator needs to cancel by
-  // hand) and the local delete proceeds regardless. billing.js is imported
-  // lazily so auth.js keeps no load-time dependency on it.
-  try {
-    const { cancelSubscriptionsForUser } = await import('./billing.js');
-    const r = await cancelSubscriptionsForUser(u);
-    if (r && r.failed) {
-      console.error(`[account-delete] MANUAL ACTION REQUIRED: could not cancel every Stripe subscription for user ${u.id} (customer ${u.stripe_customer_id || 'n/a'}, email ${u.email || 'n/a'}). Cancelled ${r.cancelled}, failed ${r.failed}. Cancel the remainder in the Stripe Dashboard.`);
-    }
-  } catch (e) {
-    console.error(`[account-delete] MANUAL ACTION REQUIRED: Stripe cancellation threw for user ${u.id} (customer ${u.stripe_customer_id || 'n/a'}, email ${u.email || 'n/a'}) — proceeding with the local delete anyway:`, e && e.message ? e.message : e);
-  }
-
   await store.deleteAccountData(u.id);
   return { ok: true };
 }

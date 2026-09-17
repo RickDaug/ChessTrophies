@@ -1307,7 +1307,6 @@ export function attachSocketHandlers(io, verifyToken, redisClient = null) {
 function publicUser(u) {
   return {
     id: u.id, username: u.username, elo: u.elo, wins: u.wins, losses: u.losses,
-    isPremium: !!u.is_premium,
     avatarStock: u.avatar_stock || 'av_knight',
     avatarDataUrl: u.avatar_data_url || '',
     // Checkers ratings (additive; chess `elo` above is unchanged).
@@ -1468,7 +1467,6 @@ function botPublicUser(botUid, elo) {
     wins: 0,
     losses: 0,
     isBot: true,
-    isPremium: false,
     avatarStock: 'av_bot',
     avatarDataUrl: '',
     eloCheckers8: 1200,

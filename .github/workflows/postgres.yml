@@ -82,6 +82,6 @@ jobs:
       # session/auth, win-streaks, the public profile, email verification,
       # cohort/retention rollups, and the admin hard-delete scrub. The runner
       # DROPs + recreates the public schema between each test. See test/pg-run.mjs
-      # for why direct-SQLite-seeding tests (billing, push, rankings) are excluded.
+      # for why direct-SQLite-seeding tests (push, rankings) are excluded.
       - name: Postgres — pure-HTTP suite (account/auth/progress/profile/streak/admin/…)
         run: node test/pg-run.mjs

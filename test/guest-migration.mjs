@@ -105,7 +105,7 @@ async function main() {
     // pg-run.mjs; it falls back to the SQLite write when not on Postgres.
     await grantStatsAuto(dbPath, uid);
 
-    assert(uid && me.isPremium === false, 'converted account should exist');
+    assert(uid, 'converted account should exist');
     // The brand-new account starts with NO carried progress (proves step 4 does it).
     const before = await (await get('/api/progress', token)).json();
     assert((before.lessonsCompleted || []).length === 0, `fresh account should start with no lessons, got ${JSON.stringify(before.lessonsCompleted)}`);

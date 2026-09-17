@@ -24,7 +24,7 @@ const assert = (cond, msg) => { if (!cond) fail(msg); };
 const PROFILE = {
   id: 'other1', username: 'Rival', region: 'Spain',
   elo: 1675, wins: 40, losses: 20, draws: 5, bestStreak: 8,
-  isPremium: true, avatarStock: 'av_knight', avatarDataUrl: '',
+  avatarStock: 'av_knight', avatarDataUrl: '',
   arenaWins: 3, trophyPoints: 420, trophyCount: 12, streakTrophyCount: 1,
   achievements: [{ id: 'wins_t3', count: 1 }],
   showcase: ['wins_t3', 'gauntlet_t4', 'arena_t2'],

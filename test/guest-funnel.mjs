@@ -48,7 +48,7 @@ async function main() {
     // Signup → token; /api/me → the fresh account profile (so the guest→account
     // migration path runs against a real account record).
     if (p === '/api/auth/signup') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ token: 'testtoken' })); return; }
-    if (p === '/api/me') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: 'acct_test', username: 'NewUser123', email: 'newuser@example.com', region: '', elo: 800, wins: 0, losses: 0, draws: 0, currentStreak: 0, bestStreak: 0, isPremium: false, emailVerified: true, eloCheckers8: 1200, eloCheckers10: 1200, arenaWins: 0 })); return; }
+    if (p === '/api/me') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ id: 'acct_test', username: 'NewUser123', email: 'newuser@example.com', region: '', elo: 800, wins: 0, losses: 0, draws: 0, currentStreak: 0, bestStreak: 0, emailVerified: true, eloCheckers8: 1200, eloCheckers10: 1200, arenaWins: 0 })); return; }
     if (p.startsWith('/api/')) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); return; }
     const file = path.join(DIST, p);
     if (!file.startsWith(DIST)) { res.writeHead(403); res.end('no'); return; }

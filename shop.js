@@ -1,20 +1,16 @@
 /*
  * shop.js — themed-set gallery (lives under Profile).
  *
- * MODEL: themed piece+board sets are FREE for everyone — anyone can equip any set,
- * no subscription required. A curated few also arrive as trophy rewards 🏆.
- * Premium is now purely OPTIONAL support (removes ads + a profile badge); it no
- * longer gates any cosmetic. The "Support the game" button opens the existing
- * subscription flow (window.CT.openPremium) as a kind gesture, not a paywall.
+ * MODEL: themed piece+board sets are FREE for everyone — anyone can equip any set.
+ * A curated few also arrive as trophy rewards 🏆. There is nothing to buy.
  *
- * Depends on window.CT_Sets (piece-sets.js) + window.CT (showScreen/user/openPremium/toast).
+ * Depends on window.CT_Sets (piece-sets.js) + window.CT (showScreen/user/toast).
  * CSP-safe: addEventListener + delegation only.
  */
 (function () {
   'use strict';
 
   function $(s, r) { return (r || document).querySelector(s); }
-  function isPremium() { try { return !!(window.CT && window.CT.user && window.CT.user.isPremium); } catch (e) { return false; } }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); }
 
   // Render a small starting-position preview of a set on its own board colors.
@@ -49,8 +45,7 @@
     var slug = m.slug;
     var unlocked = isUnlocked(slug);          // earned as a trophy reward
     var info = unlockInfo(slug);              // { ach, label } if this set is trophy-earnable
-    // Every set is FREE for everyone now — anyone can equip any set. Premium is
-    // optional (ads/badge/support), it no longer gates cosmetics.
+    // Every set is FREE for everyone — anyone can equip any set.
     var canEquip = true;
     var equipped = (window.CT_Sets && window.CT_Sets.activeSlug && window.CT_Sets.activeSlug() === slug);
     var card = document.createElement('div');
@@ -85,17 +80,10 @@
   function render() {
     var screen = $('#screen-store'); if (!screen) return;
     var body = screen.querySelector('.screen-body') || screen;
-    var premium = isPremium();
     var count = (window.CT_PIECE_SETS_MANIFEST ? window.CT_PIECE_SETS_MANIFEST.length : 19);
-    // All sets are free for everyone. Show a friendly note + a purely OPTIONAL
-    // "support the game" button (subscribers get ad-free + a badge as a thank-you).
-    var supportLine = premium
-      ? '<div class="small" style="color:#2e9e5b;font-weight:700;margin-top:8px">💛 Thanks for supporting ChessTrophies — your Premium is active.</div>'
-      : '<button class="btn btn-block" data-shop-act="unlock" style="font-weight:700;margin-top:4px">💛 Support the game (optional)</button>';
     var head = '<div class="card" style="border:1px solid var(--accent);background:linear-gradient(135deg, rgba(245,196,81,.12), var(--panel));margin-bottom:12px;padding:12px">' +
         '<div style="font-weight:800;margin-bottom:4px">🎨 All ' + count + ' board &amp; piece sets are free</div>' +
-        '<div class="small" style="color:var(--muted)">Equip any set below — no subscription needed. A few also arrive as trophy rewards 🏆. If you’d like to support development you can subscribe to Premium (removes ads + a badge) — totally optional. 💛</div>' +
-        supportLine +
+        '<div class="small" style="color:var(--muted)">Equip any set below. A few also arrive as trophy rewards 🏆.</div>' +
       '</div>';
     body.innerHTML = head +
       '<div id="ct-shop-classic" style="margin-bottom:12px"></div>' +
@@ -125,8 +113,7 @@
     var t = e.target.closest('[data-shop-act]');
     if (!t) return;
     var act = t.getAttribute('data-shop-act'), slug = t.getAttribute('data-slug');
-    if (act === 'unlock') { try { if (window.CT && window.CT.openPremium) window.CT.openPremium(); } catch (er) {} }
-    else if (act === 'classic') { if (window.CT_Sets) window.CT_Sets.equip(null); render(); }
+    if (act === 'classic') { if (window.CT_Sets) window.CT_Sets.equip(null); render(); }
     else if (act === 'equip') { if (window.CT_Sets) window.CT_Sets.equip(slug).then(render); }
     else if (act === 'preview') { if (window.CT_Sets) window.CT_Sets.preview(slug).then(render); }
   });
