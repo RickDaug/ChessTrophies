@@ -265,6 +265,20 @@ async function main() {
     if (!fs.existsSync(from)) { log(`WARN: asset missing, skipped: ${a}`); continue; }
     await fsp.copyFile(from, path.join(DIST, a));
   }
+  // .well-known/assetlinks.json — the site's half of the Android app's trust
+  // link (docs/ANDROID_APP.md). Android fetches it from exactly this path to
+  // decide whether com.chesstrophies.app may show the site full-screen; if it
+  // is missing the app still works but with a browser address bar on top.
+  // Excluded from the SW precache below: no page ever requests it.
+  {
+    const from = path.join(ROOT, '.well-known', 'assetlinks.json');
+    if (fs.existsSync(from)) {
+      await fsp.mkdir(path.join(DIST, '.well-known'), { recursive: true });
+      await fsp.copyFile(from, path.join(DIST, '.well-known', 'assetlinks.json'));
+    } else {
+      log('WARN: .well-known/assetlinks.json missing, skipped');
+    }
+  }
   // vendor/ (socket.io fallback) — copy the whole dir verbatim.
   const vendorDir = path.join(ROOT, 'vendor');
   if (fs.existsSync(vendorDir)) {
@@ -500,6 +514,8 @@ async function rewriteServiceWorker() {
   // EXCEPT sw.js itself (a SW need not precache its own script).
   const distAssets = (await listDistFiles(DIST))
     .filter((rel) => rel !== 'sw.js')
+    // EXCLUDE .well-known/ (assetlinks.json): fetched by Android, never by a page.
+    .filter((rel) => !rel.split(path.sep).join('/').startsWith('.well-known/'))
     // EXCLUDE themed sets/ — large, lazy-loaded on equip and
     // runtime-cached; precaching all 19 would bloat the install for files most
     // users never use.

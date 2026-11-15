@@ -1,0 +1,61 @@
+// ChessTrophies for Android: a Trusted Web Activity.
+//
+// The app has no web bundle of its own. It opens https://www.playchesstrophies.com
+// full-screen in the phone's browser engine, so it is always the live site and
+// there is nothing to re-sync after a web deploy. The site proves it trusts this
+// app through /.well-known/assetlinks.json (see docs/ANDROID_APP.md).
+plugins {
+    id 'com.android.application'
+}
+
+// Release signing is read from android/keystore.properties, which is gitignored.
+// Without that file a release build is simply left unsigned.
+def keystoreFile = rootProject.file('keystore.properties')
+def keystore = new Properties()
+if (keystoreFile.exists()) {
+    keystoreFile.withInputStream { keystore.load(it) }
+}
+
+android {
+    namespace 'com.chesstrophies.app'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.chesstrophies.app'
+        minSdk 24
+        targetSdk 36
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    signingConfigs {
+        release {
+            if (keystoreFile.exists()) {
+                storeFile rootProject.file(keystore['storeFile'])
+                storePassword keystore['storePassword']
+                keyAlias keystore['keyAlias']
+                keyPassword keystore['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+            if (keystoreFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.4'
+}
