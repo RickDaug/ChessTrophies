@@ -109,6 +109,26 @@ async function main() {
     // with no inline fallback. test/deploy-assets.mjs guards the source lists.
     assert(fs.existsSync(path.join(DIST, 'admin.js')),
       'dist/admin.js MUST be emitted — admin.html loads it and its CSP forbids an inline fallback');
+    // Android app trust link: the site must serve /.well-known/assetlinks.json
+    // naming the SAME package the Android project builds, or the installed app
+    // silently falls back to showing a browser address bar. Not precached: only
+    // Android ever requests it.
+    {
+      const linksPath = path.join(DIST, '.well-known', 'assetlinks.json');
+      assert(fs.existsSync(linksPath), 'dist/.well-known/assetlinks.json missing (Android app loses full-screen)');
+      const links = JSON.parse(fs.readFileSync(linksPath, 'utf8'));
+      const gradle = fs.readFileSync(path.join(ROOT, 'android', 'app', 'build.gradle'), 'utf8');
+      const appId = (gradle.match(/applicationId\s+'([^']+)'/) || [])[1];
+      assert(appId, 'could not read applicationId from android/app/build.gradle');
+      const target = links.find((l) => l.target && l.target.namespace === 'android_app');
+      assert(target && target.target.package_name === appId,
+        `assetlinks.json package_name must equal the Android applicationId "${appId}"`);
+      const prints = target.target.sha256_cert_fingerprints || [];
+      assert(prints.length > 0 && prints.every((p) => /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(p)),
+        'assetlinks.json needs at least one well-formed SHA-256 certificate fingerprint');
+      assert(![...precached].some((f) => f.startsWith('.well-known/')),
+        '.well-known/ must stay out of the SW precache list');
+    }
     // Sanity: the app shell IS still precached.
     assert(precached.has('index.html') || precached.has('./index.html'), 'index.html missing from precache list');
     log(`precache assets: ${precached.size} (admin.html + heavy unused images correctly excluded)`);

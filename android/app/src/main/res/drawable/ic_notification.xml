@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: Android draws only the shape, in one colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="320"
+    android:viewportHeight="400">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M160,24 L200,90 L280,90 L220,150 L240,230 L160,190 L80,230 L100,150 L40,90 L120,90 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M120,250 H200 V310 H120 Z M96,318 H224 V344 H96 Z M76,350 H244 V376 H76 Z" />
+</vector>

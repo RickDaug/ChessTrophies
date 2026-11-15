@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.chesstrophies.app",
+      "sha256_cert_fingerprints": [
+        "F2:FA:6D:37:FD:74:ED:39:D7:DE:62:9D:1E:B3:A3:DF:18:0E:4B:14:99:54:ED:2E:FA:93:5C:21:CA:A8:F7:76"
+      ]
+    }
+  }
+]

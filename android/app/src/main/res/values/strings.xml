@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appName">ChessTrophies</string>
+    <string name="launcherName">ChessTrophies</string>
+    <string name="hostName">www.playchesstrophies.com</string>
+    <string name="launchUrl">https://www.playchesstrophies.com/?source=android</string>
+    <string name="webManifestUrl">https://www.playchesstrophies.com/manifest.json</string>
+    <string name="shortcutMatch">Find Match</string>
+    <string name="shortcutAcademy">Academy</string>
+    <!-- The app half of the trust link; the site half is /.well-known/assetlinks.json. -->
+    <string name="assetStatements" translatable="false">[{\"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": {\"namespace\": \"web\", \"site\": \"https://www.playchesstrophies.com\"}}]</string>
+</resources>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The star-on-a-plinth from icon.svg, scaled into the adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group
+        android:pivotX="256"
+        android:pivotY="256"
+        android:scaleX="0.74"
+        android:scaleY="0.74"
+        android:translateY="-18">
+        <group
+            android:translateX="96"
+            android:translateY="80">
+            <path
+                android:fillColor="#F1C24B"
+                android:strokeColor="#5B3A00"
+                android:strokeWidth="6"
+                android:strokeLineJoin="round"
+                android:pathData="M160,24 L200,90 L280,90 L220,150 L240,230 L160,190 L80,230 L100,150 L40,90 L120,90 Z" />
+            <path
+                android:fillColor="#F1C24B"
+                android:strokeColor="#5B3A00"
+                android:strokeWidth="6"
+                android:strokeLineJoin="round"
+                android:pathData="M128,250 H192 A8,8 0 0 1 200,258 V302 A8,8 0 0 1 192,310 H128 A8,8 0 0 1 120,302 V258 A8,8 0 0 1 128,250 Z" />
+            <path
+                android:fillColor="#F1C24B"
+                android:strokeColor="#5B3A00"
+                android:strokeWidth="6"
+                android:strokeLineJoin="round"
+                android:pathData="M104,312 H216 A8,8 0 0 1 224,320 V336 A8,8 0 0 1 216,344 H104 A8,8 0 0 1 96,336 V320 A8,8 0 0 1 104,312 Z" />
+            <path
+                android:fillColor="#F1C24B"
+                android:strokeColor="#5B3A00"
+                android:strokeWidth="6"
+                android:strokeLineJoin="round"
+                android:pathData="M86,344 H234 A10,10 0 0 1 244,354 V366 A10,10 0 0 1 234,376 H86 A10,10 0 0 1 76,366 V354 A10,10 0 0 1 86,344 Z" />
+        </group>
+    </group>
+</vector>
